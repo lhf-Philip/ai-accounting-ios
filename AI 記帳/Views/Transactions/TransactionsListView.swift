@@ -1,0 +1,279 @@
+import SwiftUI
+import SwiftData
+
+struct TransactionsListView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
+    @Query(sort: \Shortcut.name) private var shortcuts: [Shortcut] // 查詢捷徑
+    
+    @State private var filterType: FilterType = .month
+    @State private var selectedDate: Date = Date()
+    @State private var showingFilterSheet = false
+    @State private var searchText = ""
+    
+    @State private var transactionToEdit: FinancialTransaction?
+    @State private var isEditingTransfer = false
+    
+    // 捷徑相關
+    @State private var showingAddShortcut = false
+    @State private var pendingShortcut: Shortcut? // 待確認的捷徑
+    @State private var showingShortcutConfirm = false
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // MARK: - 1. 捷徑列 (Shortcuts Bar)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        // 新增按鈕
+                        Button(action: { showingAddShortcut = true }) {
+                            VStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                    .font(.headline)
+                                    .frame(width: 44, height: 44)
+                                    .background(Color.blue.opacity(0.1))
+                                    .clipShape(Circle())
+                                Text("捷徑")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        
+                        // 捷徑列表
+                        ForEach(shortcuts) { shortcut in
+                            Button(action: {
+                                pendingShortcut = shortcut
+                                showingShortcutConfirm = true
+                            }) {
+                                VStack(spacing: 4) {
+                                    Text(shortcut.icon)
+                                        .font(.title)
+                                        .frame(width: 44, height: 44)
+                                        .background(Color(uiColor: .secondarySystemBackground))
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    Text(shortcut.name)
+                                        .font(.caption2)
+                                        .lineLimit(1)
+                                        .foregroundStyle(.primary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button(role: .destructive) { modelContext.delete(shortcut) } label: {
+                                    Label("刪除", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                }
+                .background(Color(uiColor: .systemBackground))
+                
+                Divider()
+                
+                // MARK: - 2. 列表內容 (List)
+                List {
+                    // 頂部資訊區 (隨列表滾動)
+                    Section {
+                        VStack(spacing: 12) {
+                            Button(action: { showingFilterSheet = true }) {
+                                HStack {
+                                    Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                                    Text(filterDisplayString).bold()
+                                    Image(systemName: "chevron.down").font(.caption)
+                                }
+                                .padding(.vertical, 6).padding(.horizontal, 16)
+                                .background(Color.blue.opacity(0.1)).foregroundColor(.blue).clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain).frame(maxWidth: .infinity)
+                            
+                            if !filteredTransactions.isEmpty {
+                                VStack(spacing: 8) {
+                                    Text(calculateTotalEstimate()).font(.system(size: 34, weight: .bold)).foregroundStyle(.primary)
+                                    Text("區間總收支 (不含轉帳)").font(.caption).foregroundStyle(.secondary)
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 12) {
+                                            ForEach(calculateCurrencyBreakdown(), id: \.currency) { item in
+                                                HStack(spacing: 4) {
+                                                    Text(item.currency).font(.caption2).bold().foregroundStyle(.secondary)
+                                                    Text(item.amount.formatted(.currency(code: item.currency)))
+                                                        .font(.caption).bold()
+                                                        .foregroundStyle(item.amount >= 0 ? .green : .red)
+                                                }
+                                                .padding(8).background(Color.gray.opacity(0.1)).cornerRadius(8)
+                                            }
+                                        }
+                                        .padding(.horizontal, 4)
+                                    }
+                                }
+                                .padding(.vertical, 8)
+                            }
+                        }
+                        .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
+                    }
+                    
+                    // 交易分組
+                    ForEach(groupedTransactions, id: \.title) { group in
+                        Section(header: Text(group.title)) {
+                            ForEach(group.transactions) { transaction in
+                                TransactionRow(transaction: transaction)
+                                    .onTapGesture {
+                                        transactionToEdit = transaction
+                                        isEditingTransfer = (transaction.type == .transfer)
+                                    }
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                        Button(role: .destructive) { deleteTransaction(transaction) } label: { Label("刪除", systemImage: "trash") }
+                                        Button {
+                                            transactionToEdit = transaction
+                                            isEditingTransfer = (transaction.type == .transfer)
+                                        } label: { Label("編輯", systemImage: "pencil") }.tint(.blue)
+                                    }
+                            }
+                        }
+                    }
+                }
+                .listStyle(.insetGrouped)
+            }
+            .navigationTitle("帳目明細")
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜尋備註、分類、金額")
+            .sheet(isPresented: $showingFilterSheet) {
+                DateFilterView(filterType: $filterType, selectedDate: $selectedDate)
+            }
+            .sheet(isPresented: $showingAddShortcut) {
+                AddShortcutView()
+            }
+            .sheet(item: $transactionToEdit) { tx in
+                if isEditingTransfer {
+                    EditTransferView(originalTransaction: tx)
+                } else {
+                    EditTransactionView(transaction: tx)
+                }
+            }
+            .overlay {
+                if filteredTransactions.isEmpty {
+                    ContentUnavailableView("無交易紀錄", systemImage: "list.bullet.clipboard", description: Text("該區間或搜尋條件下無資料"))
+                }
+            }
+            // 捷徑確認彈窗
+            .alert("確認快速記帳？", isPresented: $showingShortcutConfirm) {
+                Button("確認", role: .none) { executeShortcut() }
+                Button("取消", role: .cancel) { }
+            } message: {
+                if let sc = pendingShortcut {
+                    Text("\(sc.name)\n\(sc.type == .expense ? "支出" : "收入") \(sc.amount.formatted()) \(sc.account?.currency ?? "")")
+                }
+            }
+        }
+    }
+    
+    // MARK: - Logic
+    
+    private func executeShortcut() {
+        guard let sc = pendingShortcut, let account = sc.account else { return }
+        
+        let finalAmount = (sc.type == .expense) ? -abs(sc.amount) : abs(sc.amount)
+        
+        // 🔥 修改：使用捷徑設定的幣種，而非帳戶預設幣種
+        let currency = sc.currencyCode
+        
+        let tx = FinancialTransaction(
+            amount: finalAmount,
+            currencyCode: currency, // 🔥 這裡
+            date: Date(),
+            note: sc.note.isEmpty ? sc.name : sc.note,
+            type: sc.type,
+            account: account,
+            category: sc.category,
+            tags: sc.tags
+        )
+        modelContext.insert(tx)
+        print("✅ 捷徑執行成功: \(sc.name) (\(currency))")
+    }
+    
+    // ... Helpers (Filter logic 同前，省略重複代碼以節省篇幅) ...
+    // 請保留原本的 filterDisplayString, filteredTransactions, groupedTransactions
+    // calculateTotalEstimate, calculateCurrencyBreakdown, deleteTransaction
+    // 注意：在 calculateCurrencyBreakdown 中，需使用 tx.currencyCode 替代舊的 tx.account.currency
+    
+    var filterDisplayString: String {
+        let formatter = DateFormatter()
+        switch filterType {
+        case .all: return "全部紀錄"
+        case .year: return "\(Calendar.current.component(.year, from: selectedDate))年"
+        case .month: formatter.dateFormat = "yyyy年 M月"; return formatter.string(from: selectedDate)
+        case .day: formatter.dateFormat = "M月d日"; return formatter.string(from: selectedDate)
+        }
+    }
+    
+    var filteredTransactions: [FinancialTransaction] {
+        let calendar = Calendar.current
+        let timeFiltered = transactions.filter { tx in
+            if tx.type == .transfer && tx.amount > 0 { return false }
+            switch filterType {
+            case .all: return true
+            case .year: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .year)
+            case .month: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .month)
+            case .day: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .day)
+            }
+        }
+        if searchText.isEmpty { return timeFiltered }
+        return timeFiltered.filter { tx in
+            tx.note.localizedCaseInsensitiveContains(searchText) ||
+            (tx.category?.name.localizedCaseInsensitiveContains(searchText) ?? false) ||
+            tx.tags.contains { $0.name.localizedCaseInsensitiveContains(searchText) } ||
+            String(describing: abs(tx.amount)).contains(searchText)
+        }
+    }
+    
+    struct TransactionGroup { let title: String; let transactions: [FinancialTransaction] }
+    
+    var groupedTransactions: [TransactionGroup] {
+        let formatter = DateFormatter()
+        let grouping: (Date) -> String = { date in
+            switch filterType {
+            case .all: formatter.dateFormat = "yyyy年"; return formatter.string(from: date)
+            case .year: formatter.dateFormat = "M月"; return formatter.string(from: date)
+            case .month: formatter.dateFormat = "d日 (EEEE)"; return formatter.string(from: date)
+            case .day: return "明細"
+            }
+        }
+        let groupedDict = Dictionary(grouping: filteredTransactions) { tx in grouping(tx.date) }
+        let sortedKeys = groupedDict.keys.sorted { title1, title2 in
+            guard let tx1 = groupedDict[title1]?.first, let tx2 = groupedDict[title2]?.first else { return title1 > title2 }
+            return tx1.date > tx2.date
+        }
+        return sortedKeys.map { TransactionGroup(title: $0, transactions: groupedDict[$0] ?? []) }
+    }
+    
+    func calculateTotalEstimate() -> String {
+        var total: Decimal = 0
+        for tx in filteredTransactions {
+            if tx.type == .transfer { continue }
+            // 🔥 使用交易本身的 currencyCode
+            let converted = CurrencyService.shared.convert(amount: tx.amount, from: tx.currencyCode)
+            total += converted
+        }
+        return total.formatted(.currency(code: CurrencyService.shared.mainCurrency))
+    }
+    
+    struct CurrencyTotal { let currency: String; let amount: Decimal }
+    
+    func calculateCurrencyBreakdown() -> [CurrencyTotal] {
+        let validTransactions = filteredTransactions.filter { $0.type != .transfer }
+        // 🔥 使用交易本身的 currencyCode 分組
+        let grouped = Dictionary(grouping: validTransactions) { $0.currencyCode }
+        return grouped.map { (curr, txs) in
+            CurrencyTotal(currency: curr, amount: txs.reduce(0) { $0 + $1.amount })
+        }.sorted { $0.currency < $1.currency }
+    }
+    
+    private func deleteTransaction(_ tx: FinancialTransaction) {
+        if tx.type == .transfer, let linkedID = tx.linkedTransactionID,
+           let linked = transactions.first(where: { $0.id == linkedID }) {
+            modelContext.delete(linked)
+        }
+        modelContext.delete(tx)
+    }
+}

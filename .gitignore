@@ -1,0 +1,33 @@
+# macOS
+.DS_Store
+
+# Xcode user data (recursive)
+**/xcuserdata/
+**/*.xcuserdatad/
+**/*.xcuserstate
+
+# Xcode project/workspace user data
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Xcode derived/intermediate
+DerivedData/
+build/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# SwiftPM
+.swiftpm/
+.build/
+
+# Fastlane reports (optional)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+
+# Editors
+*.swp
+*.swo
