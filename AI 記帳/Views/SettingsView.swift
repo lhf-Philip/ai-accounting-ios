@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @AppStorage("mainCurrency") private var mainCurrency: String = "HKD"
-    @AppStorage("UserGeminiAPIKey") private var apiKey: String = ""
+    @AppStorage("UserGeminiAPIKey") private var legacyApiKey: String = ""
     @AppStorage("enableAutoBackup") private var enableAutoBackup: Bool = false
     @AppStorage("lastBackupDate") private var lastBackupDate: Double = 0
     @AppStorage("backupRetentionDays") private var backupRetentionDays: Int = 30
@@ -20,8 +20,11 @@ struct SettingsView: View {
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var showingDeleteAlert = false
+    @State private var apiKey: String = ""
     
     let currencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
+    private let keychainServiceName = "org.duckdns.lhfser.AIMoney"
+    private let keychainAccountName = "gemini_api_key"
     
     // MARK: - 精確倒數計時邏輯
     struct TimeLeftInfo {
@@ -87,6 +90,7 @@ struct SettingsView: View {
                 Section("AI 設定") {
                     SecureField("Gemini API Key", text: $apiKey)
                         .textContentType(.password)
+                        .onChange(of: apiKey) { saveAPIKey($0) }
                         .onSubmit { hideKeyboard() }
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
@@ -178,6 +182,38 @@ struct SettingsView: View {
                     showingAlert = true
                 }
             }
+            .onAppear { loadAPIKey() }
+        }
+    }
+    
+    private func loadAPIKey() {
+        if let keychainValue = KeychainService.shared.read(service: keychainServiceName, account: keychainAccountName),
+           !keychainValue.isEmpty {
+            apiKey = keychainValue
+            return
+        }
+        
+        let legacy = legacyApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !legacy.isEmpty else { return }
+        
+        if KeychainService.shared.save(service: keychainServiceName, account: keychainAccountName, value: legacy) {
+            legacyApiKey = ""
+        }
+        apiKey = legacy
+    }
+    
+    private func saveAPIKey(_ rawValue: String) {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if value.isEmpty {
+            _ = KeychainService.shared.delete(service: keychainServiceName, account: keychainAccountName)
+        } else if !KeychainService.shared.save(service: keychainServiceName, account: keychainAccountName, value: value) {
+            alertMessage = "無法儲存 API Key 至 Keychain"
+            showingAlert = true
+        }
+        
+        if !legacyApiKey.isEmpty {
+            legacyApiKey = ""
         }
     }
     

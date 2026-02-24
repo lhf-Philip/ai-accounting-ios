@@ -13,10 +13,27 @@ struct ReceiptInfo: Codable {
 
 class GeminiService {
     static let shared = GeminiService()
+    private let keychainServiceName = "org.duckdns.lhfser.AIMoney"
+    private let keychainAccountName = "gemini_api_key"
+    private let legacyUserDefaultsKey = "UserGeminiAPIKey"
     
     private var apiKey: String {
-        let rawKey = UserDefaults.standard.string(forKey: "UserGeminiAPIKey") ?? ""
-        return rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let keychainValue = KeychainService.shared.read(service: keychainServiceName, account: keychainAccountName)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !keychainValue.isEmpty {
+            return keychainValue
+        }
+        
+        let legacyValue = (UserDefaults.standard.string(forKey: legacyUserDefaultsKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if !legacyValue.isEmpty {
+            _ = KeychainService.shared.save(service: keychainServiceName, account: keychainAccountName, value: legacyValue)
+            UserDefaults.standard.removeObject(forKey: legacyUserDefaultsKey)
+            return legacyValue
+        }
+        
+        return ""
     }
     
     // 🔥 最終答案：根據你的列表，選用最標準的 2.0 Flash
