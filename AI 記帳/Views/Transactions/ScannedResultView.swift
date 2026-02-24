@@ -18,20 +18,37 @@ struct ScannedResultView: View {
     
     // 表單狀態
     @State private var amountString: String = ""
+    @State private var selectedCurrency: String = "HKD"
+    @State private var currencyMessage: String = ""
+    @State private var currencyFromAI: Bool = true
     @State private var selectedAccount: Account?
     @State private var selectedCategory: Category?
     @State private var date: Date = Date()
     @State private var note: String = ""
     @State private var selectedTags: Set<Tag> = []
     
+    private let supportedCurrencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
+    
     var body: some View {
         Form {
             Section("AI 識別結果 (請確認)") {
                 HStack {
-                    Text(info.currency)
+                    Picker("幣種", selection: $selectedCurrency) {
+                        ForEach(supportedCurrencies, id: \.self) { code in
+                            Text(code).tag(code)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 90)
+                    
                     TextField("金額", text: $amountString)
                         .keyboardType(.decimalPad)
                 }
+                
+                Text(currencyMessage)
+                    .font(.caption)
+                    .foregroundStyle(currencyFromAI ? .secondary : .orange)
+                
                 DatePicker("日期", selection: $date)
                 TextField("商戶/備註", text: $note)
             }
@@ -40,6 +57,9 @@ struct ScannedResultView: View {
                 Picker("帳戶", selection: $selectedAccount) {
                     Text("選擇帳戶").tag(nil as Account?)
                     ForEach(accounts) { acc in Text(acc.name).tag(acc as Account?) }
+                }
+                .onChange(of: selectedAccount) {
+                    applyCurrencyRule()
                 }
                 
                 Picker("分類", selection: $selectedCategory) {
@@ -91,6 +111,8 @@ struct ScannedResultView: View {
             if let first = accounts.first {
                 selectedAccount = first
             }
+            
+            applyCurrencyRule()
         }
     }
     
@@ -100,6 +122,7 @@ struct ScannedResultView: View {
         
         let tx = FinancialTransaction(
             amount: -abs(amount), // 預設為支出
+            currencyCode: selectedCurrency,
             date: date,
             note: note,
             type: .expense,
@@ -114,5 +137,25 @@ struct ScannedResultView: View {
         // 這裡需要連續 dismiss 兩次 (回到主頁)，或者使用 Binding 控制
         // 簡單做法：發送 Notification 讓 ContentView 關閉 Sheet
         NotificationCenter.default.post(name: NSNotification.Name("CloseAddFlow"), object: nil)
+    }
+    
+    private func applyCurrencyRule() {
+        let rawAICurrency = info.currency.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        
+        if supportedCurrencies.contains(rawAICurrency) {
+            selectedCurrency = rawAICurrency
+            currencyFromAI = true
+            currencyMessage = "幣種來源：AI 辨識 (\(rawAICurrency))"
+            return
+        }
+        
+        currencyFromAI = false
+        if let accountCurrency = selectedAccount?.currency, supportedCurrencies.contains(accountCurrency) {
+            selectedCurrency = accountCurrency
+            currencyMessage = "AI 幣種無效，已改用帳戶幣種：\(accountCurrency)"
+        } else {
+            selectedCurrency = "HKD"
+            currencyMessage = "AI 幣種無效，已改用預設幣種：HKD"
+        }
     }
 }
