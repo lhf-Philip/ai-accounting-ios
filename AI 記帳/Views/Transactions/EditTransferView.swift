@@ -20,6 +20,8 @@ struct EditTransferView: View {
     @State private var amountInString: String = ""
     @State private var date: Date = Date()
     @State private var note: String = ""
+    @State private var showingValidationAlert = false
+    @State private var validationMessage: String = ""
     
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -45,9 +47,14 @@ struct EditTransferView: View {
                             TextField("轉出金額", text: $amountOutString)
                                 .keyboardType(.decimalPad)
                                 .focused($focusedField, equals: .amountOut)
-                                .onChange(of: amountOutString) { _, _ in
+                                .onChange(of: amountOutString) { _, newValue in
+                                    let sanitized = sanitizePositiveDecimalInput(newValue)
+                                    if sanitized != newValue {
+                                        amountOutString = sanitized
+                                        return
+                                    }
                                     if let to = toAccount, from.currency == to.currency {
-                                        amountInString = amountOutString
+                                        amountInString = sanitized
                                     }
                                 }
                         }
@@ -65,6 +72,12 @@ struct EditTransferView: View {
                                 TextField("轉入金額 (實際收到)", text: $amountInString)
                                     .keyboardType(.decimalPad)
                                     .focused($focusedField, equals: .amountIn)
+                                    .onChange(of: amountInString) { _, newValue in
+                                        let sanitized = sanitizePositiveDecimalInput(newValue)
+                                        if sanitized != newValue {
+                                            amountInString = sanitized
+                                        }
+                                    }
                                 
                                 // 🔥 匯率顯示
                                 if let outVal = Double(amountOutString), let inVal = Double(amountInString), outVal > 0 {
@@ -99,6 +112,11 @@ struct EditTransferView: View {
                 }
             }
             .navigationTitle("編輯轉帳")
+            .alert("輸入錯誤", isPresented: $showingValidationAlert) {
+                Button("確定", role: .cancel) { }
+            } message: {
+                Text(validationMessage)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -149,7 +167,7 @@ struct EditTransferView: View {
                 
                 // 設定初始值 (轉出顯示正數)
                 self.amountOutString = "\(abs(outTx.amount))"
-                self.amountInString = "\(inTx.amount)"
+                self.amountInString = "\(abs(inTx.amount))"
                 self.date = tx1.date
                 
                 // 備註處理 (去除系統自動加的後綴)
@@ -174,25 +192,62 @@ struct EditTransferView: View {
     private func saveChanges() {
         guard let outTx = (originalTransaction.amount < 0 ? originalTransaction : linkedTransaction),
               let inTx = (originalTransaction.amount > 0 ? originalTransaction : linkedTransaction),
-              let amountOut = Decimal(string: amountOutString),
               let to = toAccount, let from = fromAccount
         else { return }
         
+        guard let amountOut = positiveDecimal(from: amountOutString) else {
+            showValidation("請輸入大於 0 的轉出金額。")
+            return
+        }
+        
         var amountIn = amountOut
-        if from.currency != to.currency, let customIn = Decimal(string: amountInString) {
+        if from.currency != to.currency {
+            guard let customIn = positiveDecimal(from: amountInString) else {
+                showValidation("跨幣種轉帳請輸入大於 0 的轉入金額。")
+                return
+            }
             amountIn = customIn
         }
         
+        let normalizedAmountOut = abs(amountOut)
+        let normalizedAmountIn = abs(amountIn)
+        
         // 更新轉出
-        outTx.amount = -amountOut
+        outTx.amount = -normalizedAmountOut
         outTx.date = date
         outTx.note = note.isEmpty ? "轉帳 (轉至 \(to.name))" : "\(note) (轉至 \(to.name))"
         
         // 更新轉入
-        inTx.amount = amountIn
+        inTx.amount = normalizedAmountIn
         inTx.date = date
         inTx.note = note.isEmpty ? "轉帳 (來自 \(from.name))" : "\(note) (來自 \(from.name))"
         
         dismiss()
+    }
+    
+    private func positiveDecimal(from value: String) -> Decimal? {
+        guard let parsed = Decimal(string: value), parsed > 0 else { return nil }
+        return parsed
+    }
+    
+    private func sanitizePositiveDecimalInput(_ value: String) -> String {
+        let allowed = value.filter { "0123456789.".contains($0) }
+        var result = ""
+        var hasDot = false
+        
+        for char in allowed {
+            if char == "." {
+                if hasDot { continue }
+                hasDot = true
+            }
+            result.append(char)
+        }
+        
+        return result == "." ? "" : result
+    }
+    
+    private func showValidation(_ message: String) {
+        validationMessage = message
+        showingValidationAlert = true
     }
 }
