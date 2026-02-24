@@ -137,7 +137,8 @@ struct AddAccountView: View {
     private func saveAccount() {
         let mainBalance = Decimal(string: balanceString) ?? 0
         let initialBaseBalance = (type == .debt && linkedAccount != nil) ? 0 : mainBalance
-        let newAccount = Account(name: name, currency: currency, type: type, baseBalance: initialBaseBalance, sortOrder: 0)
+        let nextSortOrder = (allAccounts.map(\.sortOrder).max() ?? -1) + 1
+        let newAccount = Account(name: name, currency: currency, type: type, baseBalance: initialBaseBalance, sortOrder: nextSortOrder)
         modelContext.insert(newAccount)
         
         let now = Date()

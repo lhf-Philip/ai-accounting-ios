@@ -94,7 +94,10 @@ struct AccountsView: View {
             }
             .sheet(isPresented: $showingAddAccount) { AddAccountView() }
             .sheet(item: $accountToEdit) { account in EditAccountView(account: account) }
-            .task { await currencyService.fetchRates() }
+            .task {
+                await currencyService.fetchRates()
+                normalizeSortOrdersIfNeeded()
+            }
         }
     }
     
@@ -151,9 +154,55 @@ struct AccountsView: View {
     }
     
     private func moveAccounts(in subset: [Account], from source: IndexSet, to destination: Int) {
+        guard let first = subset.first else { return }
         var revisedItems = subset
         revisedItems.move(fromOffsets: source, toOffset: destination)
-        for (index, item) in revisedItems.enumerated() { item.sortOrder = index }
+        
+        var activeAssets = sortedBucket(isArchived: false, isDebt: false)
+        var activeDebts = sortedBucket(isArchived: false, isDebt: true)
+        var archivedAssets = sortedBucket(isArchived: true, isDebt: false)
+        var archivedDebts = sortedBucket(isArchived: true, isDebt: true)
+        
+        if first.isArchived {
+            if first.type == .debt { archivedDebts = revisedItems }
+            else { archivedAssets = revisedItems }
+        } else {
+            if first.type == .debt { activeDebts = revisedItems }
+            else { activeAssets = revisedItems }
+        }
+        
+        let combined = activeAssets + activeDebts + archivedAssets + archivedDebts
+        for (index, item) in combined.enumerated() { item.sortOrder = index }
+    }
+    
+    private func normalizeSortOrdersIfNeeded() {
+        let combined = groupedAccounts()
+        
+        for (index, account) in combined.enumerated() {
+            if account.sortOrder != index {
+                for (newIndex, item) in combined.enumerated() { item.sortOrder = newIndex }
+                return
+            }
+        }
+    }
+    
+    private func groupedAccounts() -> [Account] {
+        let activeAssets = sortedBucket(isArchived: false, isDebt: false)
+        let activeDebts = sortedBucket(isArchived: false, isDebt: true)
+        let archivedAssets = sortedBucket(isArchived: true, isDebt: false)
+        let archivedDebts = sortedBucket(isArchived: true, isDebt: true)
+        return activeAssets + activeDebts + archivedAssets + archivedDebts
+    }
+    
+    private func sortedBucket(isArchived: Bool, isDebt: Bool) -> [Account] {
+        allAccounts
+            .filter { $0.isArchived == isArchived && (($0.type == .debt) == isDebt) }
+            .sorted(by: accountOrder)
+    }
+    
+    private func accountOrder(_ lhs: Account, _ rhs: Account) -> Bool {
+        if lhs.sortOrder != rhs.sortOrder { return lhs.sortOrder < rhs.sortOrder }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
     
     private func calculateTotalEstimatedAssets() -> String {
