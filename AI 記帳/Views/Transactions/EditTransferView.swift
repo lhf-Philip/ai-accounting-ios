@@ -16,6 +16,8 @@ struct EditTransferView: View {
     // 編輯狀態
     @State private var fromAccount: Account?
     @State private var toAccount: Account?
+    @State private var currencyOut: String = "HKD"
+    @State private var currencyIn: String = "HKD"
     @State private var amountOutString: String = ""
     @State private var amountInString: String = ""
     @State private var date: Date = Date()
@@ -42,7 +44,7 @@ struct EditTransferView: View {
                             HStack {
                                 Text("從：\(from.name)")
                                 Spacer()
-                                Text(from.currency).bold()
+                                Text(currencyOut).bold()
                             }
                             TextField("轉出金額", text: $amountOutString)
                                 .keyboardType(.decimalPad)
@@ -53,7 +55,7 @@ struct EditTransferView: View {
                                         amountOutString = sanitized
                                         return
                                     }
-                                    if let to = toAccount, from.currency == to.currency {
+                                    if currencyOut == currencyIn {
                                         amountInString = sanitized
                                     }
                                 }
@@ -65,10 +67,10 @@ struct EditTransferView: View {
                             HStack {
                                 Text("到：\(to.name)")
                                 Spacer()
-                                Text(to.currency).bold()
+                                Text(currencyIn).bold()
                             }
                             
-                            if let from = fromAccount, from.currency != to.currency {
+                            if currencyOut != currencyIn {
                                 TextField("轉入金額 (實際收到)", text: $amountInString)
                                     .keyboardType(.decimalPad)
                                     .focused($focusedField, equals: .amountIn)
@@ -82,13 +84,13 @@ struct EditTransferView: View {
                                 // 🔥 匯率顯示
                                 if let outVal = Double(amountOutString), let inVal = Double(amountInString), outVal > 0 {
                                     let calculatedRate = inVal / outVal
-                                    let marketRate = CurrencyService.shared.getMarketRate(from: from.currency, to: to.currency)
+                                    let marketRate = CurrencyService.shared.getMarketRate(from: currencyOut, to: currencyIn)
                                     
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text("本次匯率: 1 \(from.currency) ≈ \(calculatedRate, specifier: "%.4f") \(to.currency)")
+                                        Text("本次匯率: 1 \(currencyOut) ≈ \(calculatedRate, specifier: "%.4f") \(currencyIn)")
                                             .foregroundStyle(.blue)
                                         if let market = marketRate {
-                                            Text("市場匯率: 1 \(from.currency) ≈ \(market, specifier: "%.4f") \(to.currency)")
+                                            Text("市場匯率: 1 \(currencyOut) ≈ \(market, specifier: "%.4f") \(currencyIn)")
                                                 .foregroundStyle(.secondary).font(.caption)
                                         }
                                     }
@@ -164,6 +166,8 @@ struct EditTransferView: View {
                 
                 self.fromAccount = outTx.account
                 self.toAccount = inTx.account
+                self.currencyOut = outTx.currencyCode.isEmpty ? (outTx.account?.currency ?? "HKD") : outTx.currencyCode
+                self.currencyIn = inTx.currencyCode.isEmpty ? (inTx.account?.currency ?? "HKD") : inTx.currencyCode
                 
                 // 設定初始值 (轉出顯示正數)
                 self.amountOutString = "\(abs(outTx.amount))"
@@ -201,7 +205,7 @@ struct EditTransferView: View {
         }
         
         var amountIn = amountOut
-        if from.currency != to.currency {
+        if currencyOut != currencyIn {
             guard let customIn = positiveDecimal(from: amountInString) else {
                 showValidation("跨幣種轉帳請輸入大於 0 的轉入金額。")
                 return
@@ -214,11 +218,13 @@ struct EditTransferView: View {
         
         // 更新轉出
         outTx.amount = -normalizedAmountOut
+        outTx.currencyCode = currencyOut
         outTx.date = date
         outTx.note = note.isEmpty ? "轉帳 (轉至 \(to.name))" : "\(note) (轉至 \(to.name))"
         
         // 更新轉入
         inTx.amount = normalizedAmountIn
+        inTx.currencyCode = currencyIn
         inTx.date = date
         inTx.note = note.isEmpty ? "轉帳 (來自 \(from.name))" : "\(note) (來自 \(from.name))"
         
