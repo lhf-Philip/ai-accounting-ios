@@ -204,3 +204,36 @@ final class Shortcut {
         self.tags = tags
     }
 }
+
+@Model
+final class CategoryMonthlyBudget {
+    @Attribute(.unique) var id: UUID
+    var monthKey: String // yyyy-MM
+    var amount: Decimal
+    var currencyCode: String
+    var isEnabled: Bool
+    var createdAt: Date
+    var updatedAt: Date
+    
+    var category: Category?
+    
+    init(
+        id: UUID = UUID(),
+        monthKey: String,
+        amount: Decimal,
+        currencyCode: String = "HKD",
+        isEnabled: Bool = true,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
+        category: Category? = nil
+    ) {
+        self.id = id
+        self.monthKey = monthKey
+        self.amount = amount
+        self.currencyCode = currencyCode
+        self.isEnabled = isEnabled
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.category = category
+    }
+}

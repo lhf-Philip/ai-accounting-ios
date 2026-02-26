@@ -9,7 +9,8 @@ struct AI___App: App {
             FinancialTransaction.self,
             Category.self,
             Tag.self,
-            Shortcut.self
+            Shortcut.self,
+            CategoryMonthlyBudget.self
         ])
         
         // 1. 獲取 Documents 資料夾

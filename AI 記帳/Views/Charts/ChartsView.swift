@@ -4,12 +4,14 @@ import Charts
 
 struct ChartsView: View {
     @Query(sort: \FinancialTransaction.date) private var transactions: [FinancialTransaction]
+    @Query(sort: \CategoryMonthlyBudget.monthKey, order: .reverse) private var budgets: [CategoryMonthlyBudget]
     @StateObject private var currencyService = CurrencyService.shared
     
     @State private var filterType: FilterType = .month
     @State private var selectedDate: Date = Date()
     @State private var showingFilterSheet = false
     @State private var chartMode: ChartMode = .category
+    @State private var flowMode: FlowMode = .expense
     
     // 互動狀態
     @State private var selectedSegmentName: String?
@@ -20,41 +22,102 @@ struct ChartsView: View {
         case tag = "依標籤"
     }
     
+    enum FlowMode: String, CaseIterable {
+        case expense = "支出"
+        case income = "收入"
+        
+        var transactionType: TransactionType {
+            switch self {
+            case .expense: return .expense
+            case .income: return .income
+            }
+        }
+        
+        var emptyTitle: String {
+            switch self {
+            case .expense: return "本期無支出"
+            case .income: return "本期無收入"
+            }
+        }
+        
+        var totalTitle: String {
+            switch self {
+            case .expense: return "總支出"
+            case .income: return "總收入"
+            }
+        }
+    }
+    
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 // 頂部控制列
-                HStack {
-                    Button(action: { showingFilterSheet = true }) {
-                        HStack(spacing: 4) {
-                            Text(filterDisplayString).font(.headline)
-                            Image(systemName: "chevron.down").font(.caption).bold()
+                VStack(spacing: 10) {
+                    HStack {
+                        Button(action: { showingFilterSheet = true }) {
+                            HStack(spacing: 4) {
+                                Text(filterDisplayString).font(.headline)
+                                Image(systemName: "chevron.down").font(.caption).bold()
+                            }
+                            .foregroundStyle(.primary)
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 12)
+                            .background(Color.gray.opacity(0.1))
+                            .clipShape(Capsule())
                         }
-                        .foregroundStyle(.primary)
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 12)
-                        .background(Color.gray.opacity(0.1))
-                        .clipShape(Capsule())
+                        Spacer()
                     }
-                    Spacer()
-                    Picker("模式", selection: $chartMode) {
-                        ForEach(ChartMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
+                    
+                    HStack(spacing: 8) {
+                        Picker("收支", selection: $flowMode) {
+                            ForEach(FlowMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: flowMode) { selectedTagForDetail = nil; selectedSegmentName = nil }
+                        
+                        Picker("模式", selection: $chartMode) {
+                            ForEach(ChartMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: chartMode) { selectedTagForDetail = nil; selectedSegmentName = nil }
                     }
-                    .pickerStyle(.segmented).frame(width: 160)
-                    .onChange(of: chartMode) { selectedTagForDetail = nil; selectedSegmentName = nil }
                 }
                 .padding()
                 
                 // 內容區
                 ScrollView {
                     if currentData.isEmpty {
-                        ContentUnavailableView("本期無支出", systemImage: "chart.pie", description: Text("試試切換日期或記一筆帳"))
+                        ContentUnavailableView(flowMode.emptyTitle, systemImage: "chart.pie", description: Text("試試切換日期或記一筆帳"))
                             .padding(.top, 40)
                     } else if chartMode == .tag && selectedTagForDetail != nil {
                         tagDetailView
                     } else {
                         mainChartView
                     }
+                }
+                
+                if !budgetAlerts.isEmpty && flowMode == .expense {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("本月超支提醒")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(budgetAlerts.prefix(3)) { status in
+                            HStack {
+                                Text(status.budget.category?.name ?? "未分類")
+                                    .font(.caption)
+                                Spacer()
+                                Text("超支 \(abs(status.remaining).formatted(.currency(code: status.budget.currencyCode)))")
+                                    .font(.caption2)
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal)
+                    .padding(.bottom, 12)
                 }
             }
             .navigationTitle("報表")
@@ -146,7 +209,7 @@ struct ChartsView: View {
             }
             .chartAngleSelection(value: $selectedSegmentName)
             VStack {
-                Text(selectedSegmentName ?? "總支出").font(.callout).foregroundStyle(.secondary)
+                Text(selectedSegmentName ?? flowMode.totalTitle).font(.callout).foregroundStyle(.secondary)
                 Text(displayTotal.formatted(.currency(code: currencyService.mainCurrency)))
                     .font(.title2).bold().foregroundStyle(.primary)
             }
@@ -191,7 +254,7 @@ struct ChartsView: View {
     
     var currentData: [ChartData] {
         if chartMode == .category {
-            let grouped = Dictionary(grouping: filteredExpenses) { $0.category }
+            let grouped = Dictionary(grouping: filteredTransactions) { $0.category }
             let sorted = grouped.sorted {
                 let sum0 = $0.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
                 let sum1 = $1.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
@@ -210,7 +273,7 @@ struct ChartsView: View {
             }
         } else {
             var tagDict: [String: Decimal] = [:]
-            for tx in filteredExpenses {
+            for tx in filteredTransactions {
                 let amount = currencyService.convert(amount: abs(tx.amount), from: tx.currencyCode)
                 if tx.tags.isEmpty { tagDict["無標籤", default: 0] += amount }
                 else { for tag in tx.tags { tagDict[tag.name, default: 0] += amount } }
@@ -223,7 +286,7 @@ struct ChartsView: View {
     }
     
     func getCategoryBreakdown(for tagName: String) -> [ChartData] {
-        let tagTransactions = filteredExpenses.filter { tx in
+        let tagTransactions = filteredTransactions.filter { tx in
             if tagName == "無標籤" { return tx.tags.isEmpty }
             return tx.tags.contains { $0.name == tagName }
         }
@@ -262,7 +325,7 @@ struct ChartsView: View {
     var filteredExpenses: [FinancialTransaction] {
         let calendar = Calendar.current
         return transactions.filter { tx in
-            if tx.type != .expense { return false }
+            if tx.type != flowMode.transactionType { return false }
             switch filterType {
             case .all: return true
             case .year: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .year)
@@ -270,6 +333,14 @@ struct ChartsView: View {
             case .day: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .day)
             }
         }
+    }
+    
+    var filteredTransactions: [FinancialTransaction] { filteredExpenses }
+    
+    var budgetAlerts: [BudgetStatus] {
+        let key = BudgetService.monthKey(from: Date())
+        return BudgetService.statuses(for: key, budgets: budgets, transactions: transactions, currencyService: currencyService)
+            .filter { $0.ratio >= 1 }
     }
 }
 

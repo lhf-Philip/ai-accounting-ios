@@ -1,0 +1,211 @@
+import Foundation
+import SwiftData
+
+enum HealthSeverity: String {
+    case error = "錯誤"
+    case warning = "警告"
+    case info = "資訊"
+}
+
+struct HealthIssue: Identifiable {
+    let id = UUID()
+    let severity: HealthSeverity
+    let title: String
+    let detail: String
+    let recommendation: String
+}
+
+struct HealthReport {
+    let generatedAt: Date
+    let issues: [HealthIssue]
+    
+    var errorCount: Int { issues.filter { $0.severity == .error }.count }
+    var warningCount: Int { issues.filter { $0.severity == .warning }.count }
+    var infoCount: Int { issues.filter { $0.severity == .info }.count }
+}
+
+enum DataHealthCheckService {
+    @MainActor
+    static func run(modelContext: ModelContext) -> HealthReport {
+        let transactions = (try? modelContext.fetch(FetchDescriptor<FinancialTransaction>())) ?? []
+        let categories = (try? modelContext.fetch(FetchDescriptor<Category>())) ?? []
+        let budgets = (try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []
+        
+        var issues: [HealthIssue] = []
+        
+        checkTransactionBasics(transactions, into: &issues)
+        checkLinkedTransfers(transactions, into: &issues)
+        checkTransferGroups(transactions, into: &issues)
+        checkCategories(categories, into: &issues)
+        checkBudgets(budgets, into: &issues)
+        
+        if issues.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .info,
+                    title: "資料健康",
+                    detail: "未發現結構性問題。",
+                    recommendation: "維持定期 JSON 備份即可。"
+                )
+            )
+        }
+        
+        return HealthReport(generatedAt: Date(), issues: issues)
+    }
+    
+    private static func checkTransactionBasics(_ transactions: [FinancialTransaction], into issues: inout [HealthIssue]) {
+        let expenseSignErrors = transactions.filter { $0.type == .expense && $0.amount > 0 }
+        if !expenseSignErrors.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "支出金額符號異常",
+                    detail: "共有 \(expenseSignErrors.count) 筆支出為正數。",
+                    recommendation: "建議打開交易檢查金額方向，支出應為負數。"
+                )
+            )
+        }
+        
+        let incomeSignErrors = transactions.filter { $0.type == .income && $0.amount < 0 }
+        if !incomeSignErrors.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "收入金額符號異常",
+                    detail: "共有 \(incomeSignErrors.count) 筆收入為負數。",
+                    recommendation: "建議打開交易檢查金額方向，收入應為正數。"
+                )
+            )
+        }
+        
+        let missingAccounts = transactions.filter { $0.account == nil }
+        if !missingAccounts.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .error,
+                    title: "交易缺少帳戶",
+                    detail: "共有 \(missingAccounts.count) 筆交易沒有帳戶。",
+                    recommendation: "請手動補上帳戶，避免報表與餘額失真。"
+                )
+            )
+        }
+        
+        let emptyCurrency = transactions.filter { $0.currencyCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !emptyCurrency.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .error,
+                    title: "交易幣種遺失",
+                    detail: "共有 \(emptyCurrency.count) 筆交易缺少 currencyCode。",
+                    recommendation: "請修正幣種後再匯出報表。"
+                )
+            )
+        }
+        
+        let futureTransactions = transactions.filter { $0.date.timeIntervalSinceNow > 60 * 60 * 24 }
+        if !futureTransactions.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "交易日期在未來",
+                    detail: "共有 \(futureTransactions.count) 筆交易日期晚於現在 24 小時以上。",
+                    recommendation: "請確認是否誤設日期。"
+                )
+            )
+        }
+    }
+    
+    private static func checkLinkedTransfers(_ transactions: [FinancialTransaction], into issues: inout [HealthIssue]) {
+        let txByID = Dictionary(uniqueKeysWithValues: transactions.map { ($0.id, $0) })
+        let linkedTransfers = transactions.filter { $0.type == .transfer && $0.linkedTransactionID != nil }
+        
+        let brokenLinks = linkedTransfers.filter { tx in
+            guard let linkedID = tx.linkedTransactionID else { return false }
+            return txByID[linkedID] == nil
+        }
+        
+        if !brokenLinks.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .error,
+                    title: "轉帳雙向連結損壞",
+                    detail: "共有 \(brokenLinks.count) 筆轉帳找不到 linkedTransactionID 對應記錄。",
+                    recommendation: "建議在『資料健康檢查』後手動修正或刪除該組轉帳。"
+                )
+            )
+        }
+    }
+    
+    private static func checkTransferGroups(_ transactions: [FinancialTransaction], into issues: inout [HealthIssue]) {
+        let groupedTransfers = Dictionary(grouping: transactions.filter { $0.type == .transfer && $0.transferGroupID != nil }) {
+            $0.transferGroupID!
+        }
+        
+        var brokenGroups = 0
+        for (_, group) in groupedTransfers {
+            let outgoingCount = group.filter { $0.transferSide == .outgoing || $0.amount < 0 }.count
+            let incomingCount = group.filter { $0.transferSide == .incoming || $0.amount > 0 }.count
+            if outgoingCount == 0 || incomingCount == 0 {
+                brokenGroups += 1
+            }
+        }
+        
+        if brokenGroups > 0 {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "轉帳群組不完整",
+                    detail: "共有 \(brokenGroups) 個 transferGroup 缺少轉出或轉入側。",
+                    recommendation: "建議檢查該群組交易是否被不完整刪除。"
+                )
+            )
+        }
+    }
+    
+    private static func checkCategories(_ categories: [Category], into issues: inout [HealthIssue]) {
+        let duplicates = Dictionary(grouping: categories) { "\($0.name.lowercased())::\($0.kind.rawValue)" }
+            .filter { $0.value.count > 1 }
+        
+        if !duplicates.isEmpty {
+            let duplicateCount = duplicates.values.reduce(0) { $0 + $1.count }
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "分類重複",
+                    detail: "共有 \(duplicateCount) 個分類名稱與類型重複。",
+                    recommendation: "建議合併重複分類，避免預算與圖表分散。"
+                )
+            )
+        }
+    }
+    
+    private static func checkBudgets(_ budgets: [CategoryMonthlyBudget], into issues: inout [HealthIssue]) {
+        let orphanBudgets = budgets.filter { $0.category == nil }
+        if !orphanBudgets.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "預算缺少分類",
+                    detail: "共有 \(orphanBudgets.count) 筆預算沒有綁定分類。",
+                    recommendation: "請為預算補上分類或刪除該筆預算。"
+                )
+            )
+        }
+        
+        let duplicates = Dictionary(grouping: budgets) { budget in
+            "\(budget.monthKey)::\(budget.category?.id.uuidString ?? "nil")"
+        }.filter { $0.value.count > 1 }
+        
+        if !duplicates.isEmpty {
+            let duplicateCount = duplicates.values.reduce(0) { $0 + $1.count }
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "月預算重複",
+                    detail: "共有 \(duplicateCount) 筆重複的「分類 + 月份」預算。",
+                    recommendation: "同一分類同月份建議只保留一筆，避免提醒重複。"
+                )
+            )
+        }
+    }
+}
