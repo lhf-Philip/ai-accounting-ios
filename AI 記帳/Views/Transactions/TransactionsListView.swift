@@ -121,13 +121,13 @@ struct TransactionsListView: View {
                                 TransactionRow(transaction: transaction)
                                     .onTapGesture {
                                         transactionToEdit = transaction
-                                        isEditingTransfer = (transaction.type == .transfer)
+                                        isEditingTransfer = canEditTransfer(transaction)
                                     }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                         Button(role: .destructive) { deleteTransaction(transaction) } label: { Label("刪除", systemImage: "trash") }
                                         Button {
                                             transactionToEdit = transaction
-                                            isEditingTransfer = (transaction.type == .transfer)
+                                            isEditingTransfer = canEditTransfer(transaction)
                                         } label: { Label("編輯", systemImage: "pencil") }.tint(.blue)
                                     }
                             }
@@ -145,7 +145,7 @@ struct TransactionsListView: View {
                 AddShortcutView()
             }
             .sheet(item: $transactionToEdit) { tx in
-                if isEditingTransfer {
+                if tx.type == .transfer && isEditingTransfer {
                     EditTransferView(originalTransaction: tx)
                 } else {
                     EditTransactionView(transaction: tx)
@@ -218,13 +218,13 @@ struct TransactionsListView: View {
             case .day: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .day)
             }
         }
-        if searchText.isEmpty { return timeFiltered }
-        return timeFiltered.filter { tx in
+        let searched = searchText.isEmpty ? timeFiltered : timeFiltered.filter { tx in
             tx.note.localizedCaseInsensitiveContains(searchText) ||
             (tx.category?.name.localizedCaseInsensitiveContains(searchText) ?? false) ||
             tx.tags.contains { $0.name.localizedCaseInsensitiveContains(searchText) } ||
             String(describing: abs(tx.amount)).contains(searchText)
         }
+        return collapseTransferGroups(in: searched)
     }
     
     struct TransactionGroup { let title: String; let transactions: [FinancialTransaction] }
@@ -270,10 +270,60 @@ struct TransactionsListView: View {
     }
     
     private func deleteTransaction(_ tx: FinancialTransaction) {
-        if tx.type == .transfer, let linkedID = tx.linkedTransactionID,
-           let linked = transactions.first(where: { $0.id == linkedID }) {
-            modelContext.delete(linked)
+        if tx.type == .transfer, let groupID = tx.transferGroupID {
+            let descriptor = FetchDescriptor<FinancialTransaction>(
+                predicate: #Predicate { $0.transferGroupID == groupID }
+            )
+            if let groupedTransfers = try? modelContext.fetch(descriptor) {
+                for transfer in groupedTransfers {
+                    modelContext.delete(transfer)
+                }
+                return
+            }
+        }
+        
+        if tx.type == .transfer, let linkedID = tx.linkedTransactionID {
+            let descriptor = FetchDescriptor<FinancialTransaction>(
+                predicate: #Predicate { $0.id == linkedID }
+            )
+            if let linked = try? modelContext.fetch(descriptor).first {
+                modelContext.delete(linked)
+            }
         }
         modelContext.delete(tx)
+    }
+    
+    private func canEditTransfer(_ tx: FinancialTransaction) -> Bool {
+        tx.type == .transfer && tx.linkedTransactionID != nil
+    }
+    
+    private func collapseTransferGroups(in items: [FinancialTransaction]) -> [FinancialTransaction] {
+        let representatives = Dictionary(grouping: items.compactMap { tx -> (UUID, FinancialTransaction)? in
+            guard let groupID = tx.transferGroupID else { return nil }
+            return (groupID, tx)
+        }, by: { $0.0 }).mapValues { entries in
+            let transfers = entries.map { $0.1 }
+            return transfers.first(where: { $0.transferSide == .outgoing })
+                ?? transfers.first(where: { $0.amount < 0 })
+                ?? transfers.first!
+        }
+        
+        var seenGroupIDs = Set<UUID>()
+        var output: [FinancialTransaction] = []
+        
+        for tx in items {
+            guard tx.type == .transfer, let groupID = tx.transferGroupID else {
+                output.append(tx)
+                continue
+            }
+            
+            if seenGroupIDs.contains(groupID) {
+                continue
+            }
+            seenGroupIDs.insert(groupID)
+            output.append(representatives[groupID] ?? tx)
+        }
+        
+        return output
     }
 }
