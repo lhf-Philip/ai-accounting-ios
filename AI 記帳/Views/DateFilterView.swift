@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 enum FilterType: String, CaseIterable {
     case all = "全部"
@@ -9,6 +10,7 @@ enum FilterType: String, CaseIterable {
 
 struct DateFilterView: View {
     @Environment(\.dismiss) private var dismiss
+    @Query(sort: \FinancialTransaction.date) private var transactions: [FinancialTransaction]
     
     @Binding var filterType: FilterType
     @Binding var selectedDate: Date
@@ -28,7 +30,7 @@ struct DateFilterView: View {
                 if filterType == .year {
                     Section("選擇年份") {
                         Picker("年份", selection: yearBinding) {
-                            ForEach(2020...2030, id: \.self) { year in
+                            ForEach(availableYears, id: \.self) { year in
                                 Text(String(format: "%d", year)).tag(year)
                             }
                         }
@@ -39,7 +41,7 @@ struct DateFilterView: View {
                     Section("選擇月份") {
                         HStack {
                             Picker("年份", selection: yearBinding) {
-                                ForEach(2020...2030, id: \.self) { year in
+                                ForEach(availableYears, id: \.self) { year in
                                     Text(String(format: "%d年", year)).tag(year)
                                 }
                             }
@@ -98,5 +100,17 @@ struct DateFilterView: View {
                 }
             }
         )
+    }
+    
+    private var availableYears: [Int] {
+        let calendar = Calendar.current
+        let selectedYear = calendar.component(.year, from: selectedDate)
+        let currentYear = calendar.component(.year, from: Date())
+        let txYears = transactions.map { calendar.component(.year, from: $0.date) }
+        
+        let baseMin = min(selectedYear, currentYear, txYears.min() ?? currentYear)
+        let baseMax = max(selectedYear, currentYear, txYears.max() ?? currentYear)
+        
+        return Array((baseMin - 1)...(baseMax + 1))
     }
 }
