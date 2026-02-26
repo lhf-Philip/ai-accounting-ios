@@ -6,6 +6,8 @@ struct DataHealthCheckView: View {
     
     @State private var report: HealthReport?
     @State private var isRunning = false
+    @State private var showingAlert = false
+    @State private var alertMessage = ""
     
     var body: some View {
         List {
@@ -16,6 +18,17 @@ struct DataHealthCheckView: View {
                     Text("尚未執行檢查")
                         .foregroundStyle(.secondary)
                 }
+            }
+            
+            Section("修復工具") {
+                Button(isRunning ? "處理中..." : "修復代墊舊資料連結") {
+                    repairAdvanceLegacyLinks()
+                }
+                .disabled(isRunning)
+                
+                Text("補齊舊資料缺少的連結欄位，讓整單連動刪除可更完整刪除相關交易。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             
             if let report {
@@ -37,6 +50,11 @@ struct DataHealthCheckView: View {
             if report == nil {
                 runCheck()
             }
+        }
+        .alert("處理結果", isPresented: $showingAlert) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(alertMessage)
         }
     }
     
@@ -104,5 +122,25 @@ struct DataHealthCheckView: View {
         isRunning = true
         report = DataHealthCheckService.run(modelContext: modelContext)
         isRunning = false
+    }
+    
+    private func repairAdvanceLegacyLinks() {
+        isRunning = true
+        
+        do {
+            let result = try AdvanceService.repairLegacyLinks(modelContext: modelContext)
+            report = DataHealthCheckService.run(modelContext: modelContext)
+            
+            alertMessage = """
+            已更新 \(result.totalUpdated) 筆連結。
+            - 代墊主檔：修復 \(result.updatedCaseLinkCount) / 未修復 \(result.unresolvedCaseLinkCount)
+            - 代墊對象：修復 \(result.updatedParticipantLinkCount) / 未修復 \(result.unresolvedParticipantLinkCount)
+            """
+        } catch {
+            alertMessage = "修復失敗：\(error.localizedDescription)"
+        }
+        
+        isRunning = false
+        showingAlert = true
     }
 }
