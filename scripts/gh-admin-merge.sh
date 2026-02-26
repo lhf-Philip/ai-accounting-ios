@@ -75,11 +75,6 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! gh auth status >/dev/null 2>&1; then
-  echo "Error: gh auth is not ready. Run: gh auth login" >&2
-  exit 1
-fi
-
 if [[ -z "$REPO" ]]; then
   REPO="$(gh repo view --json nameWithOwner --jq '.nameWithOwner')"
 fi
@@ -94,6 +89,9 @@ if [[ "$SKIP_CHECKS" != "true" ]]; then
 fi
 
 echo "Merging with admin bypass..."
-gh pr merge "$PR_NUMBER" --repo "$REPO" --"$METHOD" --delete-branch --admin
+if ! gh pr merge "$PR_NUMBER" --repo "$REPO" --"$METHOD" --delete-branch --admin; then
+  echo "Merge failed. If auth is required, run: gh auth login -h github.com" >&2
+  exit 1
+fi
 
 echo "Done."
