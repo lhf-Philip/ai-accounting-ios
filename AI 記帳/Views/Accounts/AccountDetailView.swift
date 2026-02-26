@@ -98,7 +98,7 @@ struct AccountDetailView: View {
                     TransactionRow(transaction: transaction)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
-                                modelContext.delete(transaction)
+                                deleteTransaction(transaction)
                             } label: {
                                 Label("刪除", systemImage: "trash")
                             }
@@ -108,5 +108,30 @@ struct AccountDetailView: View {
         }
         .navigationTitle(account.name)
         .navigationBarTitleDisplayMode(.inline)
+    }
+    
+    private func deleteTransaction(_ transaction: FinancialTransaction) {
+        if transaction.type == .transfer, let groupID = transaction.transferGroupID {
+            let descriptor = FetchDescriptor<FinancialTransaction>(
+                predicate: #Predicate { $0.transferGroupID == groupID }
+            )
+            if let groupedTransfers = try? modelContext.fetch(descriptor) {
+                for transfer in groupedTransfers {
+                    modelContext.delete(transfer)
+                }
+                return
+            }
+        }
+        
+        if transaction.type == .transfer, let linkedID = transaction.linkedTransactionID {
+            let descriptor = FetchDescriptor<FinancialTransaction>(
+                predicate: #Predicate { $0.id == linkedID }
+            )
+            if let linkedTx = try? modelContext.fetch(descriptor).first {
+                modelContext.delete(linkedTx)
+            }
+        }
+        
+        modelContext.delete(transaction)
     }
 }

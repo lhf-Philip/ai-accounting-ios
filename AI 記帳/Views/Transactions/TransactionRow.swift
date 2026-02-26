@@ -11,19 +11,37 @@ struct TransactionRow: View {
         return formatter.string(from: transaction.date)
     }
     
-    // 獲取關聯轉帳的資訊
+    // 嘗試取得「對向」轉帳資訊；多邊轉帳僅在唯一對向時顯示。
     private func getLinkedTransferInfo() -> (amount: Decimal, currency: String)? {
-        guard transaction.type == .transfer,
-              let linkedID = transaction.linkedTransactionID else { return nil }
+        guard transaction.type == .transfer else { return nil }
         
-        let descriptor = FetchDescriptor<FinancialTransaction>(
-            predicate: #Predicate { $0.id == linkedID }
-        )
-        
-        if let linkedTx = try? modelContext.fetch(descriptor).first {
-            // 🔥 使用交易本身的 currencyCode，而不是帳戶的
-            return (linkedTx.amount, linkedTx.currencyCode)
+        if let linkedID = transaction.linkedTransactionID {
+            let descriptor = FetchDescriptor<FinancialTransaction>(
+                predicate: #Predicate { $0.id == linkedID }
+            )
+            if let linkedTx = try? modelContext.fetch(descriptor).first {
+                return (linkedTx.amount, linkedTx.currencyCode)
+            }
         }
+        
+        guard let groupID = transaction.transferGroupID else { return nil }
+        let descriptor = FetchDescriptor<FinancialTransaction>(
+            predicate: #Predicate { $0.transferGroupID == groupID }
+        )
+        guard let groupedTransfers = try? modelContext.fetch(descriptor) else { return nil }
+        
+        let counterparts = groupedTransfers.filter { candidate in
+            guard candidate.id != transaction.id else { return false }
+            if let currentSide = transaction.transferSide, let candidateSide = candidate.transferSide {
+                return currentSide != candidateSide
+            }
+            return true
+        }
+        
+        if counterparts.count == 1, let counterparty = counterparts.first {
+            return (counterparty.amount, counterparty.currencyCode)
+        }
+        
         return nil
     }
     
