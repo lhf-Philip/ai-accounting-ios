@@ -26,3 +26,16 @@
 
 - Bug：請使用 GitHub Issue 模板並附重現步驟
 - 安全問題：請參考 [SECURITY.zh-Hant.md](./SECURITY.zh-Hant.md)
+
+## 維護者快速合併（Admin Bypass）
+
+若你是專案維護者（admin 權限），可直接使用：
+
+```bash
+scripts/gh-admin-merge.sh <pr-number>
+```
+
+說明：
+- 預設使用 `squash` 合併。
+- 腳本會先等待 checks 完成；只有在你明確要跳過時才用 `--skip-checks`。
+- 底層等價指令為 `gh pr merge <pr> --admin`。

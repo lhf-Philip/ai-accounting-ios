@@ -23,6 +23,7 @@ struct SettingsView: View {
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var showingDeleteAlert = false
+    @State private var showingImportRepairPrompt = false
     @State private var apiKey: String = ""
     
     let currencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
@@ -206,6 +207,17 @@ struct SettingsView: View {
             .navigationTitle("設定")
             
             .alert("提示", isPresented: $showingAlert) { Button("好") {} } message: { Text(alertMessage) }
+            .alert("匯入完成", isPresented: $showingImportRepairPrompt) {
+                Button("稍後") {
+                    alertMessage = "匯入成功！可稍後到「資料健康檢查」執行修復工具。"
+                    showingAlert = true
+                }
+                Button("立即修復") {
+                    repairLegacyAdvanceLinksAfterImport()
+                }
+            } message: {
+                Text("是否立即修復舊代墊資料連結？建議匯入舊版 JSON 後執行一次。")
+            }
             .alert("確定清除？", isPresented: $showingDeleteAlert) {
                 Button("取消", role: .cancel) {}
                 Button("確定", role: .destructive) {
@@ -260,13 +272,30 @@ struct SettingsView: View {
             defer { url.stopAccessingSecurityScopedResource() }
             do {
                 try BackupManager.shared.restoreFromJSON(url: url, modelContext: modelContext)
-                alertMessage = "匯入成功！"
-            } catch { alertMessage = "失敗：\(error.localizedDescription)" }
-            showingAlert = true
+                showingImportRepairPrompt = true
+            } catch {
+                alertMessage = "失敗：\(error.localizedDescription)"
+                showingAlert = true
+            }
         case .failure(let error):
             alertMessage = error.localizedDescription
             showingAlert = true
         }
+    }
+    
+    private func repairLegacyAdvanceLinksAfterImport() {
+        do {
+            let result = try AdvanceService.repairLegacyLinks(modelContext: modelContext)
+            alertMessage = """
+            匯入成功並完成修復。
+            已更新 \(result.totalUpdated) 筆連結。
+            - 代墊主檔：修復 \(result.updatedCaseLinkCount) / 未修復 \(result.unresolvedCaseLinkCount)
+            - 代墊對象：修復 \(result.updatedParticipantLinkCount) / 未修復 \(result.unresolvedParticipantLinkCount)
+            """
+        } catch {
+            alertMessage = "匯入成功，但修復失敗：\(error.localizedDescription)"
+        }
+        showingAlert = true
     }
     
     private func deleteAllData() {
