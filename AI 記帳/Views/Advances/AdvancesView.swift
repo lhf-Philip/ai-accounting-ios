@@ -97,8 +97,15 @@ struct AdvancesView: View {
 }
 
 struct AdvanceCaseDetailView: View {
+    @Environment(\.modelContext) private var modelContext
+    
     let advanceCase: AdvanceCase
-    @State private var selectedParticipant: AdvanceParticipant?
+    @State private var selectedParticipantForRepayment: AdvanceParticipant?
+    @State private var selectedParticipantForEdit: AdvanceParticipant?
+    @State private var repaymentToRollback: AdvanceRepayment?
+    @State private var showingRollbackAlert = false
+    @State private var showingError = false
+    @State private var errorMessage = ""
     
     private var sortedParticipants: [AdvanceParticipant] {
         advanceCase.participants.sorted {
@@ -132,11 +139,23 @@ struct AdvanceCaseDetailView: View {
                     title: "付款帳戶",
                     value: advanceCase.payerAccount?.name ?? "未指定"
                 )
+                summaryRow(
+                    title: "帳務儲存",
+                    value: "借貸帳戶轉帳"
+                )
             }
             
             Section("對象還款狀態") {
                 ForEach(sortedParticipants) { participant in
                     participantRow(participant)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button {
+                                selectedParticipantForEdit = participant
+                            } label: {
+                                Label("更正欠款", systemImage: "pencil")
+                            }
+                            .tint(.orange)
+                        }
                 }
             }
             
@@ -149,13 +168,37 @@ struct AdvanceCaseDetailView: View {
                 Section("還款紀錄") {
                     ForEach(sortedRepayments) { repayment in
                         repaymentRow(repayment)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    repaymentToRollback = repayment
+                                    showingRollbackAlert = true
+                                } label: {
+                                    Label("沖銷", systemImage: "arrow.uturn.backward.circle")
+                                }
+                            }
                     }
                 }
             }
         }
         .navigationTitle(advanceCase.title)
-        .sheet(item: $selectedParticipant) { participant in
+        .sheet(item: $selectedParticipantForRepayment) { participant in
             AddAdvanceRepaymentView(advanceCase: advanceCase, participant: participant)
+        }
+        .sheet(item: $selectedParticipantForEdit) { participant in
+            EditAdvanceParticipantView(advanceCase: advanceCase, participant: participant)
+        }
+        .alert("確認沖銷還款？", isPresented: $showingRollbackAlert, presenting: repaymentToRollback) { repayment in
+            Button("取消", role: .cancel) {}
+            Button("沖銷", role: .destructive) {
+                rollbackRepayment(repayment)
+            }
+        } message: { repayment in
+            Text("將刪除 \(repayment.amount.formatted(.currency(code: repayment.currencyCode))) 的還款紀錄，並同步刪除對應借貸轉帳。")
+        }
+        .alert("操作失敗", isPresented: $showingError) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(errorMessage)
         }
     }
     
@@ -194,14 +237,34 @@ struct AdvanceCaseDetailView: View {
             }
             
             if remaining > 0 {
+                HStack(spacing: 8) {
+                    Button {
+                        selectedParticipantForRepayment = participant
+                    } label: {
+                        Label("記錄還款", systemImage: "arrow.down.circle")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.blue)
+                    
+                    Button {
+                        selectedParticipantForEdit = participant
+                    } label: {
+                        Label("更正欠款", systemImage: "pencil")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.orange)
+                }
+            } else {
                 Button {
-                    selectedParticipant = participant
+                    selectedParticipantForEdit = participant
                 } label: {
-                    Label("記錄還款", systemImage: "arrow.down.circle")
+                    Label("更正欠款", systemImage: "pencil")
                         .font(.caption)
                 }
                 .buttonStyle(.bordered)
-                .tint(.blue)
+                .tint(.orange)
             }
         }
         .padding(.vertical, 4)
@@ -240,6 +303,19 @@ struct AdvanceCaseDetailView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+    
+    private func rollbackRepayment(_ repayment: AdvanceRepayment) {
+        do {
+            try AdvanceService.rollbackRepayment(
+                advanceCase: advanceCase,
+                repayment: repayment,
+                modelContext: modelContext
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            showingError = true
+        }
     }
 }
 
@@ -618,6 +694,114 @@ struct AddAdvanceRepaymentView: View {
             Spacer()
             Text(value)
                 .foregroundStyle(.secondary)
+        }
+    }
+    
+    private func sanitizePositiveDecimalInput(_ value: String) -> String {
+        let allowed = value.filter { "0123456789.".contains($0) }
+        var result = ""
+        var hasDot = false
+        
+        for char in allowed {
+            if char == "." {
+                if hasDot { continue }
+                hasDot = true
+            }
+            result.append(char)
+        }
+        
+        return result == "." ? "" : result
+    }
+    
+    private func showError(_ message: String) {
+        errorMessage = message
+        showingError = true
+    }
+}
+
+struct EditAdvanceParticipantView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    
+    let advanceCase: AdvanceCase
+    let participant: AdvanceParticipant
+    
+    @State private var owedAmountString = ""
+    @State private var showingError = false
+    @State private var errorMessage = ""
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("對象") {
+                    HStack {
+                        Text("姓名")
+                        Spacer()
+                        Text(participant.name)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("已還")
+                        Spacer()
+                        Text(participant.repaidAmount.formatted(.currency(code: advanceCase.currencyCode)))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                
+                Section("更正欠款") {
+                    TextField("欠款金額", text: Binding(
+                        get: { owedAmountString },
+                        set: { owedAmountString = sanitizePositiveDecimalInput($0) }
+                    ))
+                    .keyboardType(.decimalPad)
+                    
+                    Text("此值用於代墊追蹤；借貸實際帳務仍以轉帳紀錄為準。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("更正欠款")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("儲存") { save() }
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("完成") {
+                        hideKeyboard()
+                    }
+                }
+            }
+            .alert("無法儲存", isPresented: $showingError) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text(errorMessage)
+            }
+            .onAppear {
+                owedAmountString = NSDecimalNumber(decimal: participant.owedAmount).stringValue
+            }
+        }
+    }
+    
+    private func save() {
+        guard let newOwed = Decimal(string: owedAmountString), newOwed > 0 else {
+            showError("請輸入大於 0 的欠款金額。")
+            return
+        }
+        
+        do {
+            try AdvanceService.updateParticipantOwedAmount(
+                advanceCase: advanceCase,
+                participant: participant,
+                newOwedAmount: newOwed,
+                modelContext: modelContext
+            )
+            dismiss()
+        } catch {
+            showError(error.localizedDescription)
         }
     }
     

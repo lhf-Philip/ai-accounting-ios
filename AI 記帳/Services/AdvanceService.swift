@@ -11,6 +11,9 @@ enum AdvanceServiceError: LocalizedError {
     case missingDebtAccount
     case invalidRepaymentAmount
     case repaymentExceedsRemaining
+    case invalidAdjustedOwedAmount
+    case adjustedOwedLowerThanRepaid
+    case missingRepaymentParticipant
     
     var errorDescription: String? {
         switch self {
@@ -32,6 +35,12 @@ enum AdvanceServiceError: LocalizedError {
             return "還款金額需大於 0。"
         case .repaymentExceedsRemaining:
             return "還款金額超過未還餘額。"
+        case .invalidAdjustedOwedAmount:
+            return "更正後欠款金額需大於 0。"
+        case .adjustedOwedLowerThanRepaid:
+            return "更正後欠款不可低於已還金額。"
+        case .missingRepaymentParticipant:
+            return "找不到還款對應的對象資料。"
         }
     }
 }
@@ -271,5 +280,64 @@ enum AdvanceService {
         
         try modelContext.save()
         return repayment
+    }
+    
+    @MainActor
+    static func updateParticipantOwedAmount(
+        advanceCase: AdvanceCase,
+        participant: AdvanceParticipant,
+        newOwedAmount: Decimal,
+        modelContext: ModelContext
+    ) throws {
+        guard participant.advanceCase?.id == advanceCase.id else {
+            throw AdvanceServiceError.participantNotInCase
+        }
+        guard newOwedAmount > 0 else {
+            throw AdvanceServiceError.invalidAdjustedOwedAmount
+        }
+        guard newOwedAmount + roundingTolerance >= participant.repaidAmount else {
+            throw AdvanceServiceError.adjustedOwedLowerThanRepaid
+        }
+        
+        participant.owedAmount = newOwedAmount
+        if participant.repaidAmount > newOwedAmount {
+            participant.repaidAmount = newOwedAmount
+        }
+        participant.updatedAt = Date()
+        advanceCase.updatedAt = Date()
+        
+        try modelContext.save()
+    }
+    
+    @MainActor
+    static func rollbackRepayment(
+        advanceCase: AdvanceCase,
+        repayment: AdvanceRepayment,
+        modelContext: ModelContext
+    ) throws {
+        guard repayment.advanceCase?.id == advanceCase.id else {
+            throw AdvanceServiceError.participantNotInCase
+        }
+        guard let participant = repayment.participant else {
+            throw AdvanceServiceError.missingRepaymentParticipant
+        }
+        
+        if let groupID = repayment.linkedTransferGroupID {
+            let descriptor = FetchDescriptor<FinancialTransaction>(
+                predicate: #Predicate { $0.transferGroupID == groupID }
+            )
+            let linkedTransfers = (try? modelContext.fetch(descriptor)) ?? []
+            for tx in linkedTransfers {
+                modelContext.delete(tx)
+            }
+        }
+        
+        let updatedRepaid = participant.repaidAmount - repayment.normalizedAmount
+        participant.repaidAmount = updatedRepaid > 0 ? updatedRepaid : 0
+        participant.updatedAt = Date()
+        advanceCase.updatedAt = Date()
+        
+        modelContext.delete(repayment)
+        try modelContext.save()
     }
 }
