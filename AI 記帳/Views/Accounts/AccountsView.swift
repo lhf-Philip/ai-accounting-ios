@@ -144,7 +144,26 @@ struct AccountsView: View {
     
     private func deleteAccount(_ account: Account) {
         let transfers = account.transactions.filter { $0.type == .transfer }
+        var handledGroupIDs = Set<UUID>()
+        
         for tx in transfers {
+            if let groupID = tx.transferGroupID {
+                if handledGroupIDs.contains(groupID) {
+                    continue
+                }
+                handledGroupIDs.insert(groupID)
+                
+                let descriptor = FetchDescriptor<FinancialTransaction>(
+                    predicate: #Predicate { $0.transferGroupID == groupID }
+                )
+                if let groupedTransfers = try? modelContext.fetch(descriptor) {
+                    for transfer in groupedTransfers {
+                        modelContext.delete(transfer)
+                    }
+                }
+                continue
+            }
+            
             if let linkedID = tx.linkedTransactionID {
                 let descriptor = FetchDescriptor<FinancialTransaction>(predicate: #Predicate { $0.id == linkedID })
                 if let linkedTx = try? modelContext.fetch(descriptor).first { modelContext.delete(linkedTx) }
