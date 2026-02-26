@@ -1,21 +1,23 @@
 # Security Policy
 
+Language: **English** | [繁體中文](./SECURITY.zh-Hant.md) | [简体中文](./SECURITY.zh-Hans.md)
+
 ## Supported Versions
 
-目前維護中的版本：`1.x`
+Maintained major version: `1.x`
 
 ## Reporting a Vulnerability
 
-請不要公開張貼可直接利用的安全漏洞細節。
+Please do not post exploit details publicly.
 
-建議流程：
+Recommended process:
 
-1. 優先使用 GitHub 的 Private Vulnerability Reporting（若已啟用）
-2. 或先開一個標題含 `[SECURITY]` 的 issue（不附 exploit 細節）
-3. 維護者確認後再進一步私下提供細節
+1. Use GitHub Private Vulnerability Reporting when available.
+2. Or open an issue titled with `[SECURITY]` without exploit details.
+3. Share full details privately after maintainer contact.
 
 ## Sensitive Data Rules
 
-- 禁止提交 API keys、access tokens、private keys
-- 禁止提交含個資的真實備份資料（JSON/CSV）
-- 若發現已提交敏感資料，請立即通知維護者並進行撤換/輪替
+- Do not commit API keys, access tokens, or private keys.
+- Do not commit real user backup data (JSON/CSV) containing personal information.
+- If leaked data is discovered, rotate/revoke credentials immediately and notify maintainers.
