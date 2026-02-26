@@ -44,7 +44,7 @@ struct ScannedResultView: View {
                 
                 Picker("分類", selection: $selectedCategory) {
                     Text("選擇分類").tag(nil as Category?)
-                    ForEach(categories) { cat in
+                    ForEach(expenseCategories) { cat in
                         HStack {
                             Image(systemName: cat.icon)
                             Text(cat.name)
@@ -83,7 +83,7 @@ struct ScannedResultView: View {
             }
             
             // 嘗試自動匹配分類
-            if let match = categories.first(where: { $0.name == info.categoryName }) {
+            if let match = expenseCategories.first(where: { $0.name == info.categoryName }) {
                 selectedCategory = match
             }
             
@@ -143,5 +143,9 @@ struct ScannedResultView: View {
             }
             return fallback.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         }
+    }
+    
+    private var expenseCategories: [Category] {
+        categories.filter { $0.kind.supports(.expense) }
     }
 }

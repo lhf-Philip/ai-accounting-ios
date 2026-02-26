@@ -10,43 +10,27 @@ struct CategoriesView: View {
     
     var body: some View {
         List {
-            ForEach(categories) { category in
-                HStack(spacing: 16) {
-                    // Icon Circle
-                    ZStack {
-                        Circle()
-                            .fill(Color(hex: category.colorHex))
-                            .frame(width: 40, height: 40)
-                        
-                        Image(systemName: category.icon)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white)
+            if !expenseCategories.isEmpty {
+                Section("支出分類") {
+                    ForEach(expenseCategories) { category in
+                        categoryRow(category)
                     }
-                    
-                    Text(category.name)
-                        .font(.body)
-                        .fontWeight(.medium)
-                    
-                    Spacer()
                 }
-                .padding(.vertical, 4)
-                .contentShape(Rectangle()) // 讓整個區域可點擊
-                .onTapGesture {
-                    categoryToEdit = category
+            }
+            
+            if !incomeCategories.isEmpty {
+                Section("收入分類") {
+                    ForEach(incomeCategories) { category in
+                        categoryRow(category)
+                    }
                 }
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
-                        deleteCategory(category)
-                    } label: {
-                        Label("刪除", systemImage: "trash")
+            }
+            
+            if !sharedCategories.isEmpty {
+                Section("通用分類") {
+                    ForEach(sharedCategories) { category in
+                        categoryRow(category)
                     }
-                    
-                    Button {
-                        categoryToEdit = category
-                    } label: {
-                        Label("編輯", systemImage: "pencil")
-                    }
-                    .tint(.blue)
                 }
             }
         }
@@ -79,5 +63,56 @@ struct CategoriesView: View {
     
     private func deleteCategory(_ category: Category) {
         modelContext.delete(category)
+    }
+    
+    private func categoryRow(_ category: Category) -> some View {
+        HStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(Color(hex: category.colorHex))
+                    .frame(width: 40, height: 40)
+                
+                Image(systemName: category.icon)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+            
+            Text(category.name)
+                .font(.body)
+                .fontWeight(.medium)
+            
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            categoryToEdit = category
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                deleteCategory(category)
+            } label: {
+                Label("刪除", systemImage: "trash")
+            }
+            
+            Button {
+                categoryToEdit = category
+            } label: {
+                Label("編輯", systemImage: "pencil")
+            }
+            .tint(.blue)
+        }
+    }
+    
+    private var expenseCategories: [Category] {
+        categories.filter { $0.kind == .expense }
+    }
+    
+    private var incomeCategories: [Category] {
+        categories.filter { $0.kind == .income }
+    }
+    
+    private var sharedCategories: [Category] {
+        categories.filter { $0.kind == .both }
     }
 }

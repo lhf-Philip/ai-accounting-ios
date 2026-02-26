@@ -27,6 +27,38 @@ enum TransactionType: String, Codable {
     case transfer = "Transfer"
 }
 
+enum TransferSide: String, Codable {
+    case outgoing = "Outgoing"
+    case incoming = "Incoming"
+}
+
+enum CategoryKind: String, Codable, CaseIterable, Identifiable {
+    case expense = "Expense"
+    case income = "Income"
+    case both = "Both"
+    
+    var id: String { self.rawValue }
+    
+    var displayName: String {
+        switch self {
+        case .expense: return "支出"
+        case .income: return "收入"
+        case .both: return "通用"
+        }
+    }
+    
+    func supports(_ transactionType: TransactionType) -> Bool {
+        switch transactionType {
+        case .expense:
+            return self == .expense || self == .both
+        case .income:
+            return self == .income || self == .both
+        case .transfer:
+            return false
+        }
+    }
+}
+
 // MARK: - Models
 
 @Model
@@ -64,15 +96,17 @@ final class Category {
     var name: String
     var icon: String
     var colorHex: String
+    var kind: CategoryKind = CategoryKind.both
     
     @Relationship(deleteRule: .nullify, inverse: \FinancialTransaction.category)
     var transactions: [FinancialTransaction] = []
     
-    init(id: UUID = UUID(), name: String, icon: String, colorHex: String) {
+    init(id: UUID = UUID(), name: String, icon: String, colorHex: String, kind: CategoryKind = CategoryKind.both) {
         self.id = id
         self.name = name
         self.icon = icon
         self.colorHex = colorHex
+        self.kind = kind
     }
 }
 
@@ -101,6 +135,10 @@ final class FinancialTransaction {
     
     var type: TransactionType
     var linkedTransactionID: UUID?
+    var transferGroupID: UUID?
+    var transferSide: TransferSide?
+    var createdAt: Date = Date()
+    var updatedAt: Date = Date()
     
     var account: Account?
     var category: Category?
@@ -114,9 +152,13 @@ final class FinancialTransaction {
          photoPath: String? = nil,
          type: TransactionType = .expense,
          linkedTransactionID: UUID? = nil,
+         transferGroupID: UUID? = nil,
+         transferSide: TransferSide? = nil,
          account: Account? = nil,
          category: Category? = nil,
-         tags: [Tag] = []) {
+         tags: [Tag] = [],
+         createdAt: Date = Date(),
+         updatedAt: Date = Date()) {
         self.id = id
         self.amount = amount
         self.currencyCode = currencyCode
@@ -125,9 +167,13 @@ final class FinancialTransaction {
         self.photoPath = photoPath
         self.type = type
         self.linkedTransactionID = linkedTransactionID
+        self.transferGroupID = transferGroupID
+        self.transferSide = transferSide
         self.account = account
         self.category = category
         self.tags = tags
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 }
 

@@ -148,13 +148,14 @@ struct AddAccountView: View {
             let absAmount = abs(mainBalance)
             let isBorrowing = mainBalance < 0
             let txID1 = UUID(); let txID2 = UUID()
+            let transferGroupID = UUID()
             if isBorrowing {
-                let debtTx = FinancialTransaction(id: txID1, amount: -absAmount, currencyCode: currency, date: now, note: "\(note) (轉至 \(linked.name))", type: .transfer, linkedTransactionID: txID2, account: newAccount)
-                let myTx = FinancialTransaction(id: txID2, amount: absAmount, currencyCode: currency, date: now, note: "\(note) (來自 \(newAccount.name))", type: .transfer, linkedTransactionID: txID1, account: linked)
+                let debtTx = FinancialTransaction(id: txID1, amount: -absAmount, currencyCode: currency, date: now, note: "\(note) (轉至 \(linked.name))", type: .transfer, linkedTransactionID: txID2, transferGroupID: transferGroupID, transferSide: .outgoing, account: newAccount)
+                let myTx = FinancialTransaction(id: txID2, amount: absAmount, currencyCode: currency, date: now, note: "\(note) (來自 \(newAccount.name))", type: .transfer, linkedTransactionID: txID1, transferGroupID: transferGroupID, transferSide: .incoming, account: linked)
                 modelContext.insert(debtTx); modelContext.insert(myTx)
             } else {
-                let myTx = FinancialTransaction(id: txID1, amount: -absAmount, currencyCode: currency, date: now, note: "\(note) (借給 \(newAccount.name))", type: .transfer, linkedTransactionID: txID2, account: linked)
-                let debtTx = FinancialTransaction(id: txID2, amount: absAmount, currencyCode: currency, date: now, note: "\(note) (來自 \(linked.name))", type: .transfer, linkedTransactionID: txID1, account: newAccount)
+                let myTx = FinancialTransaction(id: txID1, amount: -absAmount, currencyCode: currency, date: now, note: "\(note) (借給 \(newAccount.name))", type: .transfer, linkedTransactionID: txID2, transferGroupID: transferGroupID, transferSide: .outgoing, account: linked)
+                let debtTx = FinancialTransaction(id: txID2, amount: absAmount, currencyCode: currency, date: now, note: "\(note) (來自 \(linked.name))", type: .transfer, linkedTransactionID: txID1, transferGroupID: transferGroupID, transferSide: .incoming, account: newAccount)
                 modelContext.insert(myTx); modelContext.insert(debtTx)
             }
         }

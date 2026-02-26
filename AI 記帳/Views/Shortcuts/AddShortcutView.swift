@@ -51,6 +51,11 @@ struct AddShortcutView: View {
                         Text("收入").tag(TransactionType.income)
                     }
                     .pickerStyle(.segmented)
+                    .onChange(of: selectedType) {
+                        if let current = selectedCategory, !current.kind.supports(selectedType) {
+                            selectedCategory = nil
+                        }
+                    }
                     
                     HStack {
                         // 🔥 幣種選擇
@@ -76,7 +81,7 @@ struct AddShortcutView: View {
                     
                     Picker("分類", selection: $selectedCategory) {
                         Text("無分類").tag(nil as Category?)
-                        ForEach(categories) { cat in
+                        ForEach(filteredCategories) { cat in
                             HStack { Image(systemName: cat.icon); Text(cat.name) }.tag(cat as Category?)
                         }
                     }
@@ -119,5 +124,9 @@ struct AddShortcutView: View {
         let shortcut = Shortcut(name: name, icon: finalIcon, amount: amount, currencyCode: selectedCurrency, type: selectedType, note: note, account: account, category: selectedCategory, tags: Array(selectedTags))
         modelContext.insert(shortcut)
         dismiss()
+    }
+    
+    private var filteredCategories: [Category] {
+        categories.filter { $0.kind.supports(selectedType) }
     }
 }

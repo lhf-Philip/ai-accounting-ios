@@ -170,6 +170,7 @@ struct AddTransferView: View {
         
         let txID1 = UUID()
         let txID2 = UUID()
+        let transferGroupID = UUID()
         let memo = note.isEmpty ? "轉帳" : note
         
         // 1. 轉出 (支出) - 使用 currencyOut
@@ -181,6 +182,8 @@ struct AddTransferView: View {
             note: "\(memo) (轉至 \(to.name))",
             type: .transfer,
             linkedTransactionID: txID2,
+            transferGroupID: transferGroupID,
+            transferSide: .outgoing,
             account: from
         )
         
@@ -193,6 +196,8 @@ struct AddTransferView: View {
             note: "\(memo) (來自 \(from.name))",
             type: .transfer,
             linkedTransactionID: txID1,
+            transferGroupID: transferGroupID,
+            transferSide: .incoming,
             account: to
         )
         

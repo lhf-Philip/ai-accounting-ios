@@ -221,12 +221,26 @@ struct EditTransferView: View {
         outTx.currencyCode = currencyOut
         outTx.date = date
         outTx.note = note.isEmpty ? "轉帳 (轉至 \(to.name))" : "\(note) (轉至 \(to.name))"
+        outTx.transferSide = .outgoing
+        outTx.updatedAt = Date()
         
         // 更新轉入
         inTx.amount = normalizedAmountIn
         inTx.currencyCode = currencyIn
         inTx.date = date
         inTx.note = note.isEmpty ? "轉帳 (來自 \(from.name))" : "\(note) (來自 \(from.name))"
+        inTx.transferSide = .incoming
+        inTx.updatedAt = Date()
+        
+        if outTx.transferGroupID == nil && inTx.transferGroupID == nil {
+            let groupID = UUID()
+            outTx.transferGroupID = groupID
+            inTx.transferGroupID = groupID
+        } else if outTx.transferGroupID == nil {
+            outTx.transferGroupID = inTx.transferGroupID
+        } else if inTx.transferGroupID == nil {
+            inTx.transferGroupID = outTx.transferGroupID
+        }
         
         dismiss()
     }
