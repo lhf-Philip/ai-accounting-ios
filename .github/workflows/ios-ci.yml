@@ -20,7 +20,7 @@ jobs:
 
       - name: Validate String Catalog
         run: |
-          plutil -lint Localizable.xcstrings
+          python3 -m json.tool Localizable.xcstrings > /dev/null
           mkdir -p /tmp/xcstrings-build
           xcrun xcstringstool compile --dry-run \
             --output-directory /tmp/xcstrings-build \
