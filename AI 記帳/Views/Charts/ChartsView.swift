@@ -193,13 +193,13 @@ struct ChartsView: View {
         if chartMode == .category {
             let grouped = Dictionary(grouping: filteredExpenses) { $0.category }
             let sorted = grouped.sorted {
-                let sum0 = $0.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.account?.currency ?? "HKD") }
-                let sum1 = $1.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.account?.currency ?? "HKD") }
+                let sum0 = $0.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
+                let sum1 = $1.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
                 return sum0 > sum1
             }
             // 🔥 修復：優先使用分類的 colorHex，如果沒有則使用灰色
             return sorted.enumerated().map { (index, item) in
-                let total = item.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.account?.currency ?? "HKD") }
+                let total = item.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
                 let displayColor: Color
                 if let category = item.key {
                     displayColor = Color(hex: category.colorHex)
@@ -211,7 +211,7 @@ struct ChartsView: View {
         } else {
             var tagDict: [String: Decimal] = [:]
             for tx in filteredExpenses {
-                let amount = currencyService.convert(amount: abs(tx.amount), from: tx.account?.currency ?? "HKD")
+                let amount = currencyService.convert(amount: abs(tx.amount), from: tx.currencyCode)
                 if tx.tags.isEmpty { tagDict["無標籤", default: 0] += amount }
                 else { for tag in tx.tags { tagDict[tag.name, default: 0] += amount } }
             }
@@ -229,13 +229,13 @@ struct ChartsView: View {
         }
         let grouped = Dictionary(grouping: tagTransactions) { $0.category }
         let sorted = grouped.sorted {
-            let sum0 = $0.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.account?.currency ?? "HKD") }
-            let sum1 = $1.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.account?.currency ?? "HKD") }
+            let sum0 = $0.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
+            let sum1 = $1.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
             return sum0 > sum1
         }
         // 🔥 修復：鑽取詳情時也使用分類顏色
         return sorted.enumerated().map { (index, item) in
-            let total = item.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.account?.currency ?? "HKD") }
+            let total = item.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
             let displayColor: Color
             if let category = item.key {
                 displayColor = Color(hex: category.colorHex)
