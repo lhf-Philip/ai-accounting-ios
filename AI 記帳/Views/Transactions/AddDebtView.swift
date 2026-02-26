@@ -16,6 +16,8 @@ struct AddDebtView: View {
     @State private var amountString: String = ""
     @State private var date: Date = Date()
     @State private var note: String = ""
+    @State private var showingValidationAlert = false
+    @State private var validationMessage = ""
     
     // 🔥 新增：幣種選擇 (預設為我的帳戶幣種，但可更改)
     @State private var selectedCurrency: String = "HKD"
@@ -68,6 +70,12 @@ struct AddDebtView: View {
                         TextField("0", text: $amountString)
                             .keyboardType(.decimalPad)
                             .focused($isAmountFocused)
+                            .onChange(of: amountString) { _, newValue in
+                                let sanitized = sanitizePositiveDecimalInput(newValue)
+                                if sanitized != newValue {
+                                    amountString = sanitized
+                                }
+                            }
                     }
                     
                     DatePicker("日期", selection: $date, displayedComponents: [.date, .hourAndMinute])
@@ -91,6 +99,11 @@ struct AddDebtView: View {
                 }
             }
             .navigationTitle("借貸管理")
+            .alert("輸入錯誤", isPresented: $showingValidationAlert) {
+                Button("確定", role: .cancel) { }
+            } message: {
+                Text(validationMessage)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -108,7 +121,13 @@ struct AddDebtView: View {
     }
     
     private func saveTransaction() {
-        guard let debtAcc = selectedDebtAccount, let myAcc = selectedMyAccount, let amount = Decimal(string: amountString) else { return }
+        guard let debtAcc = selectedDebtAccount, let myAcc = selectedMyAccount else { return }
+        guard let amount = positiveDecimal(from: amountString) else {
+            showValidation("請輸入大於 0 的金額。")
+            return
+        }
+        
+        let normalizedAmount = abs(amount)
         
         let txID1 = UUID(); let txID2 = UUID()
         let memo = note.isEmpty ? mode.rawValue : note
@@ -118,25 +137,51 @@ struct AddDebtView: View {
         
         if mode == .borrow {
             let debtTx = FinancialTransaction(
-                id: txID1, amount: -amount, currencyCode: selectedCurrency, // 🔥 設定幣種
+                id: txID1, amount: -normalizedAmount, currencyCode: selectedCurrency, // 🔥 設定幣種
                 date: date, note: "\(memo) (借入至 \(myAcc.name))", type: .transfer, linkedTransactionID: txID2, account: debtAcc
             )
             let myTx = FinancialTransaction(
-                id: txID2, amount: amount, currencyCode: selectedCurrency, // 🔥 設定幣種
+                id: txID2, amount: normalizedAmount, currencyCode: selectedCurrency, // 🔥 設定幣種
                 date: date, note: "\(memo) (來自 \(debtAcc.name))", type: .transfer, linkedTransactionID: txID1, account: myAcc
             )
             modelContext.insert(debtTx); modelContext.insert(myTx)
         } else {
             let myTx = FinancialTransaction(
-                id: txID1, amount: -amount, currencyCode: selectedCurrency, // 🔥 設定幣種
+                id: txID1, amount: -normalizedAmount, currencyCode: selectedCurrency, // 🔥 設定幣種
                 date: date, note: "\(memo) (還款給 \(debtAcc.name))", type: .transfer, linkedTransactionID: txID2, account: myAcc
             )
             let debtTx = FinancialTransaction(
-                id: txID2, amount: amount, currencyCode: selectedCurrency, // 🔥 設定幣種
+                id: txID2, amount: normalizedAmount, currencyCode: selectedCurrency, // 🔥 設定幣種
                 date: date, note: "\(memo) (來自 \(myAcc.name))", type: .transfer, linkedTransactionID: txID1, account: debtAcc
             )
             modelContext.insert(myTx); modelContext.insert(debtTx)
         }
         dismiss()
+    }
+    
+    private func positiveDecimal(from value: String) -> Decimal? {
+        guard let parsed = Decimal(string: value), parsed > 0 else { return nil }
+        return parsed
+    }
+    
+    private func sanitizePositiveDecimalInput(_ value: String) -> String {
+        let allowed = value.filter { "0123456789.".contains($0) }
+        var result = ""
+        var hasDot = false
+        
+        for char in allowed {
+            if char == "." {
+                if hasDot { continue }
+                hasDot = true
+            }
+            result.append(char)
+        }
+        
+        return result == "." ? "" : result
+    }
+    
+    private func showValidation(_ message: String) {
+        validationMessage = message
+        showingValidationAlert = true
     }
 }
