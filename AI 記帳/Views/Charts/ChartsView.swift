@@ -254,22 +254,17 @@ struct ChartsView: View {
     
     var currentData: [ChartData] {
         if chartMode == .category {
-            let grouped = Dictionary(grouping: filteredTransactions) { $0.category }
+            let grouped = Dictionary(grouping: filteredTransactions) { $0.category?.id.uuidString ?? "uncategorized" }
             let sorted = grouped.sorted {
                 let sum0 = $0.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
                 let sum1 = $1.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
                 return sum0 > sum1
             }
-            // 🔥 修復：優先使用分類的 colorHex，如果沒有則使用灰色
             return sorted.enumerated().map { (index, item) in
                 let total = item.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
-                let displayColor: Color
-                if let category = item.key {
-                    displayColor = Color(hex: category.colorHex)
-                } else {
-                    displayColor = .gray
-                }
-                return ChartData(name: item.key?.name ?? "未分類", amount: total, color: displayColor)
+                let category = item.value.compactMap { $0.category }.first
+                let displayColor = category.map { Color(hex: $0.colorHex) } ?? .gray
+                return ChartData(name: category?.name ?? "未分類", amount: total, color: displayColor)
             }
         } else {
             var tagDict: [String: Decimal] = [:]
@@ -290,22 +285,17 @@ struct ChartsView: View {
             if tagName == "無標籤" { return tx.tags.isEmpty }
             return tx.tags.contains { $0.name == tagName }
         }
-        let grouped = Dictionary(grouping: tagTransactions) { $0.category }
+        let grouped = Dictionary(grouping: tagTransactions) { $0.category?.id.uuidString ?? "uncategorized" }
         let sorted = grouped.sorted {
             let sum0 = $0.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
             let sum1 = $1.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
             return sum0 > sum1
         }
-        // 🔥 修復：鑽取詳情時也使用分類顏色
         return sorted.enumerated().map { (index, item) in
             let total = item.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
-            let displayColor: Color
-            if let category = item.key {
-                displayColor = Color(hex: category.colorHex)
-            } else {
-                displayColor = .gray
-            }
-            return ChartData(name: item.key?.name ?? "未分類", amount: total, color: displayColor)
+            let category = item.value.compactMap { $0.category }.first
+            let displayColor = category.map { Color(hex: $0.colorHex) } ?? .gray
+            return ChartData(name: category?.name ?? "未分類", amount: total, color: displayColor)
         }
     }
     

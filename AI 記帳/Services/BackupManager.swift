@@ -14,6 +14,9 @@ struct FullBackupData: Codable {
     let transactions: [TransactionCodable]
     let shortcuts: [ShortcutCodable]
     let budgets: [BudgetCodable]?
+    let advanceCases: [AdvanceCaseCodable]?
+    let advanceParticipants: [AdvanceParticipantCodable]?
+    let advanceRepayments: [AdvanceRepaymentCodable]?
     
     struct AccountCodable: Codable {
         let id: UUID; let name: String; let currency: String; let type: String; let baseBalance: Decimal; let sortOrder: Int
@@ -52,6 +55,41 @@ struct FullBackupData: Codable {
         let categoryID: UUID?
         let createdAt: Date?
         let updatedAt: Date?
+    }
+    struct AdvanceCaseCodable: Codable {
+        let id: UUID
+        let title: String
+        let date: Date
+        let currencyCode: String
+        let myShareAmount: Decimal?
+        let note: String?
+        let payerAccountID: UUID?
+        let expenseCategoryID: UUID?
+        let createdAt: Date?
+        let updatedAt: Date?
+    }
+    struct AdvanceParticipantCodable: Codable {
+        let id: UUID
+        let name: String
+        let owedAmount: Decimal
+        let repaidAmount: Decimal?
+        let advanceCaseID: UUID?
+        let debtAccountID: UUID?
+        let createdAt: Date?
+        let updatedAt: Date?
+    }
+    struct AdvanceRepaymentCodable: Codable {
+        let id: UUID
+        let amount: Decimal
+        let currencyCode: String
+        let normalizedAmount: Decimal?
+        let date: Date
+        let note: String?
+        let linkedTransferGroupID: UUID?
+        let advanceCaseID: UUID?
+        let participantID: UUID?
+        let receivedAccountID: UUID?
+        let createdAt: Date?
     }
 }
 
@@ -118,8 +156,11 @@ class BackupManager: NSObject, ObservableObject {
         let transactions = (try? modelContext.fetch(FetchDescriptor<FinancialTransaction>())) ?? []
         let shortcuts = (try? modelContext.fetch(FetchDescriptor<Shortcut>())) ?? []
         let budgets = (try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []
+        let advanceCases = (try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []
+        let advanceParticipants = (try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []
+        let advanceRepayments = (try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []
         
-        return FullBackupData(version: "1.3", timestamp: Date(),
+        return FullBackupData(version: "1.4", timestamp: Date(),
             accounts: accounts.map { FullBackupData.AccountCodable(id: $0.id, name: $0.name, currency: $0.currency, type: $0.type.rawValue, baseBalance: $0.baseBalance, sortOrder: $0.sortOrder, isArchived: $0.isArchived) },
             categories: categories.map { FullBackupData.CategoryCodable(id: $0.id, name: $0.name, icon: $0.icon, colorHex: $0.colorHex, kind: $0.kind.rawValue) },
             tags: tags.map { FullBackupData.TagCodable(id: $0.id, name: $0.name) },
@@ -153,6 +194,47 @@ class BackupManager: NSObject, ObservableObject {
                     categoryID: $0.category?.id,
                     createdAt: $0.createdAt,
                     updatedAt: $0.updatedAt
+                )
+            },
+            advanceCases: advanceCases.map {
+                FullBackupData.AdvanceCaseCodable(
+                    id: $0.id,
+                    title: $0.title,
+                    date: $0.date,
+                    currencyCode: $0.currencyCode,
+                    myShareAmount: $0.myShareAmount,
+                    note: $0.note,
+                    payerAccountID: $0.payerAccount?.id,
+                    expenseCategoryID: $0.expenseCategory?.id,
+                    createdAt: $0.createdAt,
+                    updatedAt: $0.updatedAt
+                )
+            },
+            advanceParticipants: advanceParticipants.map {
+                FullBackupData.AdvanceParticipantCodable(
+                    id: $0.id,
+                    name: $0.name,
+                    owedAmount: $0.owedAmount,
+                    repaidAmount: $0.repaidAmount,
+                    advanceCaseID: $0.advanceCase?.id,
+                    debtAccountID: $0.debtAccount?.id,
+                    createdAt: $0.createdAt,
+                    updatedAt: $0.updatedAt
+                )
+            },
+            advanceRepayments: advanceRepayments.map {
+                FullBackupData.AdvanceRepaymentCodable(
+                    id: $0.id,
+                    amount: $0.amount,
+                    currencyCode: $0.currencyCode,
+                    normalizedAmount: $0.normalizedAmount,
+                    date: $0.date,
+                    note: $0.note,
+                    linkedTransferGroupID: $0.linkedTransferGroupID,
+                    advanceCaseID: $0.advanceCase?.id,
+                    participantID: $0.participant?.id,
+                    receivedAccountID: $0.receivedAccount?.id,
+                    createdAt: $0.createdAt
                 )
             }
         )
@@ -256,6 +338,94 @@ class BackupManager: NSObject, ObservableObject {
                 modelContext.insert(budget)
             }
         }
+        
+        // 7. 還原代墊主檔
+        if let advanceCaseDTOs = backup.advanceCases {
+            let existingCases = (try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []
+            for caseDTO in advanceCaseDTOs {
+                if existingCases.contains(where: { $0.id == caseDTO.id }) {
+                    continue
+                }
+                
+                let payerAccount = updatedAccounts.first(where: { $0.id == caseDTO.payerAccountID })
+                let expenseCategory = updatedCategories.first(where: { $0.id == caseDTO.expenseCategoryID })
+                
+                let advanceCase = AdvanceCase(
+                    id: caseDTO.id,
+                    title: caseDTO.title,
+                    date: caseDTO.date,
+                    currencyCode: caseDTO.currencyCode,
+                    myShareAmount: caseDTO.myShareAmount ?? 0,
+                    note: caseDTO.note ?? "",
+                    createdAt: caseDTO.createdAt ?? caseDTO.date,
+                    updatedAt: caseDTO.updatedAt ?? (caseDTO.createdAt ?? caseDTO.date),
+                    payerAccount: payerAccount,
+                    expenseCategory: expenseCategory
+                )
+                modelContext.insert(advanceCase)
+            }
+        }
+        
+        // 8. 還原代墊對象
+        if let participantDTOs = backup.advanceParticipants {
+            let restoredCases = (try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []
+            let existingParticipants = (try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []
+            
+            for participantDTO in participantDTOs {
+                if existingParticipants.contains(where: { $0.id == participantDTO.id }) {
+                    continue
+                }
+                
+                let advanceCase = restoredCases.first(where: { $0.id == participantDTO.advanceCaseID })
+                let debtAccount = updatedAccounts.first(where: { $0.id == participantDTO.debtAccountID })
+                
+                let participant = AdvanceParticipant(
+                    id: participantDTO.id,
+                    name: participantDTO.name,
+                    owedAmount: participantDTO.owedAmount,
+                    repaidAmount: participantDTO.repaidAmount ?? 0,
+                    createdAt: participantDTO.createdAt ?? Date(),
+                    updatedAt: participantDTO.updatedAt ?? (participantDTO.createdAt ?? Date()),
+                    advanceCase: advanceCase,
+                    debtAccount: debtAccount
+                )
+                modelContext.insert(participant)
+            }
+        }
+        
+        // 9. 還原代墊還款紀錄
+        if let repaymentDTOs = backup.advanceRepayments {
+            let restoredCases = (try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []
+            let restoredParticipants = (try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []
+            let existingRepayments = (try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []
+            
+            for repaymentDTO in repaymentDTOs {
+                if existingRepayments.contains(where: { $0.id == repaymentDTO.id }) {
+                    continue
+                }
+                
+                let advanceCase = restoredCases.first(where: { $0.id == repaymentDTO.advanceCaseID })
+                let participant = restoredParticipants.first(where: { $0.id == repaymentDTO.participantID })
+                let receiveAccount = updatedAccounts.first(where: { $0.id == repaymentDTO.receivedAccountID })
+                
+                let normalized = repaymentDTO.normalizedAmount ?? repaymentDTO.amount
+                let repayment = AdvanceRepayment(
+                    id: repaymentDTO.id,
+                    amount: repaymentDTO.amount,
+                    currencyCode: repaymentDTO.currencyCode,
+                    normalizedAmount: normalized,
+                    date: repaymentDTO.date,
+                    note: repaymentDTO.note ?? "",
+                    linkedTransferGroupID: repaymentDTO.linkedTransferGroupID,
+                    createdAt: repaymentDTO.createdAt ?? repaymentDTO.date,
+                    advanceCase: advanceCase,
+                    participant: participant,
+                    receivedAccount: receiveAccount
+                )
+                modelContext.insert(repayment)
+            }
+        }
+        
         try modelContext.save()
     }
     

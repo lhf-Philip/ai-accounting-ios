@@ -174,6 +174,9 @@ struct SettingsView: View {
                 Section("資料管理") {
                     NavigationLink(destination: CategoriesView()) { Label("分類管理", systemImage: "list.bullet") }
                     NavigationLink(destination: TagsView()) { Label("標籤管理", systemImage: "tag") }
+                    NavigationLink(destination: AdvancesView()) {
+                        Label("代墊追蹤", systemImage: "person.2.fill")
+                    }
                     NavigationLink(destination: BudgetsView()) {
                         Label("預算與超支提醒", systemImage: "chart.bar.doc.horizontal")
                     }
@@ -274,6 +277,9 @@ struct SettingsView: View {
             try modelContext.delete(model: Tag.self)
             try modelContext.delete(model: Shortcut.self)
             try modelContext.delete(model: CategoryMonthlyBudget.self)
+            try modelContext.delete(model: AdvanceRepayment.self)
+            try modelContext.delete(model: AdvanceParticipant.self)
+            try modelContext.delete(model: AdvanceCase.self)
             try modelContext.save()
         } catch {
             print("清除失敗: \(error)")

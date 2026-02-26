@@ -30,6 +30,9 @@ enum DataHealthCheckService {
         let transactions = (try? modelContext.fetch(FetchDescriptor<FinancialTransaction>())) ?? []
         let categories = (try? modelContext.fetch(FetchDescriptor<Category>())) ?? []
         let budgets = (try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []
+        let advanceCases = (try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []
+        let advanceParticipants = (try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []
+        let advanceRepayments = (try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []
         
         var issues: [HealthIssue] = []
         
@@ -38,6 +41,7 @@ enum DataHealthCheckService {
         checkTransferGroups(transactions, into: &issues)
         checkCategories(categories, into: &issues)
         checkBudgets(budgets, into: &issues)
+        checkAdvances(cases: advanceCases, participants: advanceParticipants, repayments: advanceRepayments, into: &issues)
         
         if issues.isEmpty {
             issues.append(
@@ -204,6 +208,85 @@ enum DataHealthCheckService {
                     title: "月預算重複",
                     detail: "共有 \(duplicateCount) 筆重複的「分類 + 月份」預算。",
                     recommendation: "同一分類同月份建議只保留一筆，避免提醒重複。"
+                )
+            )
+        }
+    }
+    
+    private static func checkAdvances(
+        cases: [AdvanceCase],
+        participants: [AdvanceParticipant],
+        repayments: [AdvanceRepayment],
+        into issues: inout [HealthIssue]
+    ) {
+        let orphanParticipants = participants.filter { $0.advanceCase == nil }
+        if !orphanParticipants.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "代墊對象缺少主檔",
+                    detail: "共有 \(orphanParticipants.count) 筆代墊對象未連結到代墊主檔。",
+                    recommendation: "請檢查備份匯入完整性，必要時重建該筆代墊。"
+                )
+            )
+        }
+        
+        let participantsWithoutDebtAccount = participants.filter { $0.debtAccount == nil }
+        if !participantsWithoutDebtAccount.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "代墊對象缺少借貸帳戶",
+                    detail: "共有 \(participantsWithoutDebtAccount.count) 位代墊對象缺少借貸帳戶連結。",
+                    recommendation: "建議補上借貸帳戶，避免還款入帳時無法建立轉帳。"
+                )
+            )
+        }
+        
+        let overRepaidParticipants = participants.filter { $0.repaidAmount > $0.owedAmount }
+        if !overRepaidParticipants.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .error,
+                    title: "代墊對象已還金額異常",
+                    detail: "共有 \(overRepaidParticipants.count) 位對象出現已還金額大於欠款金額。",
+                    recommendation: "請檢查還款紀錄是否重複，並修正對象欠款。"
+                )
+            )
+        }
+        
+        let orphanRepayments = repayments.filter { $0.advanceCase == nil || $0.participant == nil }
+        if !orphanRepayments.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .error,
+                    title: "還款紀錄缺少關聯",
+                    detail: "共有 \(orphanRepayments.count) 筆還款未連結代墊主檔或對象。",
+                    recommendation: "建議回溯該筆還款並重新建立。"
+                )
+            )
+        }
+        
+        let invalidNormalizedRepayments = repayments.filter { $0.normalizedAmount <= 0 }
+        if !invalidNormalizedRepayments.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "還款折算金額異常",
+                    detail: "共有 \(invalidNormalizedRepayments.count) 筆還款折算值小於等於 0。",
+                    recommendation: "請檢查該筆還款幣種與匯率設定。"
+                )
+            )
+        }
+        
+        let emptyCurrencyCases = cases.filter { $0.currencyCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !emptyCurrencyCases.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "代墊主檔缺少幣種",
+                    detail: "共有 \(emptyCurrencyCases.count) 筆代墊主檔未設定幣種。",
+                    recommendation: "建議補上幣種，確保還款折算與統計正確。"
                 )
             )
         }
