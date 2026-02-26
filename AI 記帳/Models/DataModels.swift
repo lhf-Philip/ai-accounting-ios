@@ -237,3 +237,128 @@ final class CategoryMonthlyBudget {
         self.category = category
     }
 }
+
+@Model
+final class AdvanceCase {
+    @Attribute(.unique) var id: UUID
+    var title: String
+    var date: Date
+    var currencyCode: String
+    var myShareAmount: Decimal
+    var note: String
+    var createdAt: Date
+    var updatedAt: Date
+    
+    var payerAccount: Account?
+    var expenseCategory: Category?
+    
+    @Relationship(deleteRule: .cascade, inverse: \AdvanceParticipant.advanceCase)
+    var participants: [AdvanceParticipant] = []
+    
+    @Relationship(deleteRule: .cascade, inverse: \AdvanceRepayment.advanceCase)
+    var repayments: [AdvanceRepayment] = []
+    
+    init(
+        id: UUID = UUID(),
+        title: String,
+        date: Date = Date(),
+        currencyCode: String = "HKD",
+        myShareAmount: Decimal = 0,
+        note: String = "",
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
+        payerAccount: Account? = nil,
+        expenseCategory: Category? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.date = date
+        self.currencyCode = currencyCode
+        self.myShareAmount = myShareAmount
+        self.note = note
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.payerAccount = payerAccount
+        self.expenseCategory = expenseCategory
+    }
+}
+
+@Model
+final class AdvanceParticipant {
+    @Attribute(.unique) var id: UUID
+    var name: String
+    var owedAmount: Decimal
+    var repaidAmount: Decimal
+    var createdAt: Date
+    var updatedAt: Date
+    
+    var advanceCase: AdvanceCase?
+    var debtAccount: Account?
+    
+    init(
+        id: UUID = UUID(),
+        name: String,
+        owedAmount: Decimal,
+        repaidAmount: Decimal = 0,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
+        advanceCase: AdvanceCase? = nil,
+        debtAccount: Account? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.owedAmount = owedAmount
+        self.repaidAmount = repaidAmount
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.advanceCase = advanceCase
+        self.debtAccount = debtAccount
+    }
+    
+    var remainingAmount: Decimal {
+        let remaining = owedAmount - repaidAmount
+        return remaining > 0 ? remaining : 0
+    }
+}
+
+@Model
+final class AdvanceRepayment {
+    @Attribute(.unique) var id: UUID
+    var amount: Decimal
+    var currencyCode: String
+    var normalizedAmount: Decimal // 換算為 AdvanceCase 幣種
+    var date: Date
+    var note: String
+    var linkedTransferGroupID: UUID?
+    var createdAt: Date
+    
+    var advanceCase: AdvanceCase?
+    var participant: AdvanceParticipant?
+    var receivedAccount: Account?
+    
+    init(
+        id: UUID = UUID(),
+        amount: Decimal,
+        currencyCode: String = "HKD",
+        normalizedAmount: Decimal,
+        date: Date = Date(),
+        note: String = "",
+        linkedTransferGroupID: UUID? = nil,
+        createdAt: Date = Date(),
+        advanceCase: AdvanceCase? = nil,
+        participant: AdvanceParticipant? = nil,
+        receivedAccount: Account? = nil
+    ) {
+        self.id = id
+        self.amount = amount
+        self.currencyCode = currencyCode
+        self.normalizedAmount = normalizedAmount
+        self.date = date
+        self.note = note
+        self.linkedTransferGroupID = linkedTransferGroupID
+        self.createdAt = createdAt
+        self.advanceCase = advanceCase
+        self.participant = participant
+        self.receivedAccount = receivedAccount
+    }
+}
