@@ -1,26 +1,28 @@
 # Contributing
 
-## 開發流程
+Language: **English** | [繁體中文](./CONTRIBUTING.zh-Hant.md) | [简体中文](./CONTRIBUTING.zh-Hans.md)
 
-1. Fork 本專案
-2. 建立分支（建議 `feature/...` 或 `fix/...`）
-3. 提交變更與測試結果
-4. 開立 Pull Request
+## Workflow
 
-## 提交前檢查
+1. Fork this repository.
+2. Create a branch (`feature/...` or `fix/...`).
+3. Commit your changes with validation notes.
+4. Open a Pull Request.
 
-- Xcode 可成功 build
-- 主要流程可手動驗證：新增交易、轉帳、報表、備份匯入
-- 不提交任何敏感資料（API key、token、個資）
+## Before Submitting
 
-## Commit 建議格式
+- Project builds successfully in Xcode.
+- Core flows are manually verified: transaction, transfer, reports, backup/restore.
+- No sensitive data is committed (API keys, tokens, personal data, real backup files).
+
+## Recommended Commit Prefixes
 
 - `feat: ...`
 - `fix: ...`
 - `docs: ...`
 - `chore: ...`
 
-## 問題回報
+## Reporting Issues
 
-- Bug：請使用 GitHub Issue 模板並附重現步驟
-- 安全問題：請參考 [SECURITY.md](./SECURITY.md)
+- For bugs, use the GitHub issue template with reproducible steps.
+- For security concerns, follow [SECURITY.md](./SECURITY.md).
