@@ -130,6 +130,7 @@ struct AddDebtView: View {
         let normalizedAmount = abs(amount)
         
         let txID1 = UUID(); let txID2 = UUID()
+        let transferGroupID = UUID()
         let memo = note.isEmpty ? mode.rawValue : note
         
         // 注意：這裡我們將 transaction 的 currencyCode 設為用戶選擇的 selectedCurrency
@@ -138,21 +139,21 @@ struct AddDebtView: View {
         if mode == .borrow {
             let debtTx = FinancialTransaction(
                 id: txID1, amount: -normalizedAmount, currencyCode: selectedCurrency, // 🔥 設定幣種
-                date: date, note: "\(memo) (借入至 \(myAcc.name))", type: .transfer, linkedTransactionID: txID2, account: debtAcc
+                date: date, note: "\(memo) (借入至 \(myAcc.name))", type: .transfer, linkedTransactionID: txID2, transferGroupID: transferGroupID, transferSide: .outgoing, account: debtAcc
             )
             let myTx = FinancialTransaction(
                 id: txID2, amount: normalizedAmount, currencyCode: selectedCurrency, // 🔥 設定幣種
-                date: date, note: "\(memo) (來自 \(debtAcc.name))", type: .transfer, linkedTransactionID: txID1, account: myAcc
+                date: date, note: "\(memo) (來自 \(debtAcc.name))", type: .transfer, linkedTransactionID: txID1, transferGroupID: transferGroupID, transferSide: .incoming, account: myAcc
             )
             modelContext.insert(debtTx); modelContext.insert(myTx)
         } else {
             let myTx = FinancialTransaction(
                 id: txID1, amount: -normalizedAmount, currencyCode: selectedCurrency, // 🔥 設定幣種
-                date: date, note: "\(memo) (還款給 \(debtAcc.name))", type: .transfer, linkedTransactionID: txID2, account: myAcc
+                date: date, note: "\(memo) (還款給 \(debtAcc.name))", type: .transfer, linkedTransactionID: txID2, transferGroupID: transferGroupID, transferSide: .outgoing, account: myAcc
             )
             let debtTx = FinancialTransaction(
                 id: txID2, amount: normalizedAmount, currencyCode: selectedCurrency, // 🔥 設定幣種
-                date: date, note: "\(memo) (來自 \(myAcc.name))", type: .transfer, linkedTransactionID: txID1, account: debtAcc
+                date: date, note: "\(memo) (來自 \(myAcc.name))", type: .transfer, linkedTransactionID: txID1, transferGroupID: transferGroupID, transferSide: .incoming, account: debtAcc
             )
             modelContext.insert(myTx); modelContext.insert(debtTx)
         }

@@ -28,7 +28,12 @@ struct EditTransactionView: View {
                             Text("收入").tag(TransactionType.income)
                         }
                         .pickerStyle(.segmented)
-                        .onChange(of: transaction.type) { _, _ in updateAmountSign() }
+                        .onChange(of: transaction.type) { _, newType in
+                            updateAmountSign()
+                            if let category = transaction.category, !category.kind.supports(newType) {
+                                transaction.category = nil
+                            }
+                        }
                         
                         HStack {
                             Text(transaction.account?.currency ?? "$")
@@ -49,7 +54,7 @@ struct EditTransactionView: View {
                         
                         Picker("分類", selection: $transaction.category) {
                             Text("無").tag(nil as Category?)
-                            ForEach(categories) { cat in
+                            ForEach(filteredCategories) { cat in
                                 HStack {
                                     Image(systemName: cat.icon)
                                     Text(cat.name)
@@ -86,7 +91,10 @@ struct EditTransactionView: View {
             .navigationTitle("編輯交易")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") {
+                        transaction.updatedAt = Date()
+                        dismiss()
+                    }
                 }
                 
                 // 🔥 新增：鍵盤工具列 (收起按鈕)
@@ -112,5 +120,9 @@ struct EditTransactionView: View {
     private func updateTransactionAmount() {
         guard let val = Decimal(string: amountString) else { return }
         transaction.amount = (transaction.type == .expense) ? -abs(val) : abs(val)
+    }
+    
+    private var filteredCategories: [Category] {
+        categories.filter { $0.kind.supports(transaction.type) }
     }
 }

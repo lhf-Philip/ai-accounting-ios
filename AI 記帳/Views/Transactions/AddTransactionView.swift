@@ -39,6 +39,11 @@ struct AddTransactionView: View {
                         Text("收入").tag(TransactionType.income)
                     }
                     .pickerStyle(.segmented)
+                    .onChange(of: selectedType) {
+                        if let current = selectedCategory, !current.kind.supports(selectedType) {
+                            selectedCategory = nil
+                        }
+                    }
                     
                     HStack {
                         // 🔥 修改：幣種選擇器
@@ -76,7 +81,7 @@ struct AddTransactionView: View {
                     HStack {
                         Picker("分類", selection: $selectedCategory) {
                             Text("無分類").tag(nil as Category?)
-                            ForEach(categories) { cat in
+                            ForEach(filteredCategories) { cat in
                                 HStack {
                                     Image(systemName: cat.icon)
                                     Text(cat.name)
@@ -181,5 +186,9 @@ struct AddTransactionView: View {
         
         modelContext.insert(tx)
         dismiss()
+    }
+    
+    private var filteredCategories: [Category] {
+        categories.filter { $0.kind.supports(selectedType) }
     }
 }

@@ -59,6 +59,7 @@ struct CSVManager {
                   let amount = Decimal(string: cols[2]) else { continue }
             
             let typeString = cols[1]
+            let type = TransactionType(rawValue: typeString) ?? .expense
             // CSV 欄位: 0:Date, 1:Type, 2:Amount, 3:Currency, 4:Category, 5:Account, 6:Note, 7:Tags
             let csvCurrency = cols[3]
             let categoryName = cols[4]
@@ -89,9 +90,18 @@ struct CSVManager {
             }
             
             // 3. 處理分類
-            var category = categories.first(where: { $0.name == categoryName })
+            var category = categories.first(where: { $0.name == categoryName && $0.kind.supports(type) })
             if category == nil && categoryName != "Uncategorized" {
-                let newCat = Category(name: categoryName, icon: "tag", colorHex: "808080")
+                let inferredKind: CategoryKind
+                switch type {
+                case .income:
+                    inferredKind = .income
+                case .expense:
+                    inferredKind = .expense
+                case .transfer:
+                    inferredKind = .both
+                }
+                let newCat = Category(name: categoryName, icon: "tag", colorHex: "808080", kind: inferredKind)
                 modelContext.insert(newCat)
                 category = newCat
                 categories.append(newCat)
@@ -130,8 +140,6 @@ struct CSVManager {
             
             // 雙重保險：如果還是空的，設為 HKD
             if finalCurrencyCode.isEmpty { finalCurrencyCode = "HKD" }
-            
-            let type = TransactionType(rawValue: typeString) ?? .expense
             
             let tx = FinancialTransaction(
                 amount: amount,

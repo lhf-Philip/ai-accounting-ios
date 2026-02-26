@@ -21,6 +21,7 @@ struct FullBackupData: Codable {
     }
     struct CategoryCodable: Codable {
         let id: UUID; let name: String; let icon: String; let colorHex: String
+        let kind: String?
     }
     struct TagCodable: Codable {
         let id: UUID; let name: String
@@ -28,6 +29,11 @@ struct FullBackupData: Codable {
     struct TransactionCodable: Codable {
         let id: UUID; let amount: Decimal; let currencyCode: String; let date: Date; let note: String
         let type: String; let linkedTransactionID: UUID?
+        let transferGroupID: UUID?
+        let transferSide: String?
+        let photoPath: String?
+        let createdAt: Date?
+        let updatedAt: Date?
         let accountID: UUID?; let categoryID: UUID?; let tagIDs: [UUID]
     }
     struct ShortcutCodable: Codable {
@@ -101,11 +107,29 @@ class BackupManager: NSObject, ObservableObject {
         let transactions = (try? modelContext.fetch(FetchDescriptor<FinancialTransaction>())) ?? []
         let shortcuts = (try? modelContext.fetch(FetchDescriptor<Shortcut>())) ?? []
         
-        return FullBackupData(version: "1.1", timestamp: Date(),
+        return FullBackupData(version: "1.2", timestamp: Date(),
             accounts: accounts.map { FullBackupData.AccountCodable(id: $0.id, name: $0.name, currency: $0.currency, type: $0.type.rawValue, baseBalance: $0.baseBalance, sortOrder: $0.sortOrder, isArchived: $0.isArchived) },
-            categories: categories.map { FullBackupData.CategoryCodable(id: $0.id, name: $0.name, icon: $0.icon, colorHex: $0.colorHex) },
+            categories: categories.map { FullBackupData.CategoryCodable(id: $0.id, name: $0.name, icon: $0.icon, colorHex: $0.colorHex, kind: $0.kind.rawValue) },
             tags: tags.map { FullBackupData.TagCodable(id: $0.id, name: $0.name) },
-            transactions: transactions.map { FullBackupData.TransactionCodable(id: $0.id, amount: $0.amount, currencyCode: $0.currencyCode, date: $0.date, note: $0.note, type: $0.type.rawValue, linkedTransactionID: $0.linkedTransactionID, accountID: $0.account?.id, categoryID: $0.category?.id, tagIDs: $0.tags.map { $0.id }) },
+            transactions: transactions.map {
+                FullBackupData.TransactionCodable(
+                    id: $0.id,
+                    amount: $0.amount,
+                    currencyCode: $0.currencyCode,
+                    date: $0.date,
+                    note: $0.note,
+                    type: $0.type.rawValue,
+                    linkedTransactionID: $0.linkedTransactionID,
+                    transferGroupID: $0.transferGroupID,
+                    transferSide: $0.transferSide?.rawValue,
+                    photoPath: $0.photoPath,
+                    createdAt: $0.createdAt,
+                    updatedAt: $0.updatedAt,
+                    accountID: $0.account?.id,
+                    categoryID: $0.category?.id,
+                    tagIDs: $0.tags.map { $0.id }
+                )
+            },
             shortcuts: shortcuts.map { FullBackupData.ShortcutCodable(id: $0.id, name: $0.name, icon: $0.icon, amount: $0.amount, type: $0.type.rawValue, note: $0.note, currencyCode: $0.currencyCode, accountID: $0.account?.id, categoryID: $0.category?.id, tagIDs: $0.tags.map { $0.id }) }
         )
     }
@@ -129,7 +153,8 @@ class BackupManager: NSObject, ObservableObject {
         }
         for catDTO in backup.categories {
             if !allCategories.contains(where: { $0.id == catDTO.id }) {
-                modelContext.insert(Category(id: catDTO.id, name: catDTO.name, icon: catDTO.icon, colorHex: catDTO.colorHex))
+                let kind = CategoryKind(rawValue: catDTO.kind ?? "") ?? .both
+                modelContext.insert(Category(id: catDTO.id, name: catDTO.name, icon: catDTO.icon, colorHex: catDTO.colorHex, kind: kind))
             }
         }
         for tagDTO in backup.tags {
@@ -147,7 +172,25 @@ class BackupManager: NSObject, ObservableObject {
                 let account = updatedAccounts.first(where: { $0.id == txDTO.accountID })
                 let category = updatedCategories.first(where: { $0.id == txDTO.categoryID })
                 let tags = updatedTags.filter { txDTO.tagIDs.contains($0.id) }
-                let tx = FinancialTransaction(id: txDTO.id, amount: txDTO.amount, currencyCode: txDTO.currencyCode, date: txDTO.date, note: txDTO.note, type: TransactionType(rawValue: txDTO.type) ?? .expense, linkedTransactionID: txDTO.linkedTransactionID, account: account, category: category, tags: tags)
+                let createdAt = txDTO.createdAt ?? txDTO.date
+                let updatedAt = txDTO.updatedAt ?? createdAt
+                let tx = FinancialTransaction(
+                    id: txDTO.id,
+                    amount: txDTO.amount,
+                    currencyCode: txDTO.currencyCode,
+                    date: txDTO.date,
+                    note: txDTO.note,
+                    photoPath: txDTO.photoPath,
+                    type: TransactionType(rawValue: txDTO.type) ?? .expense,
+                    linkedTransactionID: txDTO.linkedTransactionID,
+                    transferGroupID: txDTO.transferGroupID,
+                    transferSide: TransferSide(rawValue: txDTO.transferSide ?? ""),
+                    account: account,
+                    category: category,
+                    tags: tags,
+                    createdAt: createdAt,
+                    updatedAt: updatedAt
+                )
                 modelContext.insert(tx)
             }
         }
@@ -166,7 +209,7 @@ class BackupManager: NSObject, ObservableObject {
                 modelContext.insert(sc)
             }
         }
-        try? modelContext.save()
+        try modelContext.save()
     }
     
     @MainActor func generateCSV(modelContext: ModelContext) -> String {

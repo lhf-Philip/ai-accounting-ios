@@ -11,6 +11,7 @@ struct EditCategoryView: View {
     @State private var name: String = ""
     @State private var selectedIcon: String = ""
     @State private var selectedColorHex: String = ""
+    @State private var selectedKind: CategoryKind = .both
     
     // 圖示列表 (與新增頁面保持一致)
     private let commonIcons: [String] = [
@@ -45,6 +46,15 @@ struct EditCategoryView: View {
                         TextField("分類名稱", text: $name)
                             .padding(.leading, 8)
                     }
+                }
+                
+                Section("類型") {
+                    Picker("類型", selection: $selectedKind) {
+                        ForEach(CategoryKind.allCases) { kind in
+                            Text(kind.displayName).tag(kind)
+                        }
+                    }
+                    .pickerStyle(.menu)
                 }
                 
                 // 2. 圖示選擇
@@ -112,6 +122,7 @@ struct EditCategoryView: View {
                 name = category.name
                 selectedIcon = category.icon
                 selectedColorHex = category.colorHex
+                selectedKind = category.kind
             }
         }
     }
@@ -120,6 +131,7 @@ struct EditCategoryView: View {
         category.name = name
         category.icon = selectedIcon
         category.colorHex = selectedColorHex
+        category.kind = selectedKind
         dismiss()
     }
 }

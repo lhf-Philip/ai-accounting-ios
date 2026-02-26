@@ -9,6 +9,7 @@ struct AddCategoryView: View {
     @State private var name: String = ""
     @State private var selectedIcon: String = "fork.knife"
     @State private var selectedColorHex: String = "007AFF" // 預設藍色
+    @State private var selectedKind: CategoryKind = .expense
     
     // 預定義的圖示列表
     private let commonIcons: [String] = [
@@ -45,6 +46,15 @@ struct AddCategoryView: View {
                         TextField("例如: 早餐、交通", text: $name)
                             .padding(.leading, 8)
                     }
+                }
+                
+                Section("類型") {
+                    Picker("類型", selection: $selectedKind) {
+                        ForEach(CategoryKind.allCases) { kind in
+                            Text(kind.displayName).tag(kind)
+                        }
+                    }
+                    .pickerStyle(.menu)
                 }
                 
                 // MARK: - 2. 圖示選擇
@@ -126,7 +136,8 @@ struct AddCategoryView: View {
         let newCategory = Category(
             name: name,
             icon: selectedIcon,
-            colorHex: selectedColorHex
+            colorHex: selectedColorHex,
+            kind: selectedKind
         )
         
         modelContext.insert(newCategory)
