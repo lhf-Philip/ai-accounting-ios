@@ -13,6 +13,7 @@ struct FullBackupData: Codable {
     let tags: [TagCodable]
     let transactions: [TransactionCodable]
     let shortcuts: [ShortcutCodable]
+    let budgets: [BudgetCodable]?
     
     struct AccountCodable: Codable {
         let id: UUID; let name: String; let currency: String; let type: String; let baseBalance: Decimal; let sortOrder: Int
@@ -41,6 +42,16 @@ struct FullBackupData: Codable {
         // 🔥 新增 Optional，兼容舊 JSON
         let currencyCode: String?
         let accountID: UUID?; let categoryID: UUID?; let tagIDs: [UUID]
+    }
+    struct BudgetCodable: Codable {
+        let id: UUID
+        let monthKey: String
+        let amount: Decimal
+        let currencyCode: String
+        let isEnabled: Bool?
+        let categoryID: UUID?
+        let createdAt: Date?
+        let updatedAt: Date?
     }
 }
 
@@ -106,8 +117,9 @@ class BackupManager: NSObject, ObservableObject {
         let tags = (try? modelContext.fetch(FetchDescriptor<Tag>())) ?? []
         let transactions = (try? modelContext.fetch(FetchDescriptor<FinancialTransaction>())) ?? []
         let shortcuts = (try? modelContext.fetch(FetchDescriptor<Shortcut>())) ?? []
+        let budgets = (try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []
         
-        return FullBackupData(version: "1.2", timestamp: Date(),
+        return FullBackupData(version: "1.3", timestamp: Date(),
             accounts: accounts.map { FullBackupData.AccountCodable(id: $0.id, name: $0.name, currency: $0.currency, type: $0.type.rawValue, baseBalance: $0.baseBalance, sortOrder: $0.sortOrder, isArchived: $0.isArchived) },
             categories: categories.map { FullBackupData.CategoryCodable(id: $0.id, name: $0.name, icon: $0.icon, colorHex: $0.colorHex, kind: $0.kind.rawValue) },
             tags: tags.map { FullBackupData.TagCodable(id: $0.id, name: $0.name) },
@@ -130,7 +142,19 @@ class BackupManager: NSObject, ObservableObject {
                     tagIDs: $0.tags.map { $0.id }
                 )
             },
-            shortcuts: shortcuts.map { FullBackupData.ShortcutCodable(id: $0.id, name: $0.name, icon: $0.icon, amount: $0.amount, type: $0.type.rawValue, note: $0.note, currencyCode: $0.currencyCode, accountID: $0.account?.id, categoryID: $0.category?.id, tagIDs: $0.tags.map { $0.id }) }
+            shortcuts: shortcuts.map { FullBackupData.ShortcutCodable(id: $0.id, name: $0.name, icon: $0.icon, amount: $0.amount, type: $0.type.rawValue, note: $0.note, currencyCode: $0.currencyCode, accountID: $0.account?.id, categoryID: $0.category?.id, tagIDs: $0.tags.map { $0.id }) },
+            budgets: budgets.map {
+                FullBackupData.BudgetCodable(
+                    id: $0.id,
+                    monthKey: $0.monthKey,
+                    amount: $0.amount,
+                    currencyCode: $0.currencyCode,
+                    isEnabled: $0.isEnabled,
+                    categoryID: $0.category?.id,
+                    createdAt: $0.createdAt,
+                    updatedAt: $0.updatedAt
+                )
+            }
         )
     }
     
@@ -207,6 +231,29 @@ class BackupManager: NSObject, ObservableObject {
                 
                 let sc = Shortcut(id: scDTO.id, name: scDTO.name, icon: scDTO.icon, amount: scDTO.amount, currencyCode: currency, type: TransactionType(rawValue: scDTO.type) ?? .expense, note: scDTO.note, account: account, category: category, tags: tags)
                 modelContext.insert(sc)
+            }
+        }
+        
+        // 6. 還原預算 (向下兼容：舊 JSON 可能沒有 budgets)
+        if let budgetDTOs = backup.budgets {
+            let existingBudgets = (try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []
+            for budgetDTO in budgetDTOs {
+                if existingBudgets.contains(where: { $0.id == budgetDTO.id }) {
+                    continue
+                }
+                
+                let category = updatedCategories.first(where: { $0.id == budgetDTO.categoryID })
+                let budget = CategoryMonthlyBudget(
+                    id: budgetDTO.id,
+                    monthKey: budgetDTO.monthKey,
+                    amount: budgetDTO.amount,
+                    currencyCode: budgetDTO.currencyCode,
+                    isEnabled: budgetDTO.isEnabled ?? true,
+                    createdAt: budgetDTO.createdAt ?? Date(),
+                    updatedAt: budgetDTO.updatedAt ?? (budgetDTO.createdAt ?? Date()),
+                    category: category
+                )
+                modelContext.insert(budget)
             }
         }
         try modelContext.save()

@@ -104,6 +104,23 @@ class CurrencyService: ObservableObject {
         return amount / Decimal(rate)
     }
     
+    func convert(amount: Decimal, from source: String, to target: String) -> Decimal {
+        if source == target { return amount }
+        
+        if source == mainCurrency {
+            guard let targetRate = rates[target] else { return amount }
+            return amount * Decimal(targetRate)
+        }
+        
+        if target == mainCurrency {
+            return convert(amount: amount, from: source)
+        }
+        
+        guard let targetRate = rates[target] else { return amount }
+        let inMain = convert(amount: amount, from: source)
+        return inMain * Decimal(targetRate)
+    }
+    
     func getMarketRate(from source: String, to target: String) -> Double? {
         if source == target { return 1.0 }
         guard let rateSource = rates[source], let rateTarget = rates[target] else { return nil }

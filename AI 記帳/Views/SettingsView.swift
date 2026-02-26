@@ -4,6 +4,9 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \CategoryMonthlyBudget.monthKey, order: .reverse) private var budgets: [CategoryMonthlyBudget]
+    @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
+    @StateObject private var currencyService = CurrencyService.shared
     @AppStorage("mainCurrency") private var mainCurrency: String = "HKD"
     @AppStorage("UserGeminiAPIKey") private var legacyApiKey: String = ""
     @AppStorage("enableAutoBackup") private var enableAutoBackup: Bool = false
@@ -25,6 +28,12 @@ struct SettingsView: View {
     let currencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
     private let keychainServiceName = "org.duckdns.lhfser.AIMoney"
     private let keychainAccountName = "gemini_api_key"
+    
+    private var monthlyBudgetAlerts: [BudgetStatus] {
+        let key = BudgetService.monthKey(from: Date())
+        return BudgetService.statuses(for: key, budgets: budgets, transactions: transactions, currencyService: currencyService)
+            .filter { $0.ratio >= 1 }
+    }
     
     // MARK: - 精確倒數計時邏輯
     struct TimeLeftInfo {
@@ -165,6 +174,26 @@ struct SettingsView: View {
                 Section("資料管理") {
                     NavigationLink(destination: CategoriesView()) { Label("分類管理", systemImage: "list.bullet") }
                     NavigationLink(destination: TagsView()) { Label("標籤管理", systemImage: "tag") }
+                    NavigationLink(destination: BudgetsView()) {
+                        Label("預算與超支提醒", systemImage: "chart.bar.doc.horizontal")
+                    }
+                    NavigationLink(destination: DataHealthCheckView()) {
+                        Label("資料健康檢查", systemImage: "stethoscope")
+                    }
+                }
+                
+                if !monthlyBudgetAlerts.isEmpty {
+                    Section("本月超支提醒") {
+                        ForEach(monthlyBudgetAlerts) { status in
+                            HStack {
+                                Text(status.budget.category?.name ?? "未分類")
+                                Spacer()
+                                Text("超支 \(abs(status.remaining).formatted(.currency(code: status.budget.currencyCode)))")
+                                    .foregroundStyle(.red)
+                                    .font(.caption)
+                            }
+                        }
+                    }
                 }
                 
                 Section {
@@ -244,6 +273,7 @@ struct SettingsView: View {
             try modelContext.delete(model: Category.self)
             try modelContext.delete(model: Tag.self)
             try modelContext.delete(model: Shortcut.self)
+            try modelContext.delete(model: CategoryMonthlyBudget.self)
             try modelContext.save()
         } catch {
             print("清除失敗: \(error)")
