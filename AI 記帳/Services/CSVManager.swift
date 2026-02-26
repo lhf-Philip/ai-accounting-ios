@@ -39,7 +39,7 @@ struct CSVManager {
     @MainActor
     func importCSV(url: URL, modelContext: ModelContext) throws {
         let data = try String(contentsOf: url, encoding: .utf8)
-        var rows = data.components(separatedBy: "\n")
+        var rows = parseCSVRows(data)
         guard rows.count > 1 else { return }
         rows.removeFirst() // 移除標題
         
@@ -52,8 +52,7 @@ struct CSVManager {
         var tags = (try? modelContext.fetch(FetchDescriptor<Tag>())) ?? []
         var nextSortOrder = (accounts.map(\.sortOrder).max() ?? -1) + 1
         
-        for row in rows {
-            let cols = row.components(separatedBy: ",")
+        for cols in rows {
             if cols.count < 7 { continue }
             
             guard let date = formatter.date(from: cols[0]),
@@ -146,5 +145,59 @@ struct CSVManager {
             )
             modelContext.insert(tx)
         }
+    }
+    
+    private func parseCSVRows(_ input: String) -> [[String]] {
+        let text = input.replacingOccurrences(of: "\u{FEFF}", with: "")
+        var rows: [[String]] = []
+        var row: [String] = []
+        var field = ""
+        var inQuotes = false
+        
+        var index = text.startIndex
+        while index < text.endIndex {
+            let ch = text[index]
+            
+            if ch == "\"" {
+                let next = text.index(after: index)
+                if inQuotes && next < text.endIndex && text[next] == "\"" {
+                    field.append("\"")
+                    index = next
+                } else {
+                    inQuotes.toggle()
+                }
+            } else if ch == "," && !inQuotes {
+                row.append(field)
+                field = ""
+            } else if (ch == "\n" || ch == "\r") && !inQuotes {
+                row.append(field)
+                field = ""
+                
+                if !row.allSatisfy(\.isEmpty) {
+                    rows.append(row)
+                }
+                row = []
+                
+                if ch == "\r" {
+                    let next = text.index(after: index)
+                    if next < text.endIndex && text[next] == "\n" {
+                        index = next
+                    }
+                }
+            } else {
+                field.append(ch)
+            }
+            
+            index = text.index(after: index)
+        }
+        
+        if !field.isEmpty || !row.isEmpty {
+            row.append(field)
+            if !row.allSatisfy(\.isEmpty) {
+                rows.append(row)
+            }
+        }
+        
+        return rows
     }
 }
