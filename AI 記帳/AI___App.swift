@@ -18,10 +18,9 @@ struct AI___App: App {
             fatalError("無法存取 Documents 資料夾")
         }
         
-        // 2. 🔥 關鍵修正：關閉檔案保護 (File Protection)
-        // 免費帳號簽名時，預設的加密保護會導致 Permission Denied
+        // 2. 使用較安全的檔案保護，避免 FileProtection.none
         do {
-            let attributes = [FileAttributeKey.protectionKey: FileProtectionType.none]
+            let attributes = [FileAttributeKey.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
             try fileManager.setAttributes(attributes, ofItemAtPath: documentsURL.path)
         } catch {
             print("⚠️ 無法設定檔案保護屬性: \(error)")
