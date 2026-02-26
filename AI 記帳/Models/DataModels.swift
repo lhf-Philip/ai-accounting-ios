@@ -246,6 +246,7 @@ final class AdvanceCase {
     var currencyCode: String
     var myShareAmount: Decimal
     var note: String
+    var selfExpenseTransactionID: UUID?
     var createdAt: Date
     var updatedAt: Date
     
@@ -265,6 +266,7 @@ final class AdvanceCase {
         currencyCode: String = "HKD",
         myShareAmount: Decimal = 0,
         note: String = "",
+        selfExpenseTransactionID: UUID? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         payerAccount: Account? = nil,
@@ -276,6 +278,7 @@ final class AdvanceCase {
         self.currencyCode = currencyCode
         self.myShareAmount = myShareAmount
         self.note = note
+        self.selfExpenseTransactionID = selfExpenseTransactionID
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.payerAccount = payerAccount
@@ -289,6 +292,7 @@ final class AdvanceParticipant {
     var name: String
     var owedAmount: Decimal
     var repaidAmount: Decimal
+    var initialTransferGroupID: UUID?
     var createdAt: Date
     var updatedAt: Date
     
@@ -300,6 +304,7 @@ final class AdvanceParticipant {
         name: String,
         owedAmount: Decimal,
         repaidAmount: Decimal = 0,
+        initialTransferGroupID: UUID? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         advanceCase: AdvanceCase? = nil,
@@ -309,6 +314,7 @@ final class AdvanceParticipant {
         self.name = name
         self.owedAmount = owedAmount
         self.repaidAmount = repaidAmount
+        self.initialTransferGroupID = initialTransferGroupID
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.advanceCase = advanceCase

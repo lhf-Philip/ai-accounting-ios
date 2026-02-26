@@ -290,5 +290,31 @@ enum DataHealthCheckService {
                 )
             )
         }
+        
+        let casesMissingSelfExpenseLink = cases.filter {
+            $0.myShareAmount > 0 && $0.selfExpenseTransactionID == nil
+        }
+        if !casesMissingSelfExpenseLink.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .info,
+                    title: "代墊主檔缺少自己份額連結",
+                    detail: "共有 \(casesMissingSelfExpenseLink.count) 筆代墊主檔無 selfExpenseTransactionID。",
+                    recommendation: "舊資料可正常使用，但整單連動刪除時可能無法刪到自己份額交易。"
+                )
+            )
+        }
+        
+        let participantsMissingInitialTransferLink = participants.filter { $0.initialTransferGroupID == nil }
+        if !participantsMissingInitialTransferLink.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .info,
+                    title: "代墊對象缺少初始轉帳連結",
+                    detail: "共有 \(participantsMissingInitialTransferLink.count) 位對象無 initialTransferGroupID。",
+                    recommendation: "舊資料可正常使用，但整單連動刪除時可能無法完整刪除初始代墊轉帳。"
+                )
+            )
+        }
     }
 }

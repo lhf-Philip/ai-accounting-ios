@@ -3,7 +3,23 @@ import SwiftData
 
 struct AdvancesView: View {
     @Query(sort: \AdvanceCase.date, order: .reverse) private var advanceCases: [AdvanceCase]
+    @StateObject private var currencyService = CurrencyService.shared
     @State private var showingAddAdvanceCase = false
+    @State private var viewMode: ViewMode = .byCase
+    
+    enum ViewMode: String, CaseIterable {
+        case byCase = "按代墊單"
+        case byParticipant = "按對象"
+    }
+    
+    struct ParticipantAggregate: Identifiable {
+        let id: String
+        let name: String
+        let caseCount: Int
+        let totalOwedMain: Decimal
+        let totalRepaidMain: Decimal
+        let totalRemainingMain: Decimal
+    }
     
     private var activeCases: [AdvanceCase] {
         advanceCases.filter { AdvanceService.outstandingAmount(for: $0) > 0 }
@@ -13,8 +29,60 @@ struct AdvancesView: View {
         advanceCases.filter { AdvanceService.outstandingAmount(for: $0) == 0 }
     }
     
+    private var participantAggregates: [ParticipantAggregate] {
+        var owedTotals: [String: Decimal] = [:]
+        var repaidTotals: [String: Decimal] = [:]
+        var remainingTotals: [String: Decimal] = [:]
+        var names: [String: String] = [:]
+        var caseSets: [String: Set<UUID>] = [:]
+        
+        for advanceCase in advanceCases {
+            for participant in advanceCase.participants {
+                let key = participant.debtAccount?.id.uuidString ?? "name::\(participant.name.lowercased())"
+                let name = participant.debtAccount?.name ?? participant.name
+                
+                names[key] = name
+                caseSets[key, default: []].insert(advanceCase.id)
+                
+                let owed = currencyService.convert(amount: participant.owedAmount, from: advanceCase.currencyCode)
+                let repaid = currencyService.convert(amount: participant.repaidAmount, from: advanceCase.currencyCode)
+                let remaining = currencyService.convert(amount: participant.remainingAmount, from: advanceCase.currencyCode)
+                
+                owedTotals[key, default: 0] += owed
+                repaidTotals[key, default: 0] += repaid
+                remainingTotals[key, default: 0] += remaining
+            }
+        }
+        
+        return names.keys.map { key in
+            ParticipantAggregate(
+                id: key,
+                name: names[key] ?? "未命名",
+                caseCount: caseSets[key]?.count ?? 0,
+                totalOwedMain: owedTotals[key, default: 0],
+                totalRepaidMain: repaidTotals[key, default: 0],
+                totalRemainingMain: remainingTotals[key, default: 0]
+            )
+        }
+        .sorted {
+            if $0.totalRemainingMain == $1.totalRemainingMain {
+                return $0.name < $1.name
+            }
+            return $0.totalRemainingMain > $1.totalRemainingMain
+        }
+    }
+    
     var body: some View {
         List {
+            Section("檢視方式") {
+                Picker("檢視方式", selection: $viewMode) {
+                    ForEach(ViewMode.allCases, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+            
             if advanceCases.isEmpty {
                 Section {
                     ContentUnavailableView(
@@ -24,21 +92,39 @@ struct AdvancesView: View {
                     )
                 }
             } else {
-                if !activeCases.isEmpty {
-                    Section("待收款") {
-                        ForEach(activeCases) { advanceCase in
-                            NavigationLink(destination: AdvanceCaseDetailView(advanceCase: advanceCase)) {
-                                advanceCaseRow(advanceCase)
+                if viewMode == .byCase {
+                    if !activeCases.isEmpty {
+                        Section("待收款") {
+                            ForEach(activeCases) { advanceCase in
+                                NavigationLink(destination: AdvanceCaseDetailView(advanceCase: advanceCase)) {
+                                    advanceCaseRow(advanceCase)
+                                }
                             }
                         }
                     }
-                }
-                
-                if !settledCases.isEmpty {
-                    Section("已結清") {
-                        ForEach(settledCases) { advanceCase in
-                            NavigationLink(destination: AdvanceCaseDetailView(advanceCase: advanceCase)) {
-                                advanceCaseRow(advanceCase)
+                    
+                    if !settledCases.isEmpty {
+                        Section("已結清") {
+                            ForEach(settledCases) { advanceCase in
+                                NavigationLink(destination: AdvanceCaseDetailView(advanceCase: advanceCase)) {
+                                    advanceCaseRow(advanceCase)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if participantAggregates.isEmpty {
+                        Section {
+                            ContentUnavailableView(
+                                "尚無對象彙總",
+                                systemImage: "person.2.slash",
+                                description: Text("目前沒有可統計的代墊對象。")
+                            )
+                        }
+                    } else {
+                        Section("對象總覽 (\(currencyService.mainCurrency))") {
+                            ForEach(participantAggregates) { item in
+                                participantAggregateRow(item)
                             }
                         }
                     }
@@ -46,6 +132,9 @@ struct AdvancesView: View {
             }
         }
         .navigationTitle("代墊追蹤")
+        .task {
+            await currencyService.fetchRates()
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -94,15 +183,55 @@ struct AdvancesView: View {
         }
         .padding(.vertical, 4)
     }
+    
+    private func participantAggregateRow(_ item: ParticipantAggregate) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(item.name)
+                    .font(.headline)
+                Spacer()
+                Text(item.totalRemainingMain.formatted(.currency(code: currencyService.mainCurrency)))
+                    .foregroundStyle(item.totalRemainingMain == 0 ? .green : .red)
+            }
+            
+            HStack {
+                Text("欠款 \(item.totalOwedMain.formatted(.currency(code: currencyService.mainCurrency)))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("已還 \(item.totalRepaidMain.formatted(.currency(code: currencyService.mainCurrency)))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            
+            Text("關聯代墊單：\(item.caseCount) 筆")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
 }
 
 struct AdvanceCaseDetailView: View {
+    private enum DeleteMode {
+        case trackingOnly
+        case trackingAndLinkedTransactions
+        
+        var deleteLinkedTransactions: Bool {
+            self == .trackingAndLinkedTransactions
+        }
+    }
+    
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     
     let advanceCase: AdvanceCase
     @State private var selectedParticipantForRepayment: AdvanceParticipant?
     @State private var selectedParticipantForEdit: AdvanceParticipant?
     @State private var repaymentToRollback: AdvanceRepayment?
+    @State private var selectedDeleteMode: DeleteMode?
+    @State private var showingDeleteModeDialog = false
+    @State private var showingDeleteConfirm = false
     @State private var showingRollbackAlert = false
     @State private var showingError = false
     @State private var errorMessage = ""
@@ -143,6 +272,14 @@ struct AdvanceCaseDetailView: View {
                     title: "帳務儲存",
                     value: "借貸帳戶轉帳"
                 )
+            }
+            
+            Section {
+                Button(role: .destructive) {
+                    showingDeleteModeDialog = true
+                } label: {
+                    Label("刪除此代墊單", systemImage: "trash")
+                }
             }
             
             Section("對象還款狀態") {
@@ -186,6 +323,33 @@ struct AdvanceCaseDetailView: View {
         }
         .sheet(item: $selectedParticipantForEdit) { participant in
             EditAdvanceParticipantView(advanceCase: advanceCase, participant: participant)
+        }
+        .confirmationDialog("刪除代墊單", isPresented: $showingDeleteModeDialog, titleVisibility: .visible) {
+            Button("只刪追蹤記錄", role: .destructive) {
+                selectedDeleteMode = .trackingOnly
+                showingDeleteConfirm = true
+            }
+            Button("刪除追蹤與相關交易", role: .destructive) {
+                selectedDeleteMode = .trackingAndLinkedTransactions
+                showingDeleteConfirm = true
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("可選擇只刪代墊追蹤，或同時刪除建立此代墊時產生的借貸轉帳與自己份額支出。")
+        }
+        .alert("確認刪除此代墊單？", isPresented: $showingDeleteConfirm) {
+            Button("取消", role: .cancel) {
+                selectedDeleteMode = nil
+            }
+            Button("確認刪除", role: .destructive) {
+                deleteAdvanceCase()
+            }
+        } message: {
+            if case .trackingAndLinkedTransactions = selectedDeleteMode {
+                Text("將刪除代墊追蹤資料，並嘗試刪除關聯借貸轉帳與自己份額支出。此操作無法復原。")
+            } else {
+                Text("將只刪除代墊追蹤資料，原本的實際交易紀錄會保留。此操作無法復原。")
+            }
         }
         .alert("確認沖銷還款？", isPresented: $showingRollbackAlert, presenting: repaymentToRollback) { repayment in
             Button("取消", role: .cancel) {}
@@ -312,6 +476,22 @@ struct AdvanceCaseDetailView: View {
                 repayment: repayment,
                 modelContext: modelContext
             )
+        } catch {
+            errorMessage = error.localizedDescription
+            showingError = true
+        }
+    }
+    
+    private func deleteAdvanceCase() {
+        guard let mode = selectedDeleteMode else { return }
+        
+        do {
+            _ = try AdvanceService.deleteAdvanceCase(
+                advanceCase,
+                deleteLinkedTransactions: mode.deleteLinkedTransactions,
+                modelContext: modelContext
+            )
+            dismiss()
         } catch {
             errorMessage = error.localizedDescription
             showingError = true
