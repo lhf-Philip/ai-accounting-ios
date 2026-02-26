@@ -63,6 +63,7 @@ struct FullBackupData: Codable {
         let currencyCode: String
         let myShareAmount: Decimal?
         let note: String?
+        let selfExpenseTransactionID: UUID?
         let payerAccountID: UUID?
         let expenseCategoryID: UUID?
         let createdAt: Date?
@@ -73,6 +74,7 @@ struct FullBackupData: Codable {
         let name: String
         let owedAmount: Decimal
         let repaidAmount: Decimal?
+        let initialTransferGroupID: UUID?
         let advanceCaseID: UUID?
         let debtAccountID: UUID?
         let createdAt: Date?
@@ -160,7 +162,7 @@ class BackupManager: NSObject, ObservableObject {
         let advanceParticipants = (try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []
         let advanceRepayments = (try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []
         
-        return FullBackupData(version: "1.4", timestamp: Date(),
+        return FullBackupData(version: "1.5", timestamp: Date(),
             accounts: accounts.map { FullBackupData.AccountCodable(id: $0.id, name: $0.name, currency: $0.currency, type: $0.type.rawValue, baseBalance: $0.baseBalance, sortOrder: $0.sortOrder, isArchived: $0.isArchived) },
             categories: categories.map { FullBackupData.CategoryCodable(id: $0.id, name: $0.name, icon: $0.icon, colorHex: $0.colorHex, kind: $0.kind.rawValue) },
             tags: tags.map { FullBackupData.TagCodable(id: $0.id, name: $0.name) },
@@ -204,6 +206,7 @@ class BackupManager: NSObject, ObservableObject {
                     currencyCode: $0.currencyCode,
                     myShareAmount: $0.myShareAmount,
                     note: $0.note,
+                    selfExpenseTransactionID: $0.selfExpenseTransactionID,
                     payerAccountID: $0.payerAccount?.id,
                     expenseCategoryID: $0.expenseCategory?.id,
                     createdAt: $0.createdAt,
@@ -216,6 +219,7 @@ class BackupManager: NSObject, ObservableObject {
                     name: $0.name,
                     owedAmount: $0.owedAmount,
                     repaidAmount: $0.repaidAmount,
+                    initialTransferGroupID: $0.initialTransferGroupID,
                     advanceCaseID: $0.advanceCase?.id,
                     debtAccountID: $0.debtAccount?.id,
                     createdAt: $0.createdAt,
@@ -357,6 +361,7 @@ class BackupManager: NSObject, ObservableObject {
                     currencyCode: caseDTO.currencyCode,
                     myShareAmount: caseDTO.myShareAmount ?? 0,
                     note: caseDTO.note ?? "",
+                    selfExpenseTransactionID: caseDTO.selfExpenseTransactionID,
                     createdAt: caseDTO.createdAt ?? caseDTO.date,
                     updatedAt: caseDTO.updatedAt ?? (caseDTO.createdAt ?? caseDTO.date),
                     payerAccount: payerAccount,
@@ -384,6 +389,7 @@ class BackupManager: NSObject, ObservableObject {
                     name: participantDTO.name,
                     owedAmount: participantDTO.owedAmount,
                     repaidAmount: participantDTO.repaidAmount ?? 0,
+                    initialTransferGroupID: participantDTO.initialTransferGroupID,
                     createdAt: participantDTO.createdAt ?? Date(),
                     updatedAt: participantDTO.updatedAt ?? (participantDTO.createdAt ?? Date()),
                     advanceCase: advanceCase,

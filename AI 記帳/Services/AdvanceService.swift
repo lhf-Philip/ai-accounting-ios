@@ -14,6 +14,7 @@ enum AdvanceServiceError: LocalizedError {
     case invalidAdjustedOwedAmount
     case adjustedOwedLowerThanRepaid
     case missingRepaymentParticipant
+    case cannotDeleteAdvanceCaseWithoutModelContext
     
     var errorDescription: String? {
         switch self {
@@ -41,6 +42,8 @@ enum AdvanceServiceError: LocalizedError {
             return "更正後欠款不可低於已還金額。"
         case .missingRepaymentParticipant:
             return "找不到還款對應的對象資料。"
+        case .cannotDeleteAdvanceCaseWithoutModelContext:
+            return "刪除代墊失敗：缺少可用資料上下文。"
         }
     }
 }
@@ -49,6 +52,11 @@ enum AdvanceService {
     struct ParticipantInput {
         let debtAccount: Account
         let owedAmount: Decimal
+    }
+    
+    struct DeleteAdvanceResult {
+        let deletedTransactionCount: Int
+        let missingLinkedRecordCount: Int
     }
     
     private static let roundingTolerance = Decimal(string: "0.0001") ?? 0.0001
@@ -129,25 +137,27 @@ enum AdvanceService {
                 category: category
             )
             modelContext.insert(expenseTx)
+            advanceCase.selfExpenseTransactionID = expenseTx.id
         }
         
         let transferMemo = finalNote.isEmpty ? finalTitle : finalNote
         
         for input in participants {
+            let transferGroupID = UUID()
+            let outID = UUID()
+            let inID = UUID()
+            
             let participant = AdvanceParticipant(
                 name: input.debtAccount.name,
                 owedAmount: abs(input.owedAmount),
                 repaidAmount: 0,
+                initialTransferGroupID: transferGroupID,
                 createdAt: now,
                 updatedAt: now,
                 advanceCase: advanceCase,
                 debtAccount: input.debtAccount
             )
             modelContext.insert(participant)
-            
-            let outID = UUID()
-            let inID = UUID()
-            let transferGroupID = UUID()
             
             let outTx = FinancialTransaction(
                 id: outID,
@@ -339,5 +349,66 @@ enum AdvanceService {
         
         modelContext.delete(repayment)
         try modelContext.save()
+    }
+    
+    @MainActor
+    static func deleteAdvanceCase(
+        _ advanceCase: AdvanceCase,
+        deleteLinkedTransactions: Bool,
+        modelContext: ModelContext
+    ) throws -> DeleteAdvanceResult {
+        var deletedTransactionCount = 0
+        var missingLinkedRecordCount = 0
+        
+        if deleteLinkedTransactions {
+            var groupIDs = Set<UUID>()
+            
+            for participant in advanceCase.participants {
+                if let groupID = participant.initialTransferGroupID {
+                    groupIDs.insert(groupID)
+                } else {
+                    missingLinkedRecordCount += 1
+                }
+            }
+            
+            for repayment in advanceCase.repayments {
+                if let groupID = repayment.linkedTransferGroupID {
+                    groupIDs.insert(groupID)
+                } else {
+                    missingLinkedRecordCount += 1
+                }
+            }
+            
+            for groupID in groupIDs {
+                let descriptor = FetchDescriptor<FinancialTransaction>(
+                    predicate: #Predicate { $0.transferGroupID == groupID }
+                )
+                let linkedTransfers = (try? modelContext.fetch(descriptor)) ?? []
+                deletedTransactionCount += linkedTransfers.count
+                for tx in linkedTransfers {
+                    modelContext.delete(tx)
+                }
+            }
+            
+            if let expenseID = advanceCase.selfExpenseTransactionID {
+                let descriptor = FetchDescriptor<FinancialTransaction>(
+                    predicate: #Predicate { $0.id == expenseID }
+                )
+                if let expenseTx = try? modelContext.fetch(descriptor).first {
+                    modelContext.delete(expenseTx)
+                    deletedTransactionCount += 1
+                } else {
+                    missingLinkedRecordCount += 1
+                }
+            }
+        }
+        
+        modelContext.delete(advanceCase)
+        try modelContext.save()
+        
+        return DeleteAdvanceResult(
+            deletedTransactionCount: deletedTransactionCount,
+            missingLinkedRecordCount: missingLinkedRecordCount
+        )
     }
 }
