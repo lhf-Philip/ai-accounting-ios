@@ -98,8 +98,11 @@ struct ScannedResultView: View {
         guard let amount = Decimal(string: amountString),
               let account = selectedAccount else { return }
         
+        let txCurrency = normalizedCurrencyCode(info.currency, fallback: account.currency)
+        
         let tx = FinancialTransaction(
             amount: -abs(amount), // 預設為支出
+            currencyCode: txCurrency,
             date: date,
             note: note,
             type: .expense,
@@ -114,5 +117,31 @@ struct ScannedResultView: View {
         // 這裡需要連續 dismiss 兩次 (回到主頁)，或者使用 Binding 控制
         // 簡單做法：發送 Notification 讓 ContentView 關閉 Sheet
         NotificationCenter.default.post(name: NSNotification.Name("CloseAddFlow"), object: nil)
+    }
+    
+    private func normalizedCurrencyCode(_ raw: String, fallback: String) -> String {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        
+        switch value {
+        case "HKD", "HK$", "H$":
+            return "HKD"
+        case "USD", "US$", "$":
+            return "USD"
+        case "TWD", "NT$", "NTD":
+            return "TWD"
+        case "JPY", "¥":
+            return "JPY"
+        case "CNY", "RMB", "CN¥":
+            return "CNY"
+        case "EUR", "€":
+            return "EUR"
+        case "GBP", "£":
+            return "GBP"
+        default:
+            if value.count == 3, value.allSatisfy(\.isLetter) {
+                return value
+            }
+            return fallback.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        }
     }
 }
