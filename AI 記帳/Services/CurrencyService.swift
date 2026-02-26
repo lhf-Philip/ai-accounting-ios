@@ -8,16 +8,27 @@ struct ExchangeRateResponse: Codable {
 }
 
 class CurrencyService: ObservableObject {
+    private struct ExchangeRateCache: Codable {
+        let base: String
+        let rates: [String: Double]
+        let fetchedAt: Date
+    }
+    
     @Published var rates: [String: Double] = [:]
     
     var mainCurrency: String {
         get { UserDefaults.standard.string(forKey: "mainCurrency") ?? "HKD" }
-        set { UserDefaults.standard.set(newValue, forKey: "mainCurrency") }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "mainCurrency")
+            loadRatesFromLocal()
+        }
     }
     
     static let shared = CurrencyService()
     
-    private let ratesKey = "cachedExchangeRates"
+    private let ratesCacheKey = "cachedExchangeRatesV2"
+    private let legacyRatesKey = "cachedExchangeRates"
+    private let cacheTTL: TimeInterval = 60 * 60 * 24 * 7 // 7 days
     
     private init() {
         // 🔥 初始化時嘗試讀取本地緩存
@@ -25,16 +36,21 @@ class CurrencyService: ObservableObject {
     }
     
     func fetchRates() async {
-        let urlString = "https://api.exchangerate-api.com/v4/latest/\(mainCurrency)"
+        let requestedBase = mainCurrency.uppercased()
+        let urlString = "https://api.exchangerate-api.com/v4/latest/\(requestedBase)"
         guard let url = URL(string: urlString) else { return }
         
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             let result = try JSONDecoder().decode(ExchangeRateResponse.self, from: data)
-            DispatchQueue.main.async {
+            
+            await MainActor.run {
+                // 避免主幣切換後，舊請求結果覆蓋新主幣資料
+                guard requestedBase == self.mainCurrency.uppercased() else { return }
+                
                 self.rates = result.rates
                 // 🔥 成功獲取後，儲存到本地
-                self.saveRatesToLocal(result.rates)
+                self.saveRatesToLocal(base: requestedBase, rates: result.rates)
             }
         } catch {
             print("匯率獲取失敗: \(error)")
@@ -43,17 +59,42 @@ class CurrencyService: ObservableObject {
     }
     
     // MARK: - 緩存邏輯
-    private func saveRatesToLocal(_ rates: [String: Double]) {
-        if let encoded = try? JSONEncoder().encode(rates) {
-            UserDefaults.standard.set(encoded, forKey: ratesKey)
+    private func saveRatesToLocal(base: String, rates: [String: Double]) {
+        let payload = ExchangeRateCache(base: base, rates: rates, fetchedAt: Date())
+        if let encoded = try? JSONEncoder().encode(payload) {
+            UserDefaults.standard.set(encoded, forKey: ratesCacheKey)
         }
     }
     
     private func loadRatesFromLocal() {
-        if let data = UserDefaults.standard.data(forKey: ratesKey),
-           let savedRates = try? JSONDecoder().decode([String: Double].self, from: data) {
-            self.rates = savedRates
-            print("✅ 已載入本地匯率緩存")
+        let currentBase = mainCurrency.uppercased()
+        
+        if let data = UserDefaults.standard.data(forKey: ratesCacheKey),
+           let payload = try? JSONDecoder().decode(ExchangeRateCache.self, from: data) {
+            guard payload.base.uppercased() == currentBase else {
+                // base 不一致時忽略，避免錯用他幣快取
+                self.rates = [:]
+                print("⚠️ 忽略不匹配 base 的匯率快取: \(payload.base) -> \(currentBase)")
+                return
+            }
+            
+            let age = Date().timeIntervalSince(payload.fetchedAt)
+            guard age <= cacheTTL else {
+                self.rates = [:]
+                print("⚠️ 匯率快取已過期，等待重新抓取")
+                return
+            }
+            
+            self.rates = payload.rates
+            print("✅ 已載入本地匯率緩存 (\(payload.base))")
+            return
+        }
+        
+        // 舊版快取沒有 base 資訊，不能安全使用，避免錯算
+        if UserDefaults.standard.data(forKey: legacyRatesKey) != nil {
+            UserDefaults.standard.removeObject(forKey: legacyRatesKey)
+            print("⚠️ 已清除舊版匯率快取（缺少 base 資訊）")
+            self.rates = [:]
         }
     }
     
