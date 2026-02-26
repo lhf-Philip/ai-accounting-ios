@@ -12,6 +12,13 @@ AI 記帳是一個以 SwiftUI + SwiftData 開發的 iOS 個人記帳 App，支�
 - 備份與還原：JSON 全機備份、CSV 匯出
 - AI 收據掃描：可選填 Gemini API Key 啟用
 
+## 語言支援
+
+- 繁體中文（`zh-Hant`）
+- 簡體中文（`zh-Hans`）
+- 英式英文（`en-GB`）
+- 日文（`ja`）
+
 ## 技術棧
 
 - SwiftUI
@@ -31,6 +38,12 @@ AI 記帳是一個以 SwiftUI + SwiftData 開發的 iOS 個人記帳 App，支�
 2. 用 Xcode 開啟 `AI 記帳.xcodeproj`
 3. 選擇 Simulator 或 iPhone 裝置
 4. `Cmd + R` 執行
+
+## CI
+
+- GitHub Actions 會在 `push` / `pull_request` 到 `main` 時執行：
+  - `Localizable.xcstrings` 結構驗證
+  - iOS 專案 build 檢查
 
 ## AI Key 與隱私
 

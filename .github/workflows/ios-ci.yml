@@ -1,0 +1,46 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode Version
+        run: xcodebuild -version
+
+      - name: Validate String Catalog
+        run: |
+          plutil -lint Localizable.xcstrings
+          mkdir -p /tmp/xcstrings-build
+          xcrun xcstringstool compile --dry-run \
+            --output-directory /tmp/xcstrings-build \
+            Localizable.xcstrings
+
+      - name: Resolve Package Dependencies
+        run: xcodebuild -resolvePackageDependencies -project 'AI 記帳.xcodeproj'
+
+      - name: Build (iOS Simulator)
+        run: |
+          xcodebuild \
+            -project 'AI 記帳.xcodeproj' \
+            -scheme 'AI 記帳' \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            build | tee xcodebuild.log
+
+      - name: Upload Build Log on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
