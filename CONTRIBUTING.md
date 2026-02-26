@@ -26,3 +26,16 @@ Language: **English** | [繁體中文](./CONTRIBUTING.zh-Hant.md) | [简体中�
 
 - For bugs, use the GitHub issue template with reproducible steps.
 - For security concerns, follow [SECURITY.md](./SECURITY.md).
+
+## Maintainer Admin-Bypass Merge
+
+For repository maintainers (admin role), use the helper script:
+
+```bash
+scripts/gh-admin-merge.sh <pr-number>
+```
+
+Notes:
+- Default merge method is `squash`.
+- The script waits for checks before merge; use `--skip-checks` only if you intentionally bypass.
+- Equivalent core command is `gh pr merge <pr> --admin`.
