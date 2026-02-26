@@ -50,6 +50,7 @@ struct CSVManager {
         var accounts = (try? modelContext.fetch(FetchDescriptor<Account>())) ?? []
         var categories = (try? modelContext.fetch(FetchDescriptor<Category>())) ?? []
         var tags = (try? modelContext.fetch(FetchDescriptor<Tag>())) ?? []
+        var nextSortOrder = (accounts.map(\.sortOrder).max() ?? -1) + 1
         
         for row in rows {
             let cols = row.components(separatedBy: ",")
@@ -81,10 +82,11 @@ struct CSVManager {
                 // 但如果 CSV 的 currency 欄位有值，我們應該用 CSV 的
                 let initialCurrency = csvCurrency.isEmpty ? "HKD" : csvCurrency
                 
-                let newAcc = Account(name: accountName, currency: initialCurrency, type: .cash, baseBalance: 0, sortOrder: 0)
+                let newAcc = Account(name: accountName, currency: initialCurrency, type: .cash, baseBalance: 0, sortOrder: nextSortOrder)
                 modelContext.insert(newAcc)
                 account = newAcc
                 accounts.append(newAcc)
+                nextSortOrder += 1
             }
             
             // 3. 處理分類
