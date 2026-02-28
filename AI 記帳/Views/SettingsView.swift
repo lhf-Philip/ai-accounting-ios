@@ -100,7 +100,9 @@ struct SettingsView: View {
                 Section("AI 設定") {
                     SecureField("Gemini API Key", text: $apiKey)
                         .textContentType(.password)
-                        .onChange(of: apiKey) { _, newValue in saveAPIKey(newValue) }
+                        .onChange(of: apiKey, initial: false) { _, newValue in
+                            saveAPIKey(newValue)
+                        }
                         .onSubmit { hideKeyboard() }
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
@@ -169,7 +171,9 @@ struct SettingsView: View {
                     Picker("主要貨幣", selection: $mainCurrency) {
                         ForEach(currencies, id: \.self) { code in Text(code).tag(code) }
                     }
-                    .onChange(of: mainCurrency) { Task { await CurrencyService.shared.fetchRates() } }
+                    .onChange(of: mainCurrency, initial: false) { _, _ in
+                        Task { await CurrencyService.shared.fetchRates() }
+                    }
                 }
                 
                 Section("資料管理") {
