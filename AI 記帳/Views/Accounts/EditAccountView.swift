@@ -10,7 +10,7 @@ struct EditAccountView: View {
     
     @State private var adjustmentAmountString: String = ""
     @State private var adjustmentCurrency: String = "HKD"
-    @State private var adjustmentNote: String = "餘額修正"
+    @State private var adjustmentNote: String = "資產餘額修正"
     
     @FocusState private var isAmountFocused: Bool
     
@@ -79,7 +79,7 @@ struct EditAccountView: View {
                 
                 Section(
                     header: Text("新增餘額調整 (其他幣種)"),
-                    footer: Text("這會新增一筆「餘額修正」交易來調整該幣種的總額。")
+                    footer: Text("這會新增一筆「資產調整」交易來調整該幣種總額，不計入收入/支出報表。")
                 ) {
                     HStack {
                         Picker("", selection: $adjustmentCurrency) {
@@ -122,14 +122,21 @@ struct EditAccountView: View {
     
     private func addAdjustment() {
         guard let amount = Decimal(string: adjustmentAmountString), amount != 0 else { return }
+        let trimmedNote = adjustmentNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalNote = trimmedNote.isEmpty ? "[資產調整] 餘額修正" : "[資產調整] \(trimmedNote)"
         
         let tx = FinancialTransaction(
-            amount: amount, currencyCode: adjustmentCurrency, date: Date(), note: adjustmentNote,
-            type: amount >= 0 ? .income : .expense, account: account
+            amount: amount,
+            currencyCode: adjustmentCurrency,
+            date: Date(),
+            note: finalNote,
+            type: .transfer,
+            transferSide: amount >= 0 ? .incoming : .outgoing,
+            account: account
         )
         modelContext.insert(tx)
         
         adjustmentAmountString = ""
-        adjustmentNote = "餘額修正"
+        adjustmentNote = "資產餘額修正"
     }
 }
