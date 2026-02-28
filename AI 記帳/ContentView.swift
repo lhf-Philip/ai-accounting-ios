@@ -13,7 +13,7 @@ struct ContentView: View {
     @State private var showingAddTransfer = false
     @State private var showingScanReceipt = false
     @State private var showingAddDebt = false
-    @State private var showingAdvanceTracker = false
+    @State private var showingAddAdvanceCase = false
     
     // 備份相關狀態
     @AppStorage("lastBackupDate") private var lastBackupDate: Double = 0
@@ -55,7 +55,7 @@ struct ContentView: View {
                 Button("掃描單據 (AI)") { showingScanReceipt = true }
                 Button("轉帳") { showingAddTransfer = true }
                 Button("借貸 (借入/還款)") { showingAddDebt = true }
-                Button("代墊追蹤 (多人分帳/還款)") { showingAdvanceTracker = true }
+                Button("新增代墊單 (多人分帳)") { showingAddAdvanceCase = true }
                 Button("取消", role: .cancel) { }
             }
         }
@@ -63,16 +63,14 @@ struct ContentView: View {
         .sheet(isPresented: $showingAddTransfer) { AddTransferView() }
         .sheet(isPresented: $showingScanReceipt) { ScanReceiptView() }
         .sheet(isPresented: $showingAddDebt) { AddDebtView() } // 這裡現在應該正常了
-        .sheet(isPresented: $showingAdvanceTracker) {
-            NavigationStack { AdvancesView() }
-        }
+        .sheet(isPresented: $showingAddAdvanceCase) { AddAdvanceCaseView() }
         
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("CloseAddFlow"))) { _ in
             showingScanReceipt = false
             showingAddTransaction = false
             showingAddTransfer = false
             showingAddDebt = false
-            showingAdvanceTracker = false
+            showingAddAdvanceCase = false
         }
         .onChange(of: scenePhase, initial: true) { _, newPhase in
             switch newPhase {
