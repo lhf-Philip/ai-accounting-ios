@@ -232,6 +232,12 @@ struct ChartsView: View {
     
     func rowView(item: ChartData, total: Decimal, trailingIcon: String) -> some View {
         let percent = total > 0 ? (item.amount / total * 100) : 0
+        let percentDouble = NSDecimalNumber(decimal: percent).doubleValue
+        let safeProgressRatio: CGFloat = {
+            guard percentDouble.isFinite else { return 0 }
+            let normalized = percentDouble / 100.0
+            return CGFloat(min(max(normalized, 0), 1))
+        }()
         return HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 4).fill(item.color).frame(width: 4, height: 40)
             VStack(alignment: .leading, spacing: 2) {
@@ -239,7 +245,9 @@ struct ChartsView: View {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.gray.opacity(0.1))
-                        Capsule().fill(item.color).frame(width: geo.size.width * CGFloat(NSDecimalNumber(decimal: percent).doubleValue / 100))
+                        Capsule()
+                            .fill(item.color)
+                            .frame(width: max(0, geo.size.width) * safeProgressRatio)
                     }
                 }.frame(height: 6)
             }

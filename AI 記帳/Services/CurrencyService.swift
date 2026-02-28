@@ -100,7 +100,7 @@ class CurrencyService: ObservableObject {
     
     func convert(amount: Decimal, from currency: String) -> Decimal {
         if currency == mainCurrency { return amount }
-        guard let rate = rates[currency] else { return amount } // 如果完全沒匯率，回傳原值
+        guard let rate = rates[currency], rate.isFinite, rate > 0 else { return amount } // 避免異常匯率造成非有限數值
         return amount / Decimal(rate)
     }
     
@@ -108,7 +108,7 @@ class CurrencyService: ObservableObject {
         if source == target { return amount }
         
         if source == mainCurrency {
-            guard let targetRate = rates[target] else { return amount }
+            guard let targetRate = rates[target], targetRate.isFinite, targetRate > 0 else { return amount }
             return amount * Decimal(targetRate)
         }
         
@@ -116,7 +116,7 @@ class CurrencyService: ObservableObject {
             return convert(amount: amount, from: source)
         }
         
-        guard let targetRate = rates[target] else { return amount }
+        guard let targetRate = rates[target], targetRate.isFinite, targetRate > 0 else { return amount }
         let inMain = convert(amount: amount, from: source)
         return inMain * Decimal(targetRate)
     }
