@@ -27,6 +27,24 @@ struct AI___App: App {
             return
         }
         
+        if !columnExists("ZKIND", in: "ZCATEGORY", db: db) {
+            let addColumnSQL = "ALTER TABLE ZCATEGORY ADD COLUMN ZKIND VARCHAR;"
+            let addResult = sqlite3_exec(db, addColumnSQL, nil, nil, nil)
+            if addResult != SQLITE_OK {
+                if let errorMessage = sqlite3_errmsg(db) {
+                    let message = String(cString: errorMessage)
+                    // 避免極端情況重複加欄位時中斷流程
+                    if !message.localizedCaseInsensitiveContains("duplicate column name") {
+                        print("⚠️ 補建 Category.kind 欄位失敗: \(message)")
+                        return
+                    }
+                } else {
+                    return
+                }
+            }
+            print("ℹ️ 已補建缺失欄位 ZCATEGORY.ZKIND")
+        }
+        
         let sql = """
         UPDATE ZCATEGORY
         SET ZKIND = 'Both'
