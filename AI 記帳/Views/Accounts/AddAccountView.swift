@@ -88,7 +88,7 @@ struct AddAccountView: View {
                     }) {
                         Label("新增其他幣種餘額", systemImage: "plus.circle")
                     }
-                } header: { Text("其他幣種餘額 (選填)") } footer: { Text("這些餘額將以「初始餘額」交易的形式記錄。") }
+                } header: { Text("其他幣種餘額 (選填)") } footer: { Text("這些餘額會記為「資產調整」交易，不計入收入/支出報表。") }
                 
                 if type == .debt && !balanceString.isEmpty && balanceString != "0" && balanceString != "-" {
                     Section("主幣種資金流向 (選填)") {
@@ -162,7 +162,15 @@ struct AddAccountView: View {
         
         for item in additionalBalances {
             if let amount = Decimal(string: item.amountString), amount != 0 {
-                let tx = FinancialTransaction(amount: amount, currencyCode: item.currency, date: now, note: "\(note) (\(item.currency))", type: amount >= 0 ? .income : .expense, account: newAccount)
+                let tx = FinancialTransaction(
+                    amount: amount,
+                    currencyCode: item.currency,
+                    date: now,
+                    note: "[資產調整] \(note) (\(item.currency))",
+                    type: .transfer,
+                    transferSide: amount >= 0 ? .incoming : .outgoing,
+                    account: newAccount
+                )
                 modelContext.insert(tx)
             }
         }

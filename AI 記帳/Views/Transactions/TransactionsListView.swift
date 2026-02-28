@@ -211,6 +211,12 @@ struct TransactionsListView: View {
         let calendar = Calendar.current
         let timeFiltered = transactions.filter { tx in
             if tx.type == .transfer && tx.amount > 0 { return false }
+            if tx.type == .transfer,
+               tx.transferGroupID == nil,
+               tx.linkedTransactionID == nil,
+               isAssetAdjustment(note: tx.note) {
+                return false
+            }
             switch filterType {
             case .all: return true
             case .year: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .year)
@@ -325,5 +331,9 @@ struct TransactionsListView: View {
         }
         
         return output
+    }
+    
+    private func isAssetAdjustment(note: String) -> Bool {
+        note.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("[資產調整]")
     }
 }

@@ -14,8 +14,8 @@ struct ChartsView: View {
     @State private var flowMode: FlowMode = .expense
     
     // 互動狀態
-    @State private var selectedSegmentName: String?
     @State private var selectedTagForDetail: String?
+    @State private var selectedReportDetail: ReportDetail?
     
     enum ChartMode: String, CaseIterable {
         case category = "依分類"
@@ -48,6 +48,12 @@ struct ChartsView: View {
         }
     }
     
+    struct ReportDetail: Identifiable {
+        let id = UUID()
+        let title: String
+        let transactions: [FinancialTransaction]
+    }
+    
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -73,13 +79,13 @@ struct ChartsView: View {
                             ForEach(FlowMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
                         }
                         .pickerStyle(.segmented)
-                        .onChange(of: flowMode) { selectedTagForDetail = nil; selectedSegmentName = nil }
+                        .onChange(of: flowMode) { selectedTagForDetail = nil }
                         
                         Picker("模式", selection: $chartMode) {
                             ForEach(ChartMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
                         }
                         .pickerStyle(.segmented)
-                        .onChange(of: chartMode) { selectedTagForDetail = nil; selectedSegmentName = nil }
+                        .onChange(of: chartMode) { selectedTagForDetail = nil }
                     }
                 }
                 .padding()
@@ -124,6 +130,9 @@ struct ChartsView: View {
             .sheet(isPresented: $showingFilterSheet) {
                 DateFilterView(filterType: $filterType, selectedDate: $selectedDate)
             }
+            .sheet(item: $selectedReportDetail) { detail in
+                ReportTransactionListView(title: detail.title, transactions: detail.transactions)
+            }
         }
     }
     
@@ -135,15 +144,19 @@ struct ChartsView: View {
                 .padding(.horizontal)
             
             LazyVStack(spacing: 16) {
-                ForEach(currentData, id: \.name) { item in
+                ForEach(currentData, id: \.key) { item in
                     Button(action: {
                         if chartMode == .tag {
-                            withAnimation { selectedTagForDetail = item.name; selectedSegmentName = nil }
+                            withAnimation { selectedTagForDetail = item.name }
                         } else {
-                            withAnimation { selectedSegmentName = (selectedSegmentName == item.name) ? nil : item.name }
+                            presentTransactions(for: item)
                         }
                     }) {
-                        rowView(item: item, total: totalAmount(data: currentData), isDrillDown: chartMode == .tag)
+                        rowView(
+                            item: item,
+                            total: totalAmount(data: currentData),
+                            trailingIcon: chartMode == .tag ? "chevron.right" : "list.bullet"
+                        )
                     }
                     .buttonStyle(.plain)
                 }
@@ -156,7 +169,7 @@ struct ChartsView: View {
     var tagDetailView: some View {
         VStack(spacing: 24) {
             HStack {
-                Button(action: { withAnimation { selectedTagForDetail = nil; selectedSegmentName = nil } }) {
+                Button(action: { withAnimation { selectedTagForDetail = nil } }) {
                     HStack {
                         Image(systemName: "arrow.left.circle.fill").font(.title2)
                         Text(selectedTagForDetail ?? "").font(.title3).bold()
@@ -176,11 +189,11 @@ struct ChartsView: View {
                     .padding(.horizontal)
                 
                 LazyVStack(spacing: 16) {
-                    ForEach(detailData, id: \.name) { item in
+                    ForEach(detailData, id: \.key) { item in
                         Button(action: {
-                            withAnimation { selectedSegmentName = (selectedSegmentName == item.name) ? nil : item.name }
+                            presentTransactions(for: item, tagName: selectedTagForDetail)
                         }) {
-                            rowView(item: item, total: totalAmount(data: detailData), isDrillDown: false)
+                            rowView(item: item, total: totalAmount(data: detailData), trailingIcon: "list.bullet")
                         }
                         .buttonStyle(.plain)
                     }
@@ -194,31 +207,27 @@ struct ChartsView: View {
     // MARK: - 通用組件
     func chartView(data: [ChartData]) -> some View {
         let total = totalAmount(data: data)
-        let displayTotal = selectedSegmentName != nil ? (data.first(where: { $0.name == selectedSegmentName })?.amount ?? 0) : total
         return ZStack {
-            Chart(data, id: \.name) { item in
+            Chart(data, id: \.key) { item in
                 SectorMark(
                     angle: .value("金額", item.amount),
                     innerRadius: .ratio(0.65),
-                    outerRadius: selectedSegmentName == item.name ? .ratio(1.0) : .ratio(0.9),
+                    outerRadius: .ratio(0.9),
                     angularInset: 2.0
                 )
                 .cornerRadius(6)
                 .foregroundStyle(item.color)
-                .opacity(selectedSegmentName == nil ? 1.0 : (selectedSegmentName == item.name ? 1.0 : 0.3))
             }
-            .chartAngleSelection(value: $selectedSegmentName)
             VStack {
-                Text(selectedSegmentName ?? flowMode.totalTitle).font(.callout).foregroundStyle(.secondary)
-                Text(displayTotal.formatted(.currency(code: currencyService.mainCurrency)))
+                Text(flowMode.totalTitle).font(.callout).foregroundStyle(.secondary)
+                Text(total.formatted(.currency(code: currencyService.mainCurrency)))
                     .font(.title2).bold().foregroundStyle(.primary)
             }
         }
     }
     
-    func rowView(item: ChartData, total: Decimal, isDrillDown: Bool) -> some View {
+    func rowView(item: ChartData, total: Decimal, trailingIcon: String) -> some View {
         let percent = total > 0 ? (item.amount / total * 100) : 0
-        let isSelected = (selectedSegmentName == item.name)
         return HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 4).fill(item.color).frame(width: 4, height: 40)
             VStack(alignment: .leading, spacing: 2) {
@@ -235,21 +244,22 @@ struct ChartsView: View {
                 Text(item.amount.formatted(.currency(code: currencyService.mainCurrency))).font(.body).bold()
                 HStack(spacing: 4) {
                     Text("\(percent.formatted(.number.precision(.fractionLength(1))))%")
-                    if isDrillDown { Image(systemName: "chevron.right") }
+                    Image(systemName: trailingIcon)
                 }.font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(12)
-        .background(isSelected ? Color.blue.opacity(0.1) : Color(uiColor: .secondarySystemBackground))
+        .background(Color(uiColor: .secondarySystemBackground))
         .cornerRadius(12)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(isSelected ? Color.blue.opacity(0.3) : Color.clear, lineWidth: 1))
     }
     
     // MARK: - Data Logic
     struct ChartData {
+        let key: String
         let name: String
         let amount: Decimal
         let color: Color
+        let transactions: [FinancialTransaction]
     }
     
     var currentData: [ChartData] {
@@ -260,22 +270,42 @@ struct ChartsView: View {
                 let sum1 = $1.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
                 return sum0 > sum1
             }
-            return sorted.enumerated().map { (index, item) in
+            return sorted.map { item in
                 let total = item.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
                 let category = item.value.compactMap { $0.category }.first
                 let displayColor = category.map { Color(hex: $0.colorHex) } ?? .gray
-                return ChartData(name: category?.name ?? "未分類", amount: total, color: displayColor)
+                return ChartData(
+                    key: item.key,
+                    name: category?.name ?? "未分類",
+                    amount: total,
+                    color: displayColor,
+                    transactions: item.value
+                )
             }
         } else {
             var tagDict: [String: Decimal] = [:]
+            var tagTransactions: [String: [FinancialTransaction]] = [:]
             for tx in filteredTransactions {
                 let amount = currencyService.convert(amount: abs(tx.amount), from: tx.currencyCode)
-                if tx.tags.isEmpty { tagDict["無標籤", default: 0] += amount }
-                else { for tag in tx.tags { tagDict[tag.name, default: 0] += amount } }
+                if tx.tags.isEmpty {
+                    tagDict["無標籤", default: 0] += amount
+                    tagTransactions["無標籤", default: []].append(tx)
+                } else {
+                    for tag in tx.tags {
+                        tagDict[tag.name, default: 0] += amount
+                        tagTransactions[tag.name, default: []].append(tx)
+                    }
+                }
             }
             let sorted = tagDict.sorted { $0.value > $1.value }
             return sorted.enumerated().map { (index, item) in
-                ChartData(name: item.key, amount: item.value, color: Color.generateDistinctColor(index: index, total: sorted.count))
+                ChartData(
+                    key: item.key,
+                    name: item.key,
+                    amount: item.value,
+                    color: Color.generateDistinctColor(index: index, total: sorted.count),
+                    transactions: tagTransactions[item.key] ?? []
+                )
             }
         }
     }
@@ -291,12 +321,31 @@ struct ChartsView: View {
             let sum1 = $1.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
             return sum0 > sum1
         }
-        return sorted.enumerated().map { (index, item) in
+        return sorted.map { item in
             let total = item.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
             let category = item.value.compactMap { $0.category }.first
             let displayColor = category.map { Color(hex: $0.colorHex) } ?? .gray
-            return ChartData(name: category?.name ?? "未分類", amount: total, color: displayColor)
+            return ChartData(
+                key: item.key,
+                name: category?.name ?? "未分類",
+                amount: total,
+                color: displayColor,
+                transactions: item.value
+            )
         }
+    }
+    
+    func presentTransactions(for item: ChartData, tagName: String? = nil) {
+        let flowLabel = flowMode == .income ? "收入" : "支出"
+        let title: String
+        if let tagName {
+            title = "\(flowLabel)・\(tagName)・\(item.name)"
+        } else {
+            title = "\(flowLabel)・\(item.name)"
+        }
+        
+        let sortedTransactions = item.transactions.sorted { $0.date > $1.date }
+        selectedReportDetail = ReportDetail(title: title, transactions: sortedTransactions)
     }
     
     func totalAmount(data: [ChartData]) -> Decimal { data.reduce(0) { $0 + $1.amount } }
@@ -331,6 +380,50 @@ struct ChartsView: View {
         let key = BudgetService.monthKey(from: Date())
         return BudgetService.statuses(for: key, budgets: budgets, transactions: transactions, currencyService: currencyService)
             .filter { $0.ratio >= 1 }
+    }
+}
+
+private struct ReportTransactionListView: View {
+    let title: String
+    let transactions: [FinancialTransaction]
+    
+    private var groupedTransactions: [(title: String, items: [FinancialTransaction])] {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy/MM/dd (E)"
+        let grouped = Dictionary(grouping: transactions) { tx in
+            formatter.string(from: tx.date)
+        }
+        return grouped
+            .sorted { lhs, rhs in
+                guard let leftDate = lhs.value.first?.date, let rightDate = rhs.value.first?.date else {
+                    return lhs.key > rhs.key
+                }
+                return leftDate > rightDate
+            }
+            .map { ($0.key, $0.value.sorted { $0.date > $1.date }) }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Group {
+                if transactions.isEmpty {
+                    ContentUnavailableView("找不到交易", systemImage: "tray")
+                } else {
+                    List {
+                        ForEach(groupedTransactions, id: \.title) { group in
+                            Section(group.title) {
+                                ForEach(group.items) { tx in
+                                    TransactionRow(transaction: tx)
+                                }
+                            }
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+        }
     }
 }
 
