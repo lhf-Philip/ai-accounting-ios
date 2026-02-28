@@ -18,6 +18,8 @@ struct TransactionsListView: View {
     @State private var showingAddShortcut = false
     @State private var pendingShortcut: Shortcut? // 待確認的捷徑
     @State private var showingShortcutConfirm = false
+    @State private var shortcutToDelete: Shortcut?
+    @State private var showingShortcutDeleteConfirm = false
     
     var body: some View {
         NavigationStack {
@@ -59,11 +61,11 @@ struct TransactionsListView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .contextMenu {
-                                Button(role: .destructive) { modelContext.delete(shortcut) } label: {
-                                    Label("刪除", systemImage: "trash")
-                                }
-                            }
+                            .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in
+                                shortcutToDelete = shortcut
+                                showingShortcutDeleteConfirm = true
+                            })
+                            .accessibilityHint("長按可刪除捷徑")
                         }
                     }
                     .padding(.horizontal)
@@ -164,6 +166,23 @@ struct TransactionsListView: View {
                 if let sc = pendingShortcut {
                     Text("\(sc.name)\n\(sc.type == .expense ? "支出" : "收入") \(sc.amount.formatted()) \(sc.account?.currency ?? "")")
                 }
+            }
+            .confirmationDialog(
+                "刪除捷徑？",
+                isPresented: $showingShortcutDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("刪除", role: .destructive) {
+                    if let shortcut = shortcutToDelete {
+                        modelContext.delete(shortcut)
+                    }
+                    shortcutToDelete = nil
+                }
+                Button("取消", role: .cancel) {
+                    shortcutToDelete = nil
+                }
+            } message: {
+                Text(shortcutToDelete?.name ?? "")
             }
         }
     }

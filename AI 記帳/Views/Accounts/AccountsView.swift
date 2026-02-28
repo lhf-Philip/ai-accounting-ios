@@ -273,11 +273,6 @@ struct AccountRowLink: View {
                 Button(role: .destructive, action: deleteAction) { Label("刪除", systemImage: "trash") }
                 Button(action: editAction) { Label("編輯", systemImage: "pencil") }.tint(.blue)
             }
-            .contextMenu {
-                Button(action: editAction) { Label("編輯", systemImage: "pencil") }
-                Button(action: archiveAction) { Label(showArchived ? "還原" : "歸檔", systemImage: "archivebox") }
-                Button(role: .destructive, action: deleteAction) { Label("刪除", systemImage: "trash") }
-            }
     }
 }
 

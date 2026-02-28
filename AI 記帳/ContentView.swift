@@ -74,6 +74,7 @@ struct ContentView: View {
         }
         
         .task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
             BackupManager.shared.performAutoBackup(modelContext: modelContext)
         }
     }
