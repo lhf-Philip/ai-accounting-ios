@@ -504,6 +504,7 @@ struct AddAdvanceCaseView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Account.sortOrder) private var allAccounts: [Account]
     @Query(sort: \Category.name) private var categories: [Category]
+    @Query(sort: \Tag.name) private var tags: [Tag]
     
     private struct ParticipantDraft: Identifiable {
         let id = UUID()
@@ -518,7 +519,10 @@ struct AddAdvanceCaseView: View {
     @State private var selectedCurrency = "HKD"
     @State private var selectedPayerAccount: Account?
     @State private var selectedCategory: Category?
+    @State private var selectedTags: Set<Tag> = []
     @State private var participantDrafts: [ParticipantDraft] = [ParticipantDraft()]
+    @State private var showingAddTag = false
+    @State private var newTagName = ""
     
     @State private var showingError = false
     @State private var errorMessage = ""
@@ -577,6 +581,36 @@ struct AddAdvanceCaseView: View {
                         Text("不設定").tag(nil as Category?)
                         ForEach(expenseCategories) { category in
                             Text(category.name).tag(category as Category?)
+                        }
+                    }
+
+                    HStack {
+                        Text("標籤")
+                        Spacer()
+                        Button(action: { showingAddTag = true }) {
+                            Label("新增", systemImage: "plus")
+                                .font(.caption)
+                        }
+                    }
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack {
+                            ForEach(tags) { tag in
+                                let isSelected = selectedTags.contains(tag)
+                                Text(tag.name)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(isSelected ? Color.blue : Color.gray.opacity(0.2))
+                                    .foregroundStyle(isSelected ? .white : .primary)
+                                    .cornerRadius(16)
+                                    .onTapGesture {
+                                        if isSelected {
+                                            selectedTags.remove(tag)
+                                        } else {
+                                            selectedTags.insert(tag)
+                                        }
+                                    }
+                            }
                         }
                     }
                 }
@@ -641,6 +675,11 @@ struct AddAdvanceCaseView: View {
                     }
                 }
             }
+            .alert("新增標籤", isPresented: $showingAddTag) {
+                TextField("標籤名稱", text: $newTagName)
+                Button("取消", role: .cancel) { newTagName = "" }
+                Button("新增") { createTag() }
+            }
             .alert("無法儲存", isPresented: $showingError) {
                 Button("好", role: .cancel) {}
             } message: {
@@ -698,6 +737,7 @@ struct AddAdvanceCaseView: View {
                 note: note,
                 payerAccount: payer,
                 category: selectedCategory,
+                tags: Array(selectedTags),
                 participants: participantInputs,
                 modelContext: modelContext
             )
@@ -705,6 +745,15 @@ struct AddAdvanceCaseView: View {
         } catch {
             showError(error.localizedDescription)
         }
+    }
+
+    private func createTag() {
+        let trimmed = newTagName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let tag = Tag(name: trimmed)
+        modelContext.insert(tag)
+        selectedTags.insert(tag)
+        newTagName = ""
     }
     
     private func sanitizePositiveDecimalInput(_ value: String) -> String {
@@ -733,14 +782,52 @@ struct AddAdvanceRepaymentView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Account.sortOrder) private var allAccounts: [Account]
+    @Query(sort: \Category.name) private var categories: [Category]
+    @Query(sort: \Tag.name) private var tags: [Tag]
     @StateObject private var currencyService = CurrencyService.shared
     
     let advanceCase: AdvanceCase
     let participant: AdvanceParticipant
     
+    private enum EntryMode: String, CaseIterable, Identifiable {
+        case normal
+        case split
+        case merge
+        
+        var id: String { rawValue }
+        
+        var title: String {
+            switch self {
+            case .normal: return "一般"
+            case .split: return "分拆 (1 -> 多)"
+            case .merge: return "合併 (多 -> 1)"
+            }
+        }
+    }
+    
+    private struct SplitLeg: Identifiable {
+        let id = UUID()
+        var receiveAccount: Account?
+        var currency: String = "HKD"
+        var amountString: String = ""
+    }
+    
+    private struct MergeLeg: Identifiable {
+        let id = UUID()
+        var currency: String = "HKD"
+        var amountString: String = ""
+    }
+    
+    @State private var entryMode: EntryMode = .normal
     @State private var selectedReceiveAccount: Account?
     @State private var amountString = ""
     @State private var selectedCurrency = "HKD"
+    @State private var selectedCategory: Category?
+    @State private var selectedTags: Set<Tag> = []
+    @State private var splitLegs: [SplitLeg] = [SplitLeg()]
+    @State private var mergeLegs: [MergeLeg] = [MergeLeg()]
+    @State private var showingAddTag = false
+    @State private var newTagName = ""
     @State private var date = Date()
     @State private var note = ""
     @State private var showingError = false
@@ -756,51 +843,200 @@ struct AddAdvanceRepaymentView: View {
         participant.remainingAmount
     }
     
+    private var incomeCategories: [Category] {
+        categories.filter { $0.kind.supports(.income) }
+    }
+    
     private var convertedPreview: Decimal? {
         guard let amount = Decimal(string: amountString), amount > 0 else { return nil }
         return currencyService.convert(amount: amount, from: selectedCurrency, to: advanceCase.currencyCode)
     }
     
+    private var canSubmit: Bool {
+        switch entryMode {
+        case .normal:
+            return selectedReceiveAccount != nil && positiveDecimal(from: amountString) != nil
+        case .split:
+            return splitLegs.contains { $0.receiveAccount != nil && positiveDecimal(from: $0.amountString) != nil }
+                && splitLegs.allSatisfy { $0.receiveAccount != nil && positiveDecimal(from: $0.amountString) != nil }
+        case .merge:
+            return selectedReceiveAccount != nil
+                && mergeLegs.contains { positiveDecimal(from: $0.amountString) != nil }
+                && mergeLegs.allSatisfy { positiveDecimal(from: $0.amountString) != nil }
+        }
+    }
+    
     var body: some View {
         NavigationStack {
             Form {
+                Section("模式") {
+                    Picker("記錄模式", selection: $entryMode) {
+                        ForEach(EntryMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                
                 Section("對象") {
                     summaryRow(title: "姓名", value: participant.name)
                     summaryRow(title: "未還", value: remaining.formatted(.currency(code: advanceCase.currencyCode)))
                 }
                 
                 Section("入帳與金額") {
-                    Picker("入帳帳戶", selection: $selectedReceiveAccount) {
-                        Text("選擇帳戶").tag(nil as Account?)
-                        ForEach(receiveAccounts) { account in
-                            Text(account.name).tag(account as Account?)
+                    if entryMode != .split {
+                        Picker("入帳帳戶", selection: $selectedReceiveAccount) {
+                            Text("選擇帳戶").tag(nil as Account?)
+                            ForEach(receiveAccounts) { account in
+                                Text(account.name).tag(account as Account?)
+                            }
+                        }
+                        .onChange(of: selectedReceiveAccount) { _, _ in
+                            if let account = selectedReceiveAccount {
+                                selectedCurrency = account.currency
+                            }
                         }
                     }
-                    .onChange(of: selectedReceiveAccount) { _, _ in
-                        if let account = selectedReceiveAccount {
-                            selectedCurrency = account.currency
+                    
+                    switch entryMode {
+                    case .normal:
+                        HStack {
+                            Picker("幣種", selection: $selectedCurrency) {
+                                ForEach(currencies, id: \.self) { code in
+                                    Text(code).tag(code)
+                                }
+                            }
+                            .frame(width: 100)
+                            
+                            TextField("還款金額", text: Binding(
+                                get: { amountString },
+                                set: { amountString = sanitizePositiveDecimalInput($0) }
+                            ))
+                            .keyboardType(.decimalPad)
+                        }
+                        
+                        if let convertedPreview {
+                            Text("折算為 \(convertedPreview.formatted(.currency(code: advanceCase.currencyCode)))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    case .split:
+                        ForEach($splitLegs) { $leg in
+                            VStack(spacing: 10) {
+                                Picker("入帳帳戶", selection: $leg.receiveAccount) {
+                                    Text("選擇帳戶").tag(nil as Account?)
+                                    ForEach(receiveAccounts) { account in
+                                        Text(account.name).tag(account as Account?)
+                                    }
+                                }
+                                .onChange(of: leg.receiveAccount) { _, _ in
+                                    if let account = leg.receiveAccount {
+                                        leg.currency = account.currency
+                                    }
+                                }
+                                
+                                HStack {
+                                    Picker("幣種", selection: $leg.currency) {
+                                        ForEach(currencies, id: \.self) { code in
+                                            Text(code).tag(code)
+                                        }
+                                    }
+                                    .frame(width: 100)
+                                    
+                                    TextField("還款金額", text: Binding(
+                                        get: { leg.amountString },
+                                        set: { leg.amountString = sanitizePositiveDecimalInput($0) }
+                                    ))
+                                    .keyboardType(.decimalPad)
+                                }
+                                
+                                if splitLegs.count > 1 {
+                                    Button(role: .destructive) {
+                                        splitLegs.removeAll { $0.id == leg.id }
+                                    } label: {
+                                        Text("移除此帳戶")
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        
+                        Button {
+                            splitLegs.append(SplitLeg(currency: selectedCurrency))
+                        } label: {
+                            Label("新增分拆入帳帳戶", systemImage: "plus.circle")
+                        }
+                        
+                    case .merge:
+                        ForEach($mergeLegs) { $leg in
+                            HStack {
+                                Picker("幣種", selection: $leg.currency) {
+                                    ForEach(currencies, id: \.self) { code in
+                                        Text(code).tag(code)
+                                    }
+                                }
+                                .frame(width: 100)
+                                
+                                TextField("還款金額", text: Binding(
+                                    get: { leg.amountString },
+                                    set: { leg.amountString = sanitizePositiveDecimalInput($0) }
+                                ))
+                                .keyboardType(.decimalPad)
+                            }
+                            
+                            if mergeLegs.count > 1 {
+                                Button(role: .destructive) {
+                                    mergeLegs.removeAll { $0.id == leg.id }
+                                } label: {
+                                    Text("移除此金額項")
+                                }
+                            }
+                        }
+                        
+                        Button {
+                            mergeLegs.append(MergeLeg(currency: selectedCurrency))
+                        } label: {
+                            Label("新增合併金額項", systemImage: "plus.circle")
+                        }
+                    }
+                }
+                
+                Section("自己的入帳標記") {
+                    Picker("分類", selection: $selectedCategory) {
+                        Text("不設定").tag(nil as Category?)
+                        ForEach(incomeCategories) { category in
+                            Text(category.name).tag(category as Category?)
                         }
                     }
                     
                     HStack {
-                        Picker("幣種", selection: $selectedCurrency) {
-                            ForEach(currencies, id: \.self) { code in
-                                Text(code).tag(code)
-                            }
+                        Text("標籤")
+                        Spacer()
+                        Button(action: { showingAddTag = true }) {
+                            Label("新增", systemImage: "plus")
+                                .font(.caption)
                         }
-                        .frame(width: 100)
-                        
-                        TextField("還款金額", text: Binding(
-                            get: { amountString },
-                            set: { amountString = sanitizePositiveDecimalInput($0) }
-                        ))
-                        .keyboardType(.decimalPad)
                     }
                     
-                    if let convertedPreview {
-                        Text("折算為 \(convertedPreview.formatted(.currency(code: advanceCase.currencyCode)))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack {
+                            ForEach(tags) { tag in
+                                let isSelected = selectedTags.contains(tag)
+                                Text(tag.name)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(isSelected ? Color.blue : Color.gray.opacity(0.2))
+                                    .foregroundStyle(isSelected ? .white : .primary)
+                                    .cornerRadius(16)
+                                    .onTapGesture {
+                                        if isSelected {
+                                            selectedTags.remove(tag)
+                                        } else {
+                                            selectedTags.insert(tag)
+                                        }
+                                    }
+                            }
+                        }
                     }
                 }
                 
@@ -816,7 +1052,7 @@ struct AddAdvanceRepaymentView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("儲存") { save() }
-                        .disabled(selectedReceiveAccount == nil || amountString.isEmpty)
+                        .disabled(!canSubmit)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -824,6 +1060,11 @@ struct AddAdvanceRepaymentView: View {
                         hideKeyboard()
                     }
                 }
+            }
+            .alert("新增標籤", isPresented: $showingAddTag) {
+                TextField("標籤名稱", text: $newTagName)
+                Button("取消", role: .cancel) { newTagName = "" }
+                Button("新增") { createTag() }
             }
             .alert("無法儲存", isPresented: $showingError) {
                 Button("好", role: .cancel) {}
@@ -836,32 +1077,94 @@ struct AddAdvanceRepaymentView: View {
                     selectedReceiveAccount = first
                     selectedCurrency = first.currency
                 }
+                if splitLegs.first?.receiveAccount == nil, let first = receiveAccounts.first {
+                    splitLegs[0].receiveAccount = first
+                    splitLegs[0].currency = first.currency
+                }
             }
         }
     }
     
     private func save() {
-        guard let receiveAccount = selectedReceiveAccount else {
-            showError("請選擇入帳帳戶。")
-            return
-        }
-        guard let amount = Decimal(string: amountString), amount > 0 else {
-            showError("請輸入大於 0 的還款金額。")
-            return
-        }
-        
         do {
-            _ = try AdvanceService.recordRepayment(
-                advanceCase: advanceCase,
-                participant: participant,
-                amount: amount,
-                currencyCode: selectedCurrency,
-                date: date,
-                note: note,
-                receiveAccount: receiveAccount,
-                currencyService: currencyService,
-                modelContext: modelContext
-            )
+            switch entryMode {
+            case .normal:
+                guard let receiveAccount = selectedReceiveAccount else {
+                    showError("請選擇入帳帳戶。")
+                    return
+                }
+                guard let amount = positiveDecimal(from: amountString) else {
+                    showError("請輸入大於 0 的還款金額。")
+                    return
+                }
+                
+                _ = try recordSingleRepayment(
+                    receiveAccount: receiveAccount,
+                    amount: amount,
+                    currencyCode: selectedCurrency,
+                    note: note,
+                    autosave: true
+                )
+            case .split:
+                var legs: [(account: Account, amount: Decimal, currency: String)] = []
+                for leg in splitLegs {
+                    guard let account = leg.receiveAccount,
+                          let amount = positiveDecimal(from: leg.amountString)
+                    else {
+                        showError("分拆模式下，請為每一項選擇帳戶並填入金額。")
+                        return
+                    }
+                    legs.append((account, amount, leg.currency))
+                }
+                
+                guard validateTotalNotExceedingRemaining(items: legs.map { ($0.amount, $0.currency) }) else {
+                    showError("分拆總金額超過未還餘額。")
+                    return
+                }
+                
+                for (index, leg) in legs.enumerated() {
+                    _ = try recordSingleRepayment(
+                        receiveAccount: leg.account,
+                        amount: leg.amount,
+                        currencyCode: leg.currency,
+                        note: indexedNote(base: note, mode: .split, index: index, count: legs.count),
+                        autosave: false
+                    )
+                }
+                try modelContext.save()
+                
+            case .merge:
+                guard let receiveAccount = selectedReceiveAccount else {
+                    showError("請選擇入帳帳戶。")
+                    return
+                }
+                
+                var items: [(amount: Decimal, currency: String)] = []
+                for leg in mergeLegs {
+                    guard let amount = positiveDecimal(from: leg.amountString) else {
+                        showError("合併模式下，請為每一項填入金額。")
+                        return
+                    }
+                    items.append((amount, leg.currency))
+                }
+                
+                guard validateTotalNotExceedingRemaining(items: items) else {
+                    showError("合併總金額超過未還餘額。")
+                    return
+                }
+                
+                for (index, item) in items.enumerated() {
+                    _ = try recordSingleRepayment(
+                        receiveAccount: receiveAccount,
+                        amount: item.amount,
+                        currencyCode: item.currency,
+                        note: indexedNote(base: note, mode: .merge, index: index, count: items.count),
+                        autosave: false
+                    )
+                }
+                try modelContext.save()
+            }
+            
             dismiss()
         } catch {
             showError(error.localizedDescription)
@@ -891,6 +1194,69 @@ struct AddAdvanceRepaymentView: View {
         }
         
         return result == "." ? "" : result
+    }
+    
+    private func positiveDecimal(from value: String) -> Decimal? {
+        guard let parsed = Decimal(string: value), parsed > 0 else { return nil }
+        return parsed
+    }
+    
+    private func createTag() {
+        let trimmed = newTagName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let tag = Tag(name: trimmed)
+        modelContext.insert(tag)
+        selectedTags.insert(tag)
+        newTagName = ""
+    }
+    
+    private func validateTotalNotExceedingRemaining(items: [(amount: Decimal, currency: String)]) -> Bool {
+        let totalNormalized = items.reduce(Decimal.zero) { partial, item in
+            partial + currencyService.convert(amount: abs(item.amount), from: item.currency, to: advanceCase.currencyCode)
+        }
+        let tolerance = Decimal(string: "0.0001") ?? 0.0001
+        return totalNormalized - remaining <= tolerance
+    }
+    
+    private func recordSingleRepayment(
+        receiveAccount: Account,
+        amount: Decimal,
+        currencyCode: String,
+        note: String,
+        autosave: Bool
+    ) throws -> AdvanceRepayment {
+        try AdvanceService.recordRepayment(
+            advanceCase: advanceCase,
+            participant: participant,
+            amount: amount,
+            currencyCode: currencyCode,
+            date: date,
+            note: note,
+            receiveAccount: receiveAccount,
+            category: selectedCategory,
+            tags: Array(selectedTags),
+            currencyService: currencyService,
+            autosave: autosave,
+            modelContext: modelContext
+        )
+    }
+    
+    private func indexedNote(base: String, mode: EntryMode, index: Int, count: Int) -> String {
+        let suffix: String
+        switch mode {
+        case .split:
+            suffix = "[分拆 \(index + 1)/\(count)]"
+        case .merge:
+            suffix = "[合併 \(index + 1)/\(count)]"
+        case .normal:
+            suffix = ""
+        }
+        
+        let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return suffix
+        }
+        return "\(trimmed) \(suffix)"
     }
     
     private func showError(_ message: String) {

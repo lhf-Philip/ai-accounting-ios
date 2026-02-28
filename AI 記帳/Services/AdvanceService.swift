@@ -95,6 +95,7 @@ enum AdvanceService {
         note: String,
         payerAccount: Account,
         category: Category?,
+        tags: [Tag],
         participants: [ParticipantInput],
         modelContext: ModelContext
     ) throws -> AdvanceCase {
@@ -149,7 +150,8 @@ enum AdvanceService {
                 note: expenseNote,
                 type: .expense,
                 account: payerAccount,
-                category: category
+                category: category,
+                tags: tags
             )
             modelContext.insert(expenseTx)
             advanceCase.selfExpenseTransactionID = expenseTx.id
@@ -217,7 +219,10 @@ enum AdvanceService {
         date: Date,
         note: String,
         receiveAccount: Account,
+        category: Category?,
+        tags: [Tag],
         currencyService: CurrencyService,
+        autosave: Bool = true,
         modelContext: ModelContext
     ) throws -> AdvanceRepayment {
         guard participant.advanceCase?.id == advanceCase.id else {
@@ -273,7 +278,9 @@ enum AdvanceService {
             linkedTransactionID: outID,
             transferGroupID: transferGroupID,
             transferSide: .incoming,
-            account: receiveAccount
+            account: receiveAccount,
+            category: category,
+            tags: tags
         )
         
         modelContext.insert(debtOutTx)
@@ -303,7 +310,9 @@ enum AdvanceService {
         participant.updatedAt = Date()
         advanceCase.updatedAt = Date()
         
-        try modelContext.save()
+        if autosave {
+            try modelContext.save()
+        }
         return repayment
     }
     
