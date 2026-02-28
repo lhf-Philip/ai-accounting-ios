@@ -40,7 +40,9 @@ struct AddShortcutView: View {
                             TextField("Emoji", text: $icon)
                                 .font(.title2).frame(width: 50).multilineTextAlignment(.center)
                                 .keyboardType(.default)
-                                .onChange(of: icon) { if icon.count > 1 { icon = String(icon.prefix(1)) } }
+                                .onChange(of: icon) { _, _ in
+                                    if icon.count > 1 { icon = String(icon.prefix(1)) }
+                                }
                         }
                     }
                 }
@@ -51,7 +53,7 @@ struct AddShortcutView: View {
                         Text("收入").tag(TransactionType.income)
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: selectedType) {
+                    .onChange(of: selectedType) { _, _ in
                         if let current = selectedCategory, !current.kind.supports(selectedType) {
                             selectedCategory = nil
                         }
@@ -75,7 +77,7 @@ struct AddShortcutView: View {
                         Text("選擇帳戶").tag(nil as Account?)
                         ForEach(accounts) { acc in Text(acc.name).tag(acc as Account?) }
                     }
-                    .onChange(of: selectedAccount) {
+                    .onChange(of: selectedAccount) { _, _ in
                         if let acc = selectedAccount { selectedCurrency = acc.currency }
                     }
                     

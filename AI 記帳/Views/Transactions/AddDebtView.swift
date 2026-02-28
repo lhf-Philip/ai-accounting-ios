@@ -53,7 +53,7 @@ struct AddDebtView: View {
                         Text("請選擇帳戶").tag(nil as Account?)
                         ForEach(myAccounts.filter { !$0.isArchived }) { acc in Text(acc.name).tag(acc as Account?) }
                     }
-                    .onChange(of: selectedMyAccount) {
+                    .onChange(of: selectedMyAccount) { _, _ in
                         if let acc = selectedMyAccount { selectedCurrency = acc.currency }
                     }
                 }

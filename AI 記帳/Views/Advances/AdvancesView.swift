@@ -549,7 +549,7 @@ struct AddAdvanceCaseView: View {
                             Text(account.name).tag(account as Account?)
                         }
                     }
-                    .onChange(of: selectedPayerAccount) {
+                    .onChange(of: selectedPayerAccount) { _, _ in
                         if let account = selectedPayerAccount {
                             selectedCurrency = account.currency
                         }
@@ -776,7 +776,7 @@ struct AddAdvanceRepaymentView: View {
                             Text(account.name).tag(account as Account?)
                         }
                     }
-                    .onChange(of: selectedReceiveAccount) {
+                    .onChange(of: selectedReceiveAccount) { _, _ in
                         if let account = selectedReceiveAccount {
                             selectedCurrency = account.currency
                         }

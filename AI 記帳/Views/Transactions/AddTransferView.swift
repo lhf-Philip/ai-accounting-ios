@@ -151,7 +151,7 @@ struct AddTransferView: View {
                     Text(acc.name).tag(acc as Account?)
                 }
             }
-            .onChange(of: fromAccount) {
+            .onChange(of: fromAccount) { _, _ in
                 if let acc = fromAccount {
                     currencyOut = acc.currency
                     if toAccount?.id == acc.id {
@@ -192,7 +192,7 @@ struct AddTransferView: View {
                     Text(acc.name).tag(acc as Account?)
                 }
             }
-            .onChange(of: toAccount) {
+            .onChange(of: toAccount) { _, _ in
                 if let acc = toAccount {
                     currencyIn = acc.currency
                     if currencyOut == currencyIn {
@@ -236,7 +236,7 @@ struct AddTransferView: View {
                     Text(acc.name).tag(acc as Account?)
                 }
             }
-            .onChange(of: sourceAccount) {
+            .onChange(of: sourceAccount) { _, _ in
                 if let acc = sourceAccount {
                     sourceCurrency = acc.currency
                     for index in destinationLegs.indices {
@@ -273,7 +273,7 @@ struct AddTransferView: View {
                             Text(acc.name).tag(acc as Account?)
                         }
                     }
-                    .onChange(of: leg.account) {
+                    .onChange(of: leg.account) { _, _ in
                         if let acc = leg.account {
                             leg.currency = acc.currency
                         }
@@ -325,7 +325,7 @@ struct AddTransferView: View {
                             Text(acc.name).tag(acc as Account?)
                         }
                     }
-                    .onChange(of: leg.account) {
+                    .onChange(of: leg.account) { _, _ in
                         if let acc = leg.account {
                             leg.currency = acc.currency
                         }
@@ -372,7 +372,7 @@ struct AddTransferView: View {
                     Text(acc.name).tag(acc as Account?)
                 }
             }
-            .onChange(of: destinationAccount) {
+            .onChange(of: destinationAccount) { _, _ in
                 if let acc = destinationAccount {
                     destinationCurrency = acc.currency
                     for index in sourceLegs.indices {

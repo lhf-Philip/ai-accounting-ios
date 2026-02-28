@@ -39,7 +39,7 @@ struct AddTransactionView: View {
                         Text("收入").tag(TransactionType.income)
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: selectedType) {
+                    .onChange(of: selectedType) { _, _ in
                         if let current = selectedCategory, !current.kind.supports(selectedType) {
                             selectedCategory = nil
                         }
@@ -72,7 +72,7 @@ struct AddTransactionView: View {
                     }
                     // 當切換帳戶時，自動切換幣種為該帳戶的預設幣種
                     // 但用戶之後可以手動改回去，實現「單帳戶多幣種」
-                    .onChange(of: selectedAccount) {
+                    .onChange(of: selectedAccount) { _, _ in
                         if let acc = selectedAccount {
                             selectedCurrency = acc.currency
                         }

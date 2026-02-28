@@ -123,7 +123,7 @@ struct AddAccountView: View {
                     Button("完成") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
                 }
             }
-            .onChange(of: balanceString) {
+            .onChange(of: balanceString) { _, _ in
                 if linkedAccount == nil && !myAccounts.isEmpty { linkedAccount = myAccounts.first }
             }
         }
