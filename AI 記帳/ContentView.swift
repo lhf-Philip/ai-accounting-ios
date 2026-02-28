@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     
     // UI 狀態
     @State private var selectedTab = 0
@@ -19,6 +20,7 @@ struct ContentView: View {
     @AppStorage("enableAutoBackup") private var enableAutoBackup: Bool = true
     @State private var isExporting = false
     @State private var exportDocument: CSVDocument?
+    @State private var idleBackupTask: Task<Void, Never>?
     
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -72,10 +74,26 @@ struct ContentView: View {
             showingAddDebt = false
             showingAdvanceTracker = false
         }
-        
-        .task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+        .onChange(of: scenePhase, initial: true) { _, newPhase in
+            switch newPhase {
+            case .active:
+                idleBackupTask?.cancel()
+                idleBackupTask = nil
+            case .inactive, .background:
+                scheduleIdleAutoBackup()
+            @unknown default:
+                break
+            }
+        }
+    }
+    
+    private func scheduleIdleAutoBackup() {
+        idleBackupTask?.cancel()
+        idleBackupTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 12_000_000_000) // 約 12 秒閒置後再嘗試備份
+            guard !Task.isCancelled, scenePhase != .active else { return }
             BackupManager.shared.performAutoBackup(modelContext: modelContext)
+            idleBackupTask = nil
         }
     }
 }
