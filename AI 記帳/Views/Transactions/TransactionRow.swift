@@ -3,46 +3,16 @@ import SwiftData
 
 struct TransactionRow: View {
     let transaction: FinancialTransaction
-    @Environment(\.modelContext) private var modelContext
+    let transferCounterpart: TransferCounterpartInfo?
     
-    private var dateString: String {
+    private static let rowDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "dd/MM/yyyy HH:mm"
-        return formatter.string(from: transaction.date)
-    }
+        return formatter
+    }()
     
-    // 嘗試取得「對向」轉帳資訊；多邊轉帳僅在唯一對向時顯示。
-    private func getLinkedTransferInfo() -> (amount: Decimal, currency: String)? {
-        guard transaction.type == .transfer else { return nil }
-        
-        if let linkedID = transaction.linkedTransactionID {
-            let descriptor = FetchDescriptor<FinancialTransaction>(
-                predicate: #Predicate { $0.id == linkedID }
-            )
-            if let linkedTx = try? modelContext.fetch(descriptor).first {
-                return (linkedTx.amount, linkedTx.currencyCode)
-            }
-        }
-        
-        guard let groupID = transaction.transferGroupID else { return nil }
-        let descriptor = FetchDescriptor<FinancialTransaction>(
-            predicate: #Predicate { $0.transferGroupID == groupID }
-        )
-        guard let groupedTransfers = try? modelContext.fetch(descriptor) else { return nil }
-        
-        let counterparts = groupedTransfers.filter { candidate in
-            guard candidate.id != transaction.id else { return false }
-            if let currentSide = transaction.transferSide, let candidateSide = candidate.transferSide {
-                return currentSide != candidateSide
-            }
-            return true
-        }
-        
-        if counterparts.count == 1, let counterparty = counterparts.first {
-            return (counterparty.amount, counterparty.currencyCode)
-        }
-        
-        return nil
+    private var dateString: String {
+        Self.rowDateFormatter.string(from: transaction.date)
     }
     
     var body: some View {
@@ -100,12 +70,12 @@ struct TransactionRow: View {
             VStack(alignment: .trailing, spacing: 4) {
                 // 🔥 使用交易本身的 currencyCode
                 let currency = transaction.currencyCode
-                let linkedInfo = getLinkedTransferInfo()
+                let linkedInfo = transferCounterpart
                 
                 // 判斷是否為雙幣種轉帳 (顯示轉換箭頭)
                 if transaction.type == .transfer,
                    let linked = linkedInfo,
-                   linked.currency != currency { // 比較兩邊交易的實際幣種
+                   linked.currencyCode != currency { // 比較兩邊交易的實際幣種
                     
                     // 本方金額
                     Text(transaction.amount.formatted(.currency(code: currency)))
@@ -116,7 +86,7 @@ struct TransactionRow: View {
                     HStack(spacing: 2) {
                         Image(systemName: "arrow.right")
                             .font(.caption2)
-                        Text(linked.amount.formatted(.currency(code: linked.currency)))
+                        Text(linked.amount.formatted(.currency(code: linked.currencyCode)))
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -140,5 +110,12 @@ struct TransactionRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+extension TransactionRow {
+    init(transaction: FinancialTransaction) {
+        self.transaction = transaction
+        self.transferCounterpart = nil
     }
 }

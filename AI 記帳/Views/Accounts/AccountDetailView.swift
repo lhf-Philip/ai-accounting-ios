@@ -11,6 +11,10 @@ struct AccountDetailView: View {
         allTransactions.filter { $0.account?.id == account.id }
     }
     
+    private var transferCounterpartByID: [UUID: TransferCounterpartInfo] {
+        TransferPresentationService.counterpartMap(transactions: allTransactions)
+    }
+    
     // 🔥 修正 1：定義一個結構體來代替 Tuple，讓 ForEach 能識別
     struct CurrencyBalance: Identifiable {
         var id: String { currency } // 使用幣種作為唯一 ID
@@ -95,7 +99,10 @@ struct AccountDetailView: View {
             // 2. 交易列表
             Section("交易紀錄") {
                 ForEach(accountTransactions) { transaction in
-                    TransactionRow(transaction: transaction)
+                    TransactionRow(
+                        transaction: transaction,
+                        transferCounterpart: transferCounterpartByID[transaction.id]
+                    )
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
                                 deleteTransaction(transaction)

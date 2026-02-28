@@ -44,28 +44,7 @@ struct TransactionsListView: View {
                         
                         // 捷徑列表
                         ForEach(shortcuts) { shortcut in
-                            Button(action: {
-                                pendingShortcut = shortcut
-                                showingShortcutConfirm = true
-                            }) {
-                                VStack(spacing: 4) {
-                                    Text(shortcut.icon)
-                                        .font(.title)
-                                        .frame(width: 44, height: 44)
-                                        .background(Color(uiColor: .secondarySystemBackground))
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                    Text(shortcut.name)
-                                        .font(.caption2)
-                                        .lineLimit(1)
-                                        .foregroundStyle(.primary)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in
-                                shortcutToDelete = shortcut
-                                showingShortcutDeleteConfirm = true
-                            })
-                            .accessibilityHint("長按可刪除捷徑")
+                            shortcutTile(shortcut)
                         }
                     }
                     .padding(.horizontal)
@@ -120,7 +99,10 @@ struct TransactionsListView: View {
                     ForEach(groupedTransactions, id: \.title) { group in
                         Section(header: Text(group.title)) {
                             ForEach(group.transactions) { transaction in
-                                TransactionRow(transaction: transaction)
+                                TransactionRow(
+                                    transaction: transaction,
+                                    transferCounterpart: transferCounterpartByID[transaction.id]
+                                )
                                     .onTapGesture {
                                         transactionToEdit = transaction
                                         isEditingTransfer = canEditTransfer(transaction)
@@ -187,7 +169,38 @@ struct TransactionsListView: View {
         }
     }
     
+    @ViewBuilder
+    private func shortcutTile(_ shortcut: Shortcut) -> some View {
+        let tapGesture = TapGesture().onEnded {
+            pendingShortcut = shortcut
+            showingShortcutConfirm = true
+        }
+        let longPressGesture = LongPressGesture(minimumDuration: 0.6).onEnded { _ in
+            shortcutToDelete = shortcut
+            showingShortcutDeleteConfirm = true
+        }
+        
+        VStack(spacing: 4) {
+            Text(shortcut.icon)
+                .font(.title)
+                .frame(width: 44, height: 44)
+                .background(Color(uiColor: .secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            Text(shortcut.name)
+                .font(.caption2)
+                .lineLimit(1)
+                .foregroundStyle(.primary)
+        }
+        .contentShape(Rectangle())
+        .gesture(longPressGesture.exclusively(before: tapGesture))
+        .accessibilityHint("點按執行，長按可刪除捷徑")
+    }
+    
     // MARK: - Logic
+    
+    private var transferCounterpartByID: [UUID: TransferCounterpartInfo] {
+        TransferPresentationService.counterpartMap(transactions: transactions)
+    }
     
     private func executeShortcut() {
         guard let sc = pendingShortcut, let account = sc.account else { return }
@@ -326,11 +339,11 @@ struct TransactionsListView: View {
         let representatives = Dictionary(grouping: items.compactMap { tx -> (UUID, FinancialTransaction)? in
             guard let groupID = tx.transferGroupID else { return nil }
             return (groupID, tx)
-        }, by: { $0.0 }).mapValues { entries in
+        }, by: { $0.0 }).compactMapValues { entries in
             let transfers = entries.map { $0.1 }
             return transfers.first(where: { $0.transferSide == .outgoing })
                 ?? transfers.first(where: { $0.amount < 0 })
-                ?? transfers.first!
+                ?? transfers.first
         }
         
         var seenGroupIDs = Set<UUID>()

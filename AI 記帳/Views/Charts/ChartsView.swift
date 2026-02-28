@@ -79,13 +79,17 @@ struct ChartsView: View {
                             ForEach(FlowMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
                         }
                         .pickerStyle(.segmented)
-                        .onChange(of: flowMode) { selectedTagForDetail = nil }
+                        .onChange(of: flowMode) { _, _ in
+                            selectedTagForDetail = nil
+                        }
                         
                         Picker("模式", selection: $chartMode) {
                             ForEach(ChartMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
                         }
                         .pickerStyle(.segmented)
-                        .onChange(of: chartMode) { selectedTagForDetail = nil }
+                        .onChange(of: chartMode) { _, _ in
+                            selectedTagForDetail = nil
+                        }
                     }
                 }
                 .padding()
@@ -387,6 +391,10 @@ private struct ReportTransactionListView: View {
     let title: String
     let transactions: [FinancialTransaction]
     
+    private var transferCounterpartByID: [UUID: TransferCounterpartInfo] {
+        TransferPresentationService.counterpartMap(transactions: transactions)
+    }
+    
     private var groupedTransactions: [(title: String, items: [FinancialTransaction])] {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy/MM/dd (E)"
@@ -413,7 +421,10 @@ private struct ReportTransactionListView: View {
                         ForEach(groupedTransactions, id: \.title) { group in
                             Section(group.title) {
                                 ForEach(group.items) { tx in
-                                    TransactionRow(transaction: tx)
+                                    TransactionRow(
+                                        transaction: tx,
+                                        transferCounterpart: transferCounterpartByID[tx.id]
+                                    )
                                 }
                             }
                         }
