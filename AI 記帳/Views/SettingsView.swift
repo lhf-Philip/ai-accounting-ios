@@ -100,7 +100,7 @@ struct SettingsView: View {
                 Section("AI 設定") {
                     SecureField("Gemini API Key", text: $apiKey)
                         .textContentType(.password)
-                        .onChange(of: apiKey) { saveAPIKey($0) }
+                        .onChange(of: apiKey) { _, newValue in saveAPIKey(newValue) }
                         .onSubmit { hideKeyboard() }
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
