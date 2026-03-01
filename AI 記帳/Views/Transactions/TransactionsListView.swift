@@ -12,7 +12,6 @@ struct TransactionsListView: View {
     @State private var searchText = ""
     
     @State private var transactionToEdit: FinancialTransaction?
-    @State private var isEditingTransfer = false
     
     // 捷徑相關
     @State private var showingAddShortcut = false
@@ -105,13 +104,11 @@ struct TransactionsListView: View {
                                 )
                                     .onTapGesture {
                                         transactionToEdit = transaction
-                                        isEditingTransfer = canEditTransfer(transaction)
                                     }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                         Button(role: .destructive) { deleteTransaction(transaction) } label: { Label("刪除", systemImage: "trash") }
                                         Button {
                                             transactionToEdit = transaction
-                                            isEditingTransfer = canEditTransfer(transaction)
                                         } label: { Label("編輯", systemImage: "pencil") }.tint(.blue)
                                     }
                             }
@@ -129,7 +126,7 @@ struct TransactionsListView: View {
                 AddShortcutView()
             }
             .sheet(item: $transactionToEdit) { tx in
-                if tx.type == .transfer && isEditingTransfer {
+                if canEditTransfer(tx) {
                     EditTransferView(originalTransaction: tx)
                 } else {
                     EditTransactionView(transaction: tx)
@@ -332,7 +329,15 @@ struct TransactionsListView: View {
     }
     
     private func canEditTransfer(_ tx: FinancialTransaction) -> Bool {
-        tx.type == .transfer && tx.linkedTransactionID != nil
+        guard tx.type == .transfer else { return false }
+        if tx.linkedTransactionID != nil { return true }
+        guard let groupID = tx.transferGroupID else { return false }
+        
+        let descriptor = FetchDescriptor<FinancialTransaction>(
+            predicate: #Predicate { $0.transferGroupID == groupID }
+        )
+        guard let groupItems = try? modelContext.fetch(descriptor) else { return false }
+        return groupItems.count == 2
     }
     
     private func collapseTransferGroups(in items: [FinancialTransaction]) -> [FinancialTransaction] {

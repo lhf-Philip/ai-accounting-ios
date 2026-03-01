@@ -135,62 +135,86 @@ struct EditTransferView: View {
     }
     
     private func loadData() {
-        // 1. 找出這筆交易是轉出還是轉入
-        // 轉出金額為負，轉入金額為正
-        
-        guard let linkedID = originalTransaction.linkedTransactionID else {
-            errorMessage = "找不到關聯交易，資料可能已損壞。"
-            isLoading = false
-            return
-        }
-        
-        // 2. 查找另一半
-        let descriptor = FetchDescriptor<FinancialTransaction>(predicate: #Predicate { $0.id == linkedID })
         do {
-            if let linked = try modelContext.fetch(descriptor).first {
-                self.linkedTransaction = linked
-                
-                // 3. 判定誰是轉出，誰是轉入
-                let tx1 = originalTransaction
-                let tx2 = linked
-                
-                var outTx: FinancialTransaction
-                var inTx: FinancialTransaction
-                
-                // 邏輯：金額小於0是轉出，大於0是轉入
-                if tx1.amount < 0 {
-                    outTx = tx1; inTx = tx2
-                } else {
-                    outTx = tx2; inTx = tx1
-                }
-                
-                self.fromAccount = outTx.account
-                self.toAccount = inTx.account
-                self.currencyOut = outTx.currencyCode.isEmpty ? (outTx.account?.currency ?? "HKD") : outTx.currencyCode
-                self.currencyIn = inTx.currencyCode.isEmpty ? (inTx.account?.currency ?? "HKD") : inTx.currencyCode
-                
-                // 設定初始值 (轉出顯示正數)
-                self.amountOutString = "\(abs(outTx.amount))"
-                self.amountInString = "\(abs(inTx.amount))"
-                self.date = tx1.date
-                
-                // 備註處理 (去除系統自動加的後綴)
-                let rawNote = tx1.note
-                    .components(separatedBy: " (轉至").first?
-                    .components(separatedBy: " (來自").first?
-                    .components(separatedBy: " (借入").first?
-                    .components(separatedBy: " (還款").first ?? ""
-                self.note = rawNote
-                
+            guard let linked = try resolveLinkedTransaction(for: originalTransaction) else {
+                errorMessage = "找不到可編輯的配對交易。若為分拆/合併轉帳，請刪除後重建。"
                 isLoading = false
-            } else {
-                errorMessage = "找不到關聯交易記錄。"
-                isLoading = false
+                return
             }
+            self.linkedTransaction = linked
+            
+            let tx1 = originalTransaction
+            let tx2 = linked
+            
+            var outTx: FinancialTransaction
+            var inTx: FinancialTransaction
+            
+            if tx1.amount < 0 {
+                outTx = tx1; inTx = tx2
+            } else {
+                outTx = tx2; inTx = tx1
+            }
+            
+            self.fromAccount = outTx.account
+            self.toAccount = inTx.account
+            self.currencyOut = outTx.currencyCode.isEmpty ? (outTx.account?.currency ?? "HKD") : outTx.currencyCode
+            self.currencyIn = inTx.currencyCode.isEmpty ? (inTx.account?.currency ?? "HKD") : inTx.currencyCode
+            
+            self.amountOutString = "\(abs(outTx.amount))"
+            self.amountInString = "\(abs(inTx.amount))"
+            self.date = tx1.date
+            
+            let rawNote = tx1.note
+                .components(separatedBy: " (轉至").first?
+                .components(separatedBy: " (來自").first?
+                .components(separatedBy: " (借入").first?
+                .components(separatedBy: " (還款").first ?? ""
+            self.note = rawNote
+            
+            isLoading = false
         } catch {
             errorMessage = "讀取錯誤: \(error)"
             isLoading = false
         }
+    }
+
+    private func resolveLinkedTransaction(for tx: FinancialTransaction) throws -> FinancialTransaction? {
+        if let linkedID = tx.linkedTransactionID {
+            let descriptor = FetchDescriptor<FinancialTransaction>(
+                predicate: #Predicate { $0.id == linkedID }
+            )
+            if let linked = try modelContext.fetch(descriptor).first {
+                return linked
+            }
+        }
+        
+        guard let groupID = tx.transferGroupID else {
+            return nil
+        }
+        
+        let groupDescriptor = FetchDescriptor<FinancialTransaction>(
+            predicate: #Predicate { $0.transferGroupID == groupID }
+        )
+        let candidates = try modelContext.fetch(groupDescriptor).filter { $0.id != tx.id }
+        guard !candidates.isEmpty else {
+            return nil
+        }
+        
+        if candidates.count > 1 {
+            // 分拆/合併轉帳不支援單一編輯頁，避免選錯配對交易。
+            return nil
+        }
+        
+        let counterpart = candidates[0]
+        if tx.linkedTransactionID == nil {
+            tx.linkedTransactionID = counterpart.id
+            tx.updatedAt = Date()
+        }
+        if counterpart.linkedTransactionID == nil {
+            counterpart.linkedTransactionID = tx.id
+            counterpart.updatedAt = Date()
+        }
+        return counterpart
     }
     
     private func saveChanges() {
