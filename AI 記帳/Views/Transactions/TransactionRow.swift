@@ -15,6 +15,24 @@ struct TransactionRow: View {
         Self.rowDateFormatter.string(from: transaction.date)
     }
     
+    private var isAdvanceTransfer: Bool {
+        guard transaction.type == .transfer else { return false }
+        let compacted = transaction.note.replacingOccurrences(of: " ", with: "")
+        return compacted.contains("(代墊給") || compacted.contains("(還款至")
+    }
+    
+    private var transferIconName: String {
+        isAdvanceTransfer ? "person.2.fill" : "arrow.left.arrow.right"
+    }
+    
+    private var transferBadgeText: String {
+        isAdvanceTransfer ? "代墊追蹤" : "轉帳"
+    }
+    
+    private var transferTint: Color {
+        isAdvanceTransfer ? .orange : .blue
+    }
+    
     var body: some View {
         HStack(spacing: 12) {
             // MARK: - Icon
@@ -23,8 +41,8 @@ struct TransactionRow: View {
                     .fill(Color.gray.opacity(0.2))
                     .frame(width: 44, height: 44)
                     .overlay {
-                        Image(systemName: "arrow.left.arrow.right")
-                            .foregroundStyle(.blue)
+                        Image(systemName: transferIconName)
+                            .foregroundStyle(transferTint)
                     }
             } else {
                 let colorHex = transaction.category?.colorHex ?? "8E8E93"
@@ -42,7 +60,7 @@ struct TransactionRow: View {
             // MARK: - Text Info
             VStack(alignment: .leading, spacing: 4) {
                 let mainText = transaction.note.isEmpty ?
-                    (transaction.category?.name ?? (transaction.type == .transfer ? "轉帳" : "未分類"))
+                    (transaction.category?.name ?? (transaction.type == .transfer ? transferBadgeText : "未分類"))
                     : transaction.note
                 
                 Text(mainText)
@@ -51,7 +69,7 @@ struct TransactionRow: View {
                 
                 HStack(spacing: 4) {
                     if transaction.type == .transfer {
-                        Text("轉帳")
+                        Text(transferBadgeText)
                     } else {
                         Text(transaction.category?.name ?? "未分類")
                     }
@@ -80,7 +98,7 @@ struct TransactionRow: View {
                     // 本方金額
                     Text(transaction.amount.formatted(.currency(code: currency)))
                         .bold()
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(transferTint)
                     
                     // 對方金額
                     HStack(spacing: 2) {
@@ -96,7 +114,7 @@ struct TransactionRow: View {
                     if transaction.type == .transfer {
                         Text(transaction.amount.formatted(.currency(code: currency)))
                             .bold()
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(transferTint)
                     } else {
                         Text(transaction.amount.formatted(.currency(code: currency)))
                             .bold()
