@@ -28,6 +28,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import org.duckdns.lhfser.aiaccounting.ui.theme.AIAccountingTheme
+import org.duckdns.lhfser.aiaccounting.widget.SummaryWidgetProvider
+import org.duckdns.lhfser.aiaccounting.widget.WidgetSummaryStore
 
 private enum class AppTab(val titleRes: Int, val glyph: String) {
     Overview(R.string.tab_overview, "O"),
@@ -45,6 +47,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val isFirstLaunch = consumeIsFirstLaunch()
+        syncWidgetPreviewContent(isFirstLaunch)
 
         setContent {
             AIAccountingTheme {
@@ -55,6 +58,20 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun syncWidgetPreviewContent(isFirstLaunch: Boolean) {
+        val messageRes = if (isFirstLaunch) {
+            R.string.widget_body_first_launch
+        } else {
+            R.string.widget_body_ready
+        }
+        WidgetSummaryStore.save(
+            context = this,
+            title = getString(R.string.widget_title),
+            body = getString(messageRes)
+        )
+        SummaryWidgetProvider.refreshAll(this)
     }
 
     private fun consumeIsFirstLaunch(): Boolean {

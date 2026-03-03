@@ -6,7 +6,7 @@ This folder contains the Android app baseline for AI Accounting.
 
 - Compose app shell with 4 tabs: Overview / Transactions / Reports / Settings
 - First-launch behavior: open Overview on first launch, default to Transactions afterward
-- Widget provider stub (`SummaryWidgetProvider`)
+- Widget with app-driven preview content and refresh hook (`SummaryWidgetProvider`)
 - Kotlin parity core for cross-platform data behavior
 - Unit tests for parity vectors from `/docs/specs/parity-test-vectors.md`
 

@@ -3,6 +3,8 @@
     <string name="widget_name">AI 記帳總覽</string>
     <string name="widget_title">本月總覽</string>
     <string name="widget_placeholder">Widget scaffold ready</string>
+    <string name="widget_body_first_launch">歡迎使用，先到總覽完成初始設定。</string>
+    <string name="widget_body_ready">已同步。開啟 App 可更新本月摘要。</string>
 
     <string name="tab_overview">總覽</string>
     <string name="tab_transactions">帳目</string>
