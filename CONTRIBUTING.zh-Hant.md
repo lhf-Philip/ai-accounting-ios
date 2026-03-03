@@ -13,6 +13,7 @@
 
 - Xcode 可成功 build
 - 主要流程可手動驗證：新增交易、轉帳、報表、備份匯入
+- 若有調整 UI/資訊架構，請同步更新 App 內教學與 README/docs
 - 不提交任何敏感資料（API key、token、個資、真實備份檔）
 
 ## Commit 建議格式
@@ -36,6 +37,7 @@ scripts/gh-admin-merge.sh <pr-number>
 ```
 
 說明：
+
 - 預設使用 `squash` 合併。
 - 腳本會先等待 checks 完成；只有在你明確要跳過時才用 `--skip-checks`。
 - 底層等價指令為 `gh pr merge <pr> --admin`。

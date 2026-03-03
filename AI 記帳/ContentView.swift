@@ -2,69 +2,124 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 
+enum RootTab: Hashable {
+    case home
+    case ledger
+    case reports
+    case accounts
+    case settings
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
-    
-    // UI 狀態
-    @State private var selectedTab = 0
+
+    @State private var selectedTab: RootTab = .home
     @State private var showingAddOptions = false
     @State private var showingAddTransaction = false
     @State private var showingAddTransfer = false
     @State private var showingScanReceipt = false
     @State private var showingAddDebt = false
     @State private var showingAddAdvanceCase = false
-    
-    // 備份相關狀態
+
     @AppStorage("lastBackupDate") private var lastBackupDate: Double = 0
     @AppStorage("enableAutoBackup") private var enableAutoBackup: Bool = true
-    @State private var isExporting = false
-    @State private var exportDocument: CSVDocument?
+    @AppStorage("hasSeenUserGuide") private var hasSeenUserGuide: Bool = false
+
     @State private var idleBackupTask: Task<Void, Never>?
-    
+    @State private var showingUserGuide = false
+    @State private var initialGuideChecked = false
+
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack(alignment: .bottomTrailing) {
             TabView(selection: $selectedTab) {
-                TransactionsListView().tabItem { Label("帳目", systemImage: "list.bullet") }.tag(0)
-                ChartsView().tabItem { Label("報表", systemImage: "chart.pie") }.tag(1)
-                Text("").tabItem { Image(systemName: "circle.fill").environment(\.symbolVariants, .none) }.tag(2).disabled(true)
-                AccountsView().tabItem { Label("帳戶", systemImage: "creditcard") }.tag(3)
-                SettingsView().tabItem { Label("設定", systemImage: "gearshape") }.tag(4)
-            }
-            .onChange(of: selectedTab) { oldValue, newValue in
-                if newValue == 2 {
-                    selectedTab = oldValue
-                    showingAddOptions = true
+                HomeDashboardView(
+                    onQuickAdd: {
+                        showingAddOptions = true
+                    },
+                    onOpenGuide: {
+                        showingUserGuide = true
+                    },
+                    onOpenLedger: {
+                        selectedTab = .ledger
+                    },
+                    onOpenReports: {
+                        selectedTab = .reports
+                    },
+                    onOpenAccounts: {
+                        selectedTab = .accounts
+                    }
+                )
+                .tabItem {
+                    Label("首頁", systemImage: "house")
                 }
+                .tag(RootTab.home)
+
+                TransactionsListView()
+                    .tabItem {
+                        Label("帳目", systemImage: "list.bullet")
+                    }
+                    .tag(RootTab.ledger)
+
+                ChartsView()
+                    .tabItem {
+                        Label("報表", systemImage: "chart.pie")
+                    }
+                    .tag(RootTab.reports)
+
+                AccountsView()
+                    .tabItem {
+                        Label("帳戶", systemImage: "creditcard")
+                    }
+                    .tag(RootTab.accounts)
+
+                SettingsView()
+                    .tabItem {
+                        Label("設定", systemImage: "gearshape")
+                    }
+                    .tag(RootTab.settings)
             }
-            
+
             Button(action: { showingAddOptions = true }) {
                 ZStack {
                     Circle()
-                        .fill(LinearGradient(colors: [Color.blue, Color.cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.blue, Color.cyan],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
                         .frame(width: 60, height: 60)
-                        .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
+                        .shadow(color: .blue.opacity(0.25), radius: 10, x: 0, y: 5)
+
                     Image(systemName: "plus")
-                        .font(.system(size: 32, weight: .semibold))
+                        .font(.system(size: 30, weight: .semibold))
                         .foregroundStyle(.white)
                 }
             }
-            .offset(y: -5)
-            .confirmationDialog("選擇操作", isPresented: $showingAddOptions, titleVisibility: .visible) {
-                Button("記一筆 (收入/支出)") { showingAddTransaction = true }
-                Button("掃描單據 (AI)") { showingScanReceipt = true }
+            .padding(.trailing, 18)
+            .padding(.bottom, 26)
+            .accessibilityLabel("新增記錄")
+            .confirmationDialog("新增內容", isPresented: $showingAddOptions, titleVisibility: .visible) {
+                Button("記一筆（收入/支出）") { showingAddTransaction = true }
+                Button("掃描收據（AI）") { showingScanReceipt = true }
                 Button("轉帳") { showingAddTransfer = true }
-                Button("借貸 (借入/還款)") { showingAddDebt = true }
-                Button("新增代墊單 (多人分帳)") { showingAddAdvanceCase = true }
-                Button("取消", role: .cancel) { }
+                Button("借貸（借入/還款）") { showingAddDebt = true }
+                Button("新增代墊單（多人分帳）") { showingAddAdvanceCase = true }
+                Button("取消", role: .cancel) {}
             }
         }
         .sheet(isPresented: $showingAddTransaction) { AddTransactionView() }
         .sheet(isPresented: $showingAddTransfer) { AddTransferView() }
         .sheet(isPresented: $showingScanReceipt) { ScanReceiptView() }
-        .sheet(isPresented: $showingAddDebt) { AddDebtView() } // 這裡現在應該正常了
+        .sheet(isPresented: $showingAddDebt) { AddDebtView() }
         .sheet(isPresented: $showingAddAdvanceCase) { AddAdvanceCaseView() }
-        
+        .sheet(isPresented: $showingUserGuide) {
+            UserGuideView(isFirstLaunch: !hasSeenUserGuide) {
+                hasSeenUserGuide = true
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("CloseAddFlow"))) { _ in
             showingScanReceipt = false
             showingAddTransaction = false
@@ -83,12 +138,19 @@ struct ContentView: View {
                 break
             }
         }
+        .onAppear {
+            guard !initialGuideChecked else { return }
+            initialGuideChecked = true
+            if !hasSeenUserGuide {
+                showingUserGuide = true
+            }
+        }
     }
-    
+
     private func scheduleIdleAutoBackup() {
         idleBackupTask?.cancel()
         idleBackupTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 12_000_000_000) // 約 12 秒閒置後再嘗試備份
+            try? await Task.sleep(nanoseconds: 12_000_000_000)
             guard !Task.isCancelled, scenePhase != .active else { return }
             BackupManager.shared.performAutoBackup(modelContext: modelContext)
             idleBackupTask = nil

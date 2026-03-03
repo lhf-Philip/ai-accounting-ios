@@ -12,7 +12,8 @@ Language: **English** | [繁體中文](./CONTRIBUTING.zh-Hant.md) | [简体中�
 ## Before Submitting
 
 - Project builds successfully in Xcode.
-- Core flows are manually verified: transaction, transfer, reports, backup/restore.
+- Core flows are manually verified: add transaction, transfer, reports, backup/restore.
+- If UI/IA is changed, update in-app guide and README/docs in the same PR.
 - No sensitive data is committed (API keys, tokens, personal data, real backup files).
 
 ## Recommended Commit Prefixes
@@ -36,6 +37,7 @@ scripts/gh-admin-merge.sh <pr-number>
 ```
 
 Notes:
+
 - Default merge method is `squash`.
 - The script waits for checks before merge; use `--skip-checks` only if you intentionally bypass.
 - Equivalent core command is `gh pr merge <pr> --admin`.
