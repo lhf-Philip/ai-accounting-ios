@@ -4,22 +4,28 @@ Language: **English** | [繁體中文](./CONTRIBUTING.zh-Hant.md) | [简体中�
 
 ## Workflow
 
-1. Fork this repository.
-2. Create a branch (`feature/...` or `fix/...`).
-3. Commit your changes with validation notes.
-4. Open a Pull Request.
+1. Create a branch (`codex/<topic>` preferred).
+2. Keep each PR focused on one change set.
+3. Commit with validation notes.
+4. Open a Pull Request to `main`.
 
 ## Before Submitting
 
-- Project builds successfully in Xcode.
-- Core flows are manually verified: add transaction, transfer, reports, backup/restore.
-- If UI/IA is changed, update in-app guide and README/docs in the same PR.
+- iOS changes: Xcode build passes.
+- Android changes: Android CI command set passes.
+- Core flows are manually verified when behavior changes.
+- If UI/IA changes, update in-app guide and README/docs in the same PR.
+- If data model or backup behavior changes, update:
+  - `docs/specs/data-model.md`
+  - `docs/specs/parity-test-vectors.md`
+  - PR compatibility section in `.github/pull_request_template.md`
 - No sensitive data is committed (API keys, tokens, personal data, real backup files).
 
 ## Recommended Commit Prefixes
 
 - `feat: ...`
 - `fix: ...`
+- `refactor: ...`
 - `docs: ...`
 - `chore: ...`
 

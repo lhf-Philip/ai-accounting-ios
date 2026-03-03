@@ -31,3 +31,7 @@ fastlane/test_output/
 # Editors
 *.swp
 *.swo
+
+# Android
+android/.gradle/
+android/local.properties

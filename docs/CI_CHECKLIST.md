@@ -3,18 +3,12 @@
 Status: Active  
 Last updated: 2026-03-03
 
-This checklist is the baseline for PR quality gates while the repository evolves from iOS-only to iOS + Android.
+This checklist is the baseline for PR quality gates for dual-platform delivery.
 
 ## 1. Required GitHub Checks
 
-### Current required checks
-- iOS CI build on pull requests to `main`
-- `Localizable.xcstrings` validation
-
-### Add when `/android` is created
-- Android CI (`assembleDebug`)
-- Android unit tests
-- Android lint / static checks
+- iOS CI (`.github/workflows/ios-ci.yml`)
+- Android CI (`.github/workflows/android-ci.yml`)
 
 ## 2. Pull Request Gate (Must Pass)
 
@@ -40,10 +34,10 @@ python3 -m json.tool Localizable.xcstrings > /dev/null
 xcrun xcstringstool compile --dry-run --output-directory /tmp/xcstrings-build Localizable.xcstrings
 ```
 
-### Android (enable after `/android` exists)
+### Android (scaffold phase)
 ```bash
-./gradlew :app:assembleDebug
-./gradlew :app:testDebugUnitTest
+gradle -p android :app:assembleDebug
+gradle -p android :app:testDebugUnitTest
 ```
 
 ## 4. Manual Validation (Minimum)
