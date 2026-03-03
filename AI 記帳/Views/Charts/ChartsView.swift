@@ -130,8 +130,7 @@ struct ChartsView: View {
                     .padding(.bottom, 12)
                 }
             }
-            .navigationTitle("報表")
-            .navigationBarTitleDisplayMode(.inline)
+            .prominentInlineTitle("報表")
             .sheet(isPresented: $showingFilterSheet) {
                 DateFilterView(filterType: $filterType, selectedDate: $selectedDate)
             }
