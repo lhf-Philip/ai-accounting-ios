@@ -1,18 +1,13 @@
-# AI Accounting iOS
+# AI Accounting (iOS + Android)
 
 Language: **English** | [繁體中文](./README.zh-Hant.md) | [简体中文](./README.zh-Hans.md)
 
-AI Accounting iOS is a personal finance app built with SwiftUI + SwiftData.
-It supports multi-currency bookkeeping, transfers, debt/advance tracking, reports, backup/restore, and AI receipt scanning.
+AI Accounting is a personal finance app project.
 
-## What's New in UI (2026-03)
+- iOS app is production-ready (SwiftUI + SwiftData).
+- Android app currently has a scaffold baseline (Jetpack Compose) for phased parity implementation.
 
-- New information architecture: `Home / Ledger / Reports / Accounts / Settings`
-- New Home dashboard with monthly overview and quick entry points
-- New in-app User Guide page, with first-launch onboarding sheet
-- Settings page reorganized into onboarding, preferences, data safety, and tools
-
-## Core Features
+## iOS Features (Current)
 
 - Multi-account bookkeeping (cash, bank, credit card, debt)
 - Multi-currency transactions (currency per transaction)
@@ -22,14 +17,23 @@ It supports multi-currency bookkeeping, transfers, debt/advance tracking, report
 - Full JSON backup/restore and CSV export
 - Optional AI receipt scanning with Gemini API key
 
-## In-App User Guide
+## Android Status (Scaffold)
+
+- App shell with Compose entry screen
+- Widget stub (`SummaryWidgetProvider`)
+- Unit-test scaffold
+- CI workflow baseline
+
+See: `android/README.md`
+
+## In-App User Guide (iOS)
 
 - You can open the guide from `Settings > User Guide`.
 - On first launch, the app shows the guide automatically.
 
 ## Localization
 
-App UI currently supports:
+iOS UI currently supports:
 
 - Traditional Chinese (`zh-Hant`)
 - Simplified Chinese (`zh-Hans`)
@@ -38,30 +42,41 @@ App UI currently supports:
 
 ## Tech Stack
 
-- SwiftUI
-- SwiftData
-- Charts
-- Google Generative AI Swift SDK (`generative-ai-swift`)
+- iOS: SwiftUI, SwiftData, Charts, `generative-ai-swift`
+- Android: Kotlin, Jetpack Compose (scaffold phase)
 
 ## Requirements
 
 - macOS
-- Xcode (verified with `Xcode 26.2`)
-- iOS Simulator or physical iPhone
+- Xcode (verified with `Xcode 26.2`) for iOS
+- JDK 17+ and Android SDK for Android
 
 ## Quick Start
 
-1. Clone this repository.
-2. Open `AI 記帳.xcodeproj` in Xcode.
-3. Select a simulator or device.
-4. Run with `Cmd + R`.
+### iOS
+
+1. Open `AI 記帳.xcodeproj` in Xcode.
+2. Select a simulator or device.
+3. Run with `Cmd + R`.
+
+### Android (Scaffold)
+
+```bash
+gradle -p android :app:assembleDebug
+gradle -p android :app:testDebugUnitTest
+```
 
 ## CI
 
-GitHub Actions runs on `push` and `pull_request` to `main`:
+GitHub Actions on `push` / `pull_request` to `main`:
 
-- `Localizable.xcstrings` validation
-- iOS simulator build
+- `iOS CI`: string catalog validation + iOS simulator build
+- `Android CI`: `:app:assembleDebug` + `:app:testDebugUnitTest`
+
+## Data Compatibility
+
+- Backup JSON contract: `docs/specs/data-model.md`
+- Cross-platform parity vectors: `docs/specs/parity-test-vectors.md`
 
 ## Privacy and Secrets
 
@@ -69,17 +84,13 @@ GitHub Actions runs on `push` and `pull_request` to `main`:
 - API key is stored in iOS Keychain.
 - The repository does not include default API keys, tokens, or private keys.
 
-## Data Compatibility
-
-- No breaking data-model migration from snapshot `4417c97` (2026-02-24) to current releases.
-- Existing JSON backups remain import-compatible.
-
 ## Open-Source Documents
 
 - License: [MIT](./LICENSE)
 - Security policy: [English](./SECURITY.md) | [繁體中文](./SECURITY.zh-Hant.md) | [简体中文](./SECURITY.zh-Hans.md)
 - Contribution guide: [English](./CONTRIBUTING.md) | [繁體中文](./CONTRIBUTING.zh-Hant.md) | [简体中文](./CONTRIBUTING.zh-Hans.md)
 - Pull request template: [`.github/pull_request_template.md`](./.github/pull_request_template.md)
+- CI checklist: [`docs/CI_CHECKLIST.md`](./docs/CI_CHECKLIST.md)
 
 ## Disclaimer
 

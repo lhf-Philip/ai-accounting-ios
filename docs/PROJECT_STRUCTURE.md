@@ -1,16 +1,16 @@
 # Project Structure
 
-This document describes the current file layout for `AI 記帳` after the 2026-03 UI refactor.
+This document describes the current file layout for `AI 記帳`.
 
-## App Source
+## iOS Source
 
 - `AI 記帳/AI___App.swift`: app entry point and SwiftData container setup.
-- `AI 記帳/ContentView.swift`: root tab shell (`Home/Ledger/Reports/Accounts/Settings`), global quick-add action, first-launch onboarding sheet.
+- `AI 記帳/ContentView.swift`: root tab shell (`Overview/Ledger/Reports/Accounts/Settings`).
 - `AI 記帳/Models/`: SwiftData models.
 - `AI 記帳/Services/`: domain services (backup, budget, currency, health check, advances).
 - `AI 記帳/Extensions/`: shared extensions.
 
-## Views
+## iOS Views
 
 - `AI 記帳/Views/Home/`: home dashboard and quick entry views.
 - `AI 記帳/Views/Onboarding/`: in-app user guide and onboarding UI.
@@ -26,12 +26,27 @@ This document describes the current file layout for `AI 記帳` after the 2026-0
 - `AI 記帳/Views/Common/`: shared cross-feature UI (`DateFilterView`, title helpers).
 - `AI 記帳/Views/Shortcuts/`: quick-entry shortcut editor.
 
+## Android Source (Scaffold Phase)
+
+- `android/settings.gradle.kts`: Android project settings.
+- `android/build.gradle.kts`: plugin declarations.
+- `android/app/build.gradle.kts`: app module config.
+- `android/app/src/main/java/.../MainActivity.kt`: Compose entry activity.
+- `android/app/src/main/java/.../widget/`: widget provider scaffold.
+- `android/README.md`: Android scaffold notes and local commands.
+
+## CI and Automation
+
+- `.github/workflows/ios-ci.yml`: iOS build and string catalog validation.
+- `.github/workflows/android-ci.yml`: Android scaffold build and unit tests.
+- `.github/pull_request_template.md`: PR quality and compatibility checklist.
+
 ## Repository Docs
 
 - Root: `README*.md`, `CONTRIBUTING*.md`, `SECURITY*.md`, `LICENSE`.
-- `docs/`: project-internal docs.
-- `docs/specs/`: cross-platform contracts (source of truth for data behavior).
 - `docs/CI_CHECKLIST.md`: CI/release quality gate checklist.
+- `docs/specs/data-model.md`: cross-platform data contract.
+- `docs/specs/parity-test-vectors.md`: deterministic parity vectors.
 - `scripts/`: repository maintenance scripts.
 
 ## Documentation Rule
@@ -45,6 +60,7 @@ When UI/IA changes affect user flow, update:
 When data model or JSON compatibility changes, update:
 
 - `docs/specs/data-model.md`
+- `docs/specs/parity-test-vectors.md`
 - `.github/pull_request_template.md` compatibility section
 
 in the same PR.
