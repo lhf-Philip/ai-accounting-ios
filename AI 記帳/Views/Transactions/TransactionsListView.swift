@@ -59,7 +59,8 @@ struct TransactionsListView: View {
                 List {
                     // 頂部資訊區 (隨列表滾動)
                     Section {
-                        VStack(spacing: 12) {
+                        HStack {
+                            Spacer()
                             Button(action: { showingFilterSheet = true }) {
                                 HStack {
                                     Image(systemName: "line.3.horizontal.decrease.circle.fill")
@@ -69,30 +70,10 @@ struct TransactionsListView: View {
                                 .padding(.vertical, 6).padding(.horizontal, 16)
                                 .background(Color.blue.opacity(0.1)).foregroundColor(.blue).clipShape(Capsule())
                             }
-                            .buttonStyle(.plain).frame(maxWidth: .infinity)
-                            
-                            if !filteredTransactions.isEmpty {
-                                VStack(spacing: 8) {
-                                    Text(calculateTotalEstimate()).font(.system(size: 34, weight: .bold)).foregroundStyle(.primary)
-                                    Text("區間總收支 (不含轉帳)").font(.caption).foregroundStyle(.secondary)
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 12) {
-                                            ForEach(calculateCurrencyBreakdown(), id: \.currency) { item in
-                                                HStack(spacing: 4) {
-                                                    Text(item.currency).font(.caption2).bold().foregroundStyle(.secondary)
-                                                    Text(item.amount.formatted(.currency(code: item.currency)))
-                                                        .font(.caption).bold()
-                                                        .foregroundStyle(item.amount >= 0 ? .green : .red)
-                                                }
-                                                .padding(8).background(Color.gray.opacity(0.1)).cornerRadius(8)
-                                            }
-                                        }
-                                        .padding(.horizontal, 4)
-                                    }
-                                }
-                                .padding(.vertical, 8)
-                            }
+                            .buttonStyle(.plain)
+                            Spacer()
                         }
+                        .padding(.vertical, 8)
                         .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
                     }
                     
@@ -120,6 +101,7 @@ struct TransactionsListView: View {
                 .listStyle(.insetGrouped)
             }
             .navigationTitle("帳目明細")
+            .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜尋備註、分類、金額")
             .sheet(isPresented: $showingFilterSheet) {
                 DateFilterView(filterType: $filterType, selectedDate: $selectedDate)

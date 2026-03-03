@@ -5,6 +5,9 @@ struct HomeDashboardView: View {
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \AdvanceCase.date, order: .reverse) private var advanceCases: [AdvanceCase]
     @StateObject private var currencyService = CurrencyService.shared
+    @State private var filterType: FilterType = .month
+    @State private var selectedDate: Date = Date()
+    @State private var showingFilterSheet = false
 
     let onQuickAdd: () -> Void
     let onOpenGuide: () -> Void
@@ -12,41 +15,44 @@ struct HomeDashboardView: View {
     let onOpenReports: () -> Void
     let onOpenAccounts: () -> Void
 
-    private var monthTransactions: [FinancialTransaction] {
-        let calendar = Calendar.current
-        return transactions.filter { calendar.isDate($0.date, equalTo: Date(), toGranularity: .month) }
+    private var filteredTransactions: [FinancialTransaction] {
+        transactions.filter { matchesFilter(date: $0.date) }
     }
 
-    private var monthExpenseMain: Decimal {
-        monthTransactions
+    private var periodExpenseMain: Decimal {
+        filteredTransactions
             .filter { $0.type == .expense }
             .reduce(Decimal.zero) { partial, tx in
                 partial + currencyService.convert(amount: abs(tx.amount), from: tx.currencyCode)
             }
     }
 
-    private var monthIncomeMain: Decimal {
-        monthTransactions
+    private var periodIncomeMain: Decimal {
+        filteredTransactions
             .filter { $0.type == .income }
             .reduce(Decimal.zero) { partial, tx in
                 partial + currencyService.convert(amount: abs(tx.amount), from: tx.currencyCode)
             }
     }
 
-    private var monthNetMain: Decimal {
-        monthIncomeMain - monthExpenseMain
+    private var periodNetMain: Decimal {
+        periodIncomeMain - periodExpenseMain
     }
 
-    private var monthOutstandingAdvance: Decimal {
-        advanceCases
+    private var filteredAdvanceCases: [AdvanceCase] {
+        advanceCases.filter { matchesFilter(date: $0.date) }
+    }
+
+    private var periodOutstandingAdvance: Decimal {
+        filteredAdvanceCases
             .reduce(Decimal.zero) { partial, advanceCase in
                 let outstanding = AdvanceService.outstandingAmount(for: advanceCase)
                 return partial + currencyService.convert(amount: outstanding, from: advanceCase.currencyCode)
             }
     }
 
-    private var monthRecordCount: Int {
-        monthTransactions.filter { $0.type != .transfer }.count
+    private var periodRecordCount: Int {
+        filteredTransactions.filter { $0.type != .transfer }.count
     }
 
     var body: some View {
@@ -54,6 +60,7 @@ struct HomeDashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     summaryHeader
+                    filterControlRow
                     quickActionPanel
                     overviewCards
                     shortcutsPanel
@@ -62,8 +69,12 @@ struct HomeDashboardView: View {
                 .padding(.vertical, 12)
             }
             .navigationTitle("總覽")
+            .navigationBarTitleDisplayMode(.inline)
             .task {
                 await currencyService.fetchRates()
+            }
+            .sheet(isPresented: $showingFilterSheet) {
+                DateFilterView(filterType: $filterType, selectedDate: $selectedDate)
             }
         }
     }
@@ -76,11 +87,28 @@ struct HomeDashboardView: View {
             Text("今天是 \(Date.now.formatted(date: .complete, time: .omitted))")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text("本月已記錄 \(monthRecordCount) 筆收入/支出")
+            Text("\(filterDisplayString)已記錄 \(periodRecordCount) 筆收入/支出")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var filterControlRow: some View {
+        HStack {
+            Button(action: { showingFilterSheet = true }) {
+                HStack(spacing: 4) {
+                    Text(filterDisplayString).font(.headline)
+                    Image(systemName: "chevron.down").font(.caption).bold()
+                }
+                .foregroundStyle(.primary)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .background(Color.gray.opacity(0.1))
+                .clipShape(Capsule())
+            }
+            Spacer()
+        }
     }
 
     private var quickActionPanel: some View {
@@ -116,34 +144,34 @@ struct HomeDashboardView: View {
 
     private var overviewCards: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("本月重點（\(currencyService.mainCurrency)）")
+            Text("\(filterDisplayString)重點（\(currencyService.mainCurrency)）")
                 .font(.headline)
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 summaryCard(
                     title: "收入",
-                    value: monthIncomeMain.formatted(.currency(code: currencyService.mainCurrency)),
+                    value: periodIncomeMain.formatted(.currency(code: currencyService.mainCurrency)),
                     tint: .green,
                     icon: "arrow.down.circle"
                 )
 
                 summaryCard(
                     title: "支出",
-                    value: monthExpenseMain.formatted(.currency(code: currencyService.mainCurrency)),
+                    value: periodExpenseMain.formatted(.currency(code: currencyService.mainCurrency)),
                     tint: .red,
                     icon: "arrow.up.circle"
                 )
 
                 summaryCard(
                     title: "淨收支",
-                    value: monthNetMain.formatted(.currency(code: currencyService.mainCurrency)),
-                    tint: monthNetMain >= 0 ? .blue : .orange,
+                    value: periodNetMain.formatted(.currency(code: currencyService.mainCurrency)),
+                    tint: periodNetMain >= 0 ? .blue : .orange,
                     icon: "equal.circle"
                 )
 
                 summaryCard(
                     title: "代墊待收",
-                    value: monthOutstandingAdvance.formatted(.currency(code: currencyService.mainCurrency)),
+                    value: periodOutstandingAdvance.formatted(.currency(code: currencyService.mainCurrency)),
                     tint: .purple,
                     icon: "person.2"
                 )
@@ -215,5 +243,35 @@ struct HomeDashboardView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
+    }
+
+    private var filterDisplayString: String {
+        let formatter = DateFormatter()
+        switch filterType {
+        case .all:
+            return "全部紀錄"
+        case .year:
+            return "\(Calendar.current.component(.year, from: selectedDate))年"
+        case .month:
+            formatter.dateFormat = "yyyy年 M月"
+            return formatter.string(from: selectedDate)
+        case .day:
+            formatter.dateFormat = "M月d日"
+            return formatter.string(from: selectedDate)
+        }
+    }
+
+    private func matchesFilter(date: Date) -> Bool {
+        let calendar = Calendar.current
+        switch filterType {
+        case .all:
+            return true
+        case .year:
+            return calendar.isDate(date, equalTo: selectedDate, toGranularity: .year)
+        case .month:
+            return calendar.isDate(date, equalTo: selectedDate, toGranularity: .month)
+        case .day:
+            return calendar.isDate(date, equalTo: selectedDate, toGranularity: .day)
+        }
     }
 }

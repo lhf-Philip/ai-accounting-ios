@@ -131,6 +131,7 @@ struct ChartsView: View {
                 }
             }
             .navigationTitle("報表")
+            .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showingFilterSheet) {
                 DateFilterView(filterType: $filterType, selectedDate: $selectedDate)
             }

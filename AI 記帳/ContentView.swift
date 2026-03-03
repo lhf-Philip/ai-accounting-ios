@@ -14,7 +14,7 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
 
-    @State private var selectedTab: RootTab = .home
+    @State private var selectedTab: RootTab = .ledger
     @State private var showingAddOptions = false
     @State private var showingAddTransaction = false
     @State private var showingAddTransfer = false
@@ -51,7 +51,7 @@ struct ContentView: View {
                     }
                 )
                 .tabItem {
-                    Label("首頁", systemImage: "house")
+                    Label("總覽", systemImage: "house")
                 }
                 .tag(RootTab.home)
 
@@ -141,6 +141,7 @@ struct ContentView: View {
         .onAppear {
             guard !initialGuideChecked else { return }
             initialGuideChecked = true
+            selectedTab = hasSeenUserGuide ? .ledger : .home
             if !hasSeenUserGuide {
                 showingUserGuide = true
             }
