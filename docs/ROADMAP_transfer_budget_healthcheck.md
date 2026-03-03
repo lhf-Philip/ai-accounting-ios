@@ -1,6 +1,6 @@
 # Roadmap: Multi-Leg Transfer, Income Charts, Budget Alerts, Data Health Check
 
-Status: Planning only (no behavior change in this PR)
+Status: Historical roadmap. Most items through PR-5 are now implemented; keep this doc for architecture context.
 
 ## Objectives
 
