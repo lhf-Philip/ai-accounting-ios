@@ -2,6 +2,14 @@ import SwiftUI
 import UIKit
 
 extension Color {
+    static let defaultDistinctCategoryPalette: [String] = [
+        "FF3B30", "007AFF", "34C759", "FF9500", "AF52DE", "8E8E93",
+        "FF2D55", "5AC8FA", "FFCC00", "5856D6", "00C7BE", "A2845E",
+        "C0392B", "16A085", "2ECC71", "F39C12", "D35400", "9B59B6",
+        "3498DB", "1ABC9C", "27AE60", "E67E22", "8E44AD", "2C3E50",
+        "E84393", "00B894", "0984E3", "6C5CE7", "FD79A8", "E17055"
+    ]
+
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
@@ -111,5 +119,82 @@ extension Color {
         }
 
         return baseHex
+    }
+
+    static func autoPickDistinctCategoryHex(
+        existingHexes: [String],
+        preferredPalette: [String] = defaultDistinctCategoryPalette,
+        minimumDistance: Double = 0.25
+    ) -> String {
+        let existing = existingHexes
+            .map { normalizedRGBHex($0) }
+            .compactMap { rgbComponents(from: $0) }
+
+        let generated = generatedPalette(count: 72)
+        let candidates = uniqueOrderedHexes(preferredPalette + generated)
+
+        guard !candidates.isEmpty else { return "007AFF" }
+        if existing.isEmpty { return candidates[0] }
+
+        var bestHex = candidates[0]
+        var bestScore = -Double.infinity
+
+        for hex in candidates {
+            guard let rgb = rgbComponents(from: hex) else { continue }
+            let minDist = existing.map { colorDistance(rgb, $0) }.min() ?? 1
+            if minDist >= minimumDistance {
+                return hex
+            }
+            if minDist > bestScore {
+                bestScore = minDist
+                bestHex = hex
+            }
+        }
+
+        return bestHex
+    }
+
+    private static func uniqueOrderedHexes(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+
+        for value in values {
+            let normalized = normalizedRGBHex(value)
+            if seen.insert(normalized).inserted {
+                result.append(normalized)
+            }
+        }
+        return result
+    }
+
+    private static func generatedPalette(count: Int) -> [String] {
+        (0..<count).map { index in
+            let hue = CGFloat((Double(index) * 0.61803398875).truncatingRemainder(dividingBy: 1))
+            let uiColor = UIColor(hue: hue, saturation: 0.66, brightness: 0.92, alpha: 1)
+            return Color(uiColor: uiColor).toRGBHex() ?? "007AFF"
+        }
+    }
+
+    private static func rgbComponents(from hex: String) -> (Double, Double, Double)? {
+        let normalized = normalizedRGBHex(hex)
+        guard normalized.count == 6 else { return nil }
+
+        var int: UInt64 = 0
+        guard Scanner(string: normalized).scanHexInt64(&int) else { return nil }
+
+        let r = Double((int >> 16) & 0xFF) / 255.0
+        let g = Double((int >> 8) & 0xFF) / 255.0
+        let b = Double(int & 0xFF) / 255.0
+        return (r, g, b)
+    }
+
+    private static func colorDistance(
+        _ lhs: (Double, Double, Double),
+        _ rhs: (Double, Double, Double)
+    ) -> Double {
+        let dr = lhs.0 - rhs.0
+        let dg = lhs.1 - rhs.1
+        let db = lhs.2 - rhs.2
+        return (dr * dr + dg * dg + db * db).squareRoot()
     }
 }

@@ -4,12 +4,12 @@ import SwiftData
 struct AddCategoryView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Query(sort: \Category.name) private var categories: [Category]
     
     // Form States
     @State private var name: String = ""
     @State private var selectedIcon: String = "fork.knife"
     @State private var selectedColorHex: String = "007AFF" // 預設藍色
-    @State private var systemColor: Color = Color(hex: "007AFF")
     @State private var selectedKind: CategoryKind = .expense
     
     // 預定義的圖示列表
@@ -26,6 +26,10 @@ struct AddCategoryView: View {
         "FF3B30", "007AFF", "34C759", "FF9500",
         "AF52DE", "8E8E93", "FF2D55", "5AC8FA"
     ]
+
+    private var usedCategoryColorHexes: [String] {
+        categories.map { Color.normalizedRGBHex($0.colorHex) }
+    }
     
     var body: some View {
         NavigationStack {
@@ -89,8 +93,7 @@ struct AddCategoryView: View {
                         HStack(spacing: 16) {
                             ForEach(commonColors, id: \.self) { hex in
                                 Button(action: {
-                                    selectedColorHex = hex
-                                    systemColor = Color(hex: hex)
+                                    selectedColorHex = Color.normalizedRGBHex(hex)
                                 }) {
                                     ZStack {
                                         Circle()
@@ -112,17 +115,22 @@ struct AddCategoryView: View {
                         .padding(.horizontal, 4)
                     }
 
-                    ColorPicker("系統選色", selection: $systemColor, supportsOpacity: false)
-                        .onChange(of: systemColor) { _, newValue in
-                            guard let uniqueHex = Color.uniqueSystemColorHex(
-                                from: newValue,
-                                avoiding: Set(commonColors)
-                            ) else { return }
-                            selectedColorHex = uniqueHex
-                        }
+                    Button {
+                        selectedColorHex = Color.autoPickDistinctCategoryHex(
+                            existingHexes: usedCategoryColorHexes,
+                            preferredPalette: Color.defaultDistinctCategoryPalette
+                        )
+                    } label: {
+                        Label("系統自動選色（避開已用顏色）", systemImage: "wand.and.stars")
+                            .font(.subheadline)
+                    }
 
-                    if !commonColors.contains(Color.normalizedRGBHex(selectedColorHex)) {
-                        Text("目前為系統自訂色（已避開手動色盤）")
+                    if usedCategoryColorHexes.contains(Color.normalizedRGBHex(selectedColorHex)) {
+                        Text("目前顏色已和其他分類重複，建議點擊系統自動選色。")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    } else {
+                        Text("目前顏色未與現有分類衝突。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -130,9 +138,6 @@ struct AddCategoryView: View {
             }
             .navigationTitle("新增分類")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear {
-                systemColor = Color(hex: selectedColorHex)
-            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") {
