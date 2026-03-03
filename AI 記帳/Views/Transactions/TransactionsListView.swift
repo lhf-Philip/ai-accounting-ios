@@ -54,29 +54,31 @@ struct TransactionsListView: View {
                 .background(Color(uiColor: .systemBackground))
                 
                 Divider()
+
+                HStack {
+                    Spacer()
+                    Button(action: { showingFilterSheet = true }) {
+                        HStack {
+                            Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                            Text(filterDisplayString).bold()
+                            Image(systemName: "chevron.down").font(.caption)
+                        }
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 16)
+                        .background(Color.blue.opacity(0.1))
+                        .foregroundColor(.blue)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
+                .padding(.vertical, 8)
+                .background(Color(uiColor: .systemBackground))
+
+                Divider()
                 
                 // MARK: - 2. 列表內容 (List)
                 List {
-                    // 頂部資訊區 (隨列表滾動)
-                    Section {
-                        HStack {
-                            Spacer()
-                            Button(action: { showingFilterSheet = true }) {
-                                HStack {
-                                    Image(systemName: "line.3.horizontal.decrease.circle.fill")
-                                    Text(filterDisplayString).bold()
-                                    Image(systemName: "chevron.down").font(.caption)
-                                }
-                                .padding(.vertical, 6).padding(.horizontal, 16)
-                                .background(Color.blue.opacity(0.1)).foregroundColor(.blue).clipShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
-                            Spacer()
-                        }
-                        .padding(.vertical, 8)
-                        .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
-                    }
-                    
                     // 交易分組
                     ForEach(groupedTransactions, id: \.title) { group in
                         Section(header: Text(group.title)) {
@@ -100,8 +102,7 @@ struct TransactionsListView: View {
                 }
                 .listStyle(.insetGrouped)
             }
-            .navigationTitle("帳目明細")
-            .navigationBarTitleDisplayMode(.inline)
+            .prominentInlineTitle("帳目明細")
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜尋備註、分類、金額")
             .sheet(isPresented: $showingFilterSheet) {
                 DateFilterView(filterType: $filterType, selectedDate: $selectedDate)

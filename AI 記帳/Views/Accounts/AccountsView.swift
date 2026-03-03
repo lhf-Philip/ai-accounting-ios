@@ -70,8 +70,7 @@ struct AccountsView: View {
                     }
                 }
             }
-            .navigationTitle(showArchived ? "已歸檔帳戶" : "帳戶")
-            .navigationBarTitleDisplayMode(.inline)
+            .prominentInlineTitle(showArchived ? "已歸檔帳戶" : "帳戶")
             .environment(\.editMode, $editMode)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

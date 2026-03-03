@@ -240,8 +240,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            .navigationTitle("設定")
-            .navigationBarTitleDisplayMode(.inline)
+            .prominentInlineTitle("設定")
             .alert("提示", isPresented: $showingAlert) {
                 Button("好") {}
             } message: {

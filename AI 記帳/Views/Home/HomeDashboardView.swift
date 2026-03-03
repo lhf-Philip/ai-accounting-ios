@@ -68,8 +68,7 @@ struct HomeDashboardView: View {
                 .padding(.horizontal)
                 .padding(.vertical, 12)
             }
-            .navigationTitle("總覽")
-            .navigationBarTitleDisplayMode(.inline)
+            .prominentInlineTitle("總覽")
             .task {
                 await currencyService.fetchRates()
             }
