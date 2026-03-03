@@ -23,13 +23,15 @@ This document describes the current file layout for `AI 記帳` after the 2026-0
 - `AI 記帳/Views/Tags/`: tag management (`TagsView`, `EditTagView`).
 - `AI 記帳/Views/Tools/`: data health check and repair tools.
 - `AI 記帳/Views/Settings/`: settings, data safety, and tool entry points.
-- `AI 記帳/Views/Common/`: shared cross-feature UI (`DateFilterView`).
+- `AI 記帳/Views/Common/`: shared cross-feature UI (`DateFilterView`, title helpers).
 - `AI 記帳/Views/Shortcuts/`: quick-entry shortcut editor.
 
 ## Repository Docs
 
 - Root: `README*.md`, `CONTRIBUTING*.md`, `SECURITY*.md`, `LICENSE`.
-- `docs/`: project-internal docs (structure, roadmap, implementation notes).
+- `docs/`: project-internal docs.
+- `docs/specs/`: cross-platform contracts (source of truth for data behavior).
+- `docs/CI_CHECKLIST.md`: CI/release quality gate checklist.
 - `scripts/`: repository maintenance scripts.
 
 ## Documentation Rule
@@ -39,5 +41,10 @@ When UI/IA changes affect user flow, update:
 - in-app user guide (`Views/Onboarding/`)
 - README (all maintained languages)
 - relevant docs in `docs/`
+
+When data model or JSON compatibility changes, update:
+
+- `docs/specs/data-model.md`
+- `.github/pull_request_template.md` compatibility section
 
 in the same PR.
