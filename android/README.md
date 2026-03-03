@@ -1,21 +1,39 @@
 # Android Scaffold
 
-This folder contains the initial Android scaffold for AI Accounting.
+This folder contains the Android app baseline for AI Accounting.
 
 ## Current Scope
 
-- Compose app shell
+- Compose app shell with 4 tabs: Overview / Transactions / Reports / Settings
+- First-launch behavior: open Overview on first launch, default to Transactions afterward
 - Widget provider stub (`SummaryWidgetProvider`)
-- Basic unit test scaffold
-- Ready for data-layer implementation based on `docs/specs/data-model.md`
+- Kotlin parity core for cross-platform data behavior
+- Unit tests for parity vectors from `/docs/specs/parity-test-vectors.md`
 
-## Local Build (without wrapper)
+## Implemented Core Modules
 
-This scaffold currently uses system Gradle in CI and local development.
+- `core/model`: canonical enums and entities aligned with `/docs/specs/data-model.md`
+- `core/report`: income/expense totals, transfer exclusion, category-kind filtering
+- `core/advance`: participant repayment progress and outstanding totals
+- `core/backup`: legacy backup defaults compatibility helpers
+
+## Build & Test
+
+Use Gradle wrapper from this folder:
 
 ```bash
-gradle -p android :app:assembleDebug
-gradle -p android :app:testDebugUnitTest
+cd android
+./gradlew :app:assembleDebug
+./gradlew :app:testDebugUnitTest
 ```
 
-A Gradle wrapper can be added in a later PR.
+## Environment Prerequisite
+
+If Android SDK is not auto-detected, set one of:
+
+- `ANDROID_HOME` environment variable, or
+- `android/local.properties` with:
+
+```properties
+sdk.dir=/Users/<your-user>/Library/Android/sdk
+```

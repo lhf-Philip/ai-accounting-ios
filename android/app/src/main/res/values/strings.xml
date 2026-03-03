@@ -3,4 +3,21 @@
     <string name="widget_name">AI 記帳總覽</string>
     <string name="widget_title">本月總覽</string>
     <string name="widget_placeholder">Widget scaffold ready</string>
+
+    <string name="tab_overview">總覽</string>
+    <string name="tab_transactions">帳目</string>
+    <string name="tab_reports">報表</string>
+    <string name="tab_settings">設定</string>
+
+    <string name="overview_placeholder_title">總覽頁（Android）</string>
+    <string name="overview_placeholder_body">首次使用預設顯示此頁；之後預設進入帳目頁。下一步會接上本月重點、日期範圍與資產估算資料。</string>
+
+    <string name="transactions_placeholder_title">帳目頁（Android）</string>
+    <string name="transactions_placeholder_body">這裡會承接主要日常記帳流程。下一步會接上清單、日期篩選與新增/編輯交易流程。</string>
+
+    <string name="reports_placeholder_title">報表頁（Android）</string>
+    <string name="reports_placeholder_body">這裡會接上收入/支出圖表、分類明細點擊下鑽，並保持與 iOS 計算規則一致。</string>
+
+    <string name="settings_placeholder_title">設定頁（Android）</string>
+    <string name="settings_placeholder_body">這裡會接上備份匯入匯出、語言/貨幣設定與資料健康檢查。</string>
 </resources>
