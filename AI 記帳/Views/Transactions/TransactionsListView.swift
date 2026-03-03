@@ -5,6 +5,8 @@ struct TransactionsListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \Shortcut.name) private var shortcuts: [Shortcut] // 查詢捷徑
+    @Query private var advanceParticipants: [AdvanceParticipant]
+    @Query private var advanceRepayments: [AdvanceRepayment]
     
     @State private var filterType: FilterType = .month
     @State private var selectedDate: Date = Date()
@@ -126,8 +128,12 @@ struct TransactionsListView: View {
                 AddShortcutView()
             }
             .sheet(item: $transactionToEdit) { tx in
-                if canEditTransfer(tx) {
-                    EditTransferView(originalTransaction: tx)
+                if tx.type == .transfer {
+                    if isAdvanceTransfer(tx) {
+                        EditAdvanceTransferView(originalTransaction: tx)
+                    } else {
+                        EditTransferView(originalTransaction: tx)
+                    }
                 } else {
                     EditTransactionView(transaction: tx)
                 }
@@ -328,16 +334,19 @@ struct TransactionsListView: View {
         modelContext.delete(tx)
     }
     
-    private func canEditTransfer(_ tx: FinancialTransaction) -> Bool {
+    private var advanceGroupIDs: Set<UUID> {
+        var ids = Set<UUID>(advanceParticipants.compactMap(\.initialTransferGroupID))
+        ids.formUnion(advanceRepayments.compactMap(\.linkedTransferGroupID))
+        return ids
+    }
+
+    private func isAdvanceTransfer(_ tx: FinancialTransaction) -> Bool {
         guard tx.type == .transfer else { return false }
-        if tx.linkedTransactionID != nil { return true }
-        guard let groupID = tx.transferGroupID else { return false }
-        
-        let descriptor = FetchDescriptor<FinancialTransaction>(
-            predicate: #Predicate { $0.transferGroupID == groupID }
-        )
-        guard let groupItems = try? modelContext.fetch(descriptor) else { return false }
-        return groupItems.count == 2
+        if let groupID = tx.transferGroupID, advanceGroupIDs.contains(groupID) {
+            return true
+        }
+        let compacted = tx.note.replacingOccurrences(of: " ", with: "")
+        return compacted.contains("(代墊給") || compacted.contains("(還款至")
     }
     
     private func collapseTransferGroups(in items: [FinancialTransaction]) -> [FinancialTransaction] {

@@ -9,6 +9,7 @@ struct AddCategoryView: View {
     @State private var name: String = ""
     @State private var selectedIcon: String = "fork.knife"
     @State private var selectedColorHex: String = "007AFF" // 預設藍色
+    @State private var systemColor: Color = Color(hex: "007AFF")
     @State private var selectedKind: CategoryKind = .expense
     
     // 預定義的圖示列表
@@ -89,6 +90,7 @@ struct AddCategoryView: View {
                             ForEach(commonColors, id: \.self) { hex in
                                 Button(action: {
                                     selectedColorHex = hex
+                                    systemColor = Color(hex: hex)
                                 }) {
                                     ZStack {
                                         Circle()
@@ -109,10 +111,28 @@ struct AddCategoryView: View {
                         .padding(.vertical, 4)
                         .padding(.horizontal, 4)
                     }
+
+                    ColorPicker("系統選色", selection: $systemColor, supportsOpacity: false)
+                        .onChange(of: systemColor) { _, newValue in
+                            guard let uniqueHex = Color.uniqueSystemColorHex(
+                                from: newValue,
+                                avoiding: Set(commonColors)
+                            ) else { return }
+                            selectedColorHex = uniqueHex
+                        }
+
+                    if !commonColors.contains(Color.normalizedRGBHex(selectedColorHex)) {
+                        Text("目前為系統自訂色（已避開手動色盤）")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .navigationTitle("新增分類")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                systemColor = Color(hex: selectedColorHex)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") {
@@ -136,7 +156,7 @@ struct AddCategoryView: View {
         let newCategory = Category(
             name: name,
             icon: selectedIcon,
-            colorHex: selectedColorHex,
+            colorHex: Color.normalizedRGBHex(selectedColorHex),
             kind: selectedKind
         )
         
