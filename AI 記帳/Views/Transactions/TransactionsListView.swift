@@ -25,7 +25,30 @@ struct TransactionsListView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // MARK: - 1. 捷徑列 (Shortcuts Bar)
+                // MARK: - 1. 日期選擇器 (固定)
+                HStack {
+                    Spacer()
+                    Button(action: { showingFilterSheet = true }) {
+                        HStack {
+                            Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                            Text(filterDisplayString).bold()
+                            Image(systemName: "chevron.down").font(.caption)
+                        }
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 16)
+                        .background(Color.blue.opacity(0.1))
+                        .foregroundColor(.blue)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
+                .padding(.vertical, 8)
+                .background(Color(uiColor: .systemBackground))
+
+                Divider()
+
+                // MARK: - 2. 捷徑列 (Shortcuts Bar)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
                         // 新增按鈕
@@ -54,30 +77,8 @@ struct TransactionsListView: View {
                 .background(Color(uiColor: .systemBackground))
                 
                 Divider()
-
-                HStack {
-                    Spacer()
-                    Button(action: { showingFilterSheet = true }) {
-                        HStack {
-                            Image(systemName: "line.3.horizontal.decrease.circle.fill")
-                            Text(filterDisplayString).bold()
-                            Image(systemName: "chevron.down").font(.caption)
-                        }
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 16)
-                        .background(Color.blue.opacity(0.1))
-                        .foregroundColor(.blue)
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    Spacer()
-                }
-                .padding(.vertical, 8)
-                .background(Color(uiColor: .systemBackground))
-
-                Divider()
                 
-                // MARK: - 2. 列表內容 (List)
+                // MARK: - 3. 列表內容 (List)
                 List {
                     // 交易分組
                     ForEach(groupedTransactions, id: \.title) { group in
