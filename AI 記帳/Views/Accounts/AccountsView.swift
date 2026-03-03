@@ -71,6 +71,7 @@ struct AccountsView: View {
                 }
             }
             .navigationTitle(showArchived ? "已歸檔帳戶" : "帳戶")
+            .navigationBarTitleDisplayMode(.inline)
             .environment(\.editMode, $editMode)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
