@@ -4,281 +4,498 @@ import SwiftData
 struct EditTransferView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    
-    // 傳入的原始交易 (通常是列表點擊的那筆)
+
     let originalTransaction: FinancialTransaction
-    
-    // 查詢關聯的另一筆交易
-    @State private var linkedTransaction: FinancialTransaction?
-    
+
     @Query(sort: \Account.name) private var accounts: [Account]
-    
-    // 編輯狀態
-    @State private var fromAccount: Account?
-    @State private var toAccount: Account?
-    @State private var currencyOut: String = "HKD"
-    @State private var currencyIn: String = "HKD"
-    @State private var amountOutString: String = ""
-    @State private var amountInString: String = ""
+
+    private struct TransferLegInput: Identifiable {
+        let id: UUID
+        var transaction: FinancialTransaction?
+        var account: Account?
+        var currency: String
+        var amountString: String
+
+        init(
+            id: UUID = UUID(),
+            transaction: FinancialTransaction?,
+            account: Account?,
+            currency: String,
+            amountString: String
+        ) {
+            self.id = id
+            self.transaction = transaction
+            self.account = account
+            self.currency = currency
+            self.amountString = amountString
+        }
+    }
+
+    private struct DesiredLeg {
+        let account: Account
+        let currency: String
+        let amount: Decimal
+    }
+
+    @State private var outgoingLegs: [TransferLegInput] = []
+    @State private var incomingLegs: [TransferLegInput] = []
     @State private var date: Date = Date()
     @State private var note: String = ""
-    @State private var showingValidationAlert = false
-    @State private var validationMessage: String = ""
-    
+
     @State private var isLoading = true
     @State private var errorMessage: String?
-    
-    @FocusState private var focusedField: Field?
-    enum Field { case amountOut, amountIn, note }
-    
+    @State private var showingValidationAlert = false
+    @State private var validationMessage: String = ""
+
+    @FocusState private var focusedFieldID: UUID?
+
+    private let currencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
+
+    private var activeAccounts: [Account] {
+        accounts.filter { !$0.isArchived }
+    }
+
+    private var canSubmit: Bool {
+        !isLoading
+            && !outgoingLegs.isEmpty
+            && !incomingLegs.isEmpty
+            && outgoingLegs.allSatisfy { $0.account != nil && positiveDecimal(from: $0.amountString) != nil }
+            && incomingLegs.allSatisfy { $0.account != nil && positiveDecimal(from: $0.amountString) != nil }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 if isLoading {
-                    ProgressView("載入關聯交易中...")
-                } else if let error = errorMessage {
-                    Text("無法編輯：\(error)").foregroundStyle(.red)
+                    ProgressView("載入轉帳中...")
+                } else if let errorMessage {
+                    Text("無法編輯：\(errorMessage)")
+                        .foregroundStyle(.red)
                 } else {
                     Section("轉出方") {
-                        if let from = fromAccount {
-                            HStack {
-                                Text("從：\(from.name)")
-                                Spacer()
-                                Text(currencyOut).bold()
-                            }
-                            TextField("轉出金額", text: $amountOutString)
-                                .keyboardType(.decimalPad)
-                                .focused($focusedField, equals: .amountOut)
-                                .onChange(of: amountOutString) { _, newValue in
-                                    let sanitized = sanitizePositiveDecimalInput(newValue)
-                                    if sanitized != newValue {
-                                        amountOutString = sanitized
-                                        return
-                                    }
-                                    if currencyOut == currencyIn {
-                                        amountInString = sanitized
+                        ForEach($outgoingLegs) { $leg in
+                            VStack(spacing: 10) {
+                                Picker("從帳戶", selection: $leg.account) {
+                                    Text("選擇帳戶").tag(nil as Account?)
+                                    ForEach(activeAccounts) { account in
+                                        Text(account.name).tag(account as Account?)
                                     }
                                 }
-                        }
-                    }
-                    
-                    Section("轉入方") {
-                        if let to = toAccount {
-                            HStack {
-                                Text("到：\(to.name)")
-                                Spacer()
-                                Text(currencyIn).bold()
-                            }
-                            
-                            if currencyOut != currencyIn {
-                                TextField("轉入金額 (實際收到)", text: $amountInString)
+                                .onChange(of: leg.account) { _, newValue in
+                                    guard let newValue else { return }
+                                    leg.currency = newValue.currency
+                                }
+
+                                HStack {
+                                    Picker("幣種", selection: $leg.currency) {
+                                        ForEach(currencies, id: \.self) { code in
+                                            Text(code).tag(code)
+                                        }
+                                    }
+                                    .frame(width: 110)
+
+                                    TextField("轉出金額", text: Binding(
+                                        get: { leg.amountString },
+                                        set: { leg.amountString = sanitizePositiveDecimalInput($0) }
+                                    ))
                                     .keyboardType(.decimalPad)
-                                    .focused($focusedField, equals: .amountIn)
-                                    .onChange(of: amountInString) { _, newValue in
-                                        let sanitized = sanitizePositiveDecimalInput(newValue)
-                                        if sanitized != newValue {
-                                            amountInString = sanitized
-                                        }
-                                    }
-                                
-                                // 🔥 匯率顯示
-                                if let outVal = Double(amountOutString), let inVal = Double(amountInString), outVal > 0 {
-                                    let calculatedRate = inVal / outVal
-                                    let marketRate = CurrencyService.shared.getMarketRate(from: currencyOut, to: currencyIn)
-                                    
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("本次匯率: 1 \(currencyOut) ≈ \(calculatedRate, specifier: "%.4f") \(currencyIn)")
-                                            .foregroundStyle(.blue)
-                                        if let market = marketRate {
-                                            Text("市場匯率: 1 \(currencyOut) ≈ \(market, specifier: "%.4f") \(currencyIn)")
-                                                .foregroundStyle(.secondary).font(.caption)
-                                        }
+                                    .focused($focusedFieldID, equals: leg.id)
+                                }
+
+                                if outgoingLegs.count > 1 {
+                                    Button(role: .destructive) {
+                                        outgoingLegs.removeAll { $0.id == leg.id }
+                                    } label: {
+                                        Text("移除此轉出項")
                                     }
                                 }
-                            } else {
-                                Text("幣種相同，金額自動對應").font(.caption).foregroundStyle(.secondary)
                             }
+                            .padding(.vertical, 4)
+                        }
+
+                        Button {
+                            outgoingLegs.append(
+                                TransferLegInput(
+                                    transaction: nil,
+                                    account: nil,
+                                    currency: "HKD",
+                                    amountString: ""
+                                )
+                            )
+                        } label: {
+                            Label("新增轉出項", systemImage: "plus.circle")
                         }
                     }
-                    
+
+                    Section("轉入方") {
+                        ForEach($incomingLegs) { $leg in
+                            VStack(spacing: 10) {
+                                Picker("到帳戶", selection: $leg.account) {
+                                    Text("選擇帳戶").tag(nil as Account?)
+                                    ForEach(activeAccounts) { account in
+                                        Text(account.name).tag(account as Account?)
+                                    }
+                                }
+                                .onChange(of: leg.account) { _, newValue in
+                                    guard let newValue else { return }
+                                    leg.currency = newValue.currency
+                                }
+
+                                HStack {
+                                    Picker("幣種", selection: $leg.currency) {
+                                        ForEach(currencies, id: \.self) { code in
+                                            Text(code).tag(code)
+                                        }
+                                    }
+                                    .frame(width: 110)
+
+                                    TextField("轉入金額", text: Binding(
+                                        get: { leg.amountString },
+                                        set: { leg.amountString = sanitizePositiveDecimalInput($0) }
+                                    ))
+                                    .keyboardType(.decimalPad)
+                                    .focused($focusedFieldID, equals: leg.id)
+                                }
+
+                                if incomingLegs.count > 1 {
+                                    Button(role: .destructive) {
+                                        incomingLegs.removeAll { $0.id == leg.id }
+                                    } label: {
+                                        Text("移除此轉入項")
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+
+                        Button {
+                            incomingLegs.append(
+                                TransferLegInput(
+                                    transaction: nil,
+                                    account: nil,
+                                    currency: "HKD",
+                                    amountString: ""
+                                )
+                            )
+                        } label: {
+                            Label("新增轉入項", systemImage: "plus.circle")
+                        }
+                    }
+
                     Section("其他") {
                         DatePicker("日期", selection: $date, displayedComponents: [.date, .hourAndMinute])
                         TextField("備註", text: $note)
-                            .focused($focusedField, equals: .note)
-                    }
-                    
-                    Section {
-                        Text("注意：目前編輯模式暫不支援更改轉帳帳戶。如需更改帳戶，請刪除後重新建立。")
-                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
             .navigationTitle("編輯轉帳")
             .alert("輸入錯誤", isPresented: $showingValidationAlert) {
-                Button("確定", role: .cancel) { }
+                Button("確定", role: .cancel) {}
             } message: {
                 Text(validationMessage)
             }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("儲存") { saveChanges() }
-                        .disabled(isLoading || amountOutString.isEmpty)
+                        .disabled(!canSubmit)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Button("完成") { focusedField = nil }
+                    Button("完成") { focusedFieldID = nil }
                 }
             }
             .onAppear { loadData() }
         }
     }
-    
+
     private func loadData() {
         do {
-            guard let linked = try resolveLinkedTransaction(for: originalTransaction) else {
-                errorMessage = "找不到可編輯的配對交易。若為分拆/合併轉帳，請刪除後重建。"
+            let groupTransactions = try fetchGroupTransactions(for: originalTransaction)
+                .filter { $0.type == .transfer }
+
+            guard !groupTransactions.isEmpty else {
+                errorMessage = "找不到可編輯的轉帳資料。"
                 isLoading = false
                 return
             }
-            self.linkedTransaction = linked
-            
-            let tx1 = originalTransaction
-            let tx2 = linked
-            
-            var outTx: FinancialTransaction
-            var inTx: FinancialTransaction
-            
-            if tx1.amount < 0 {
-                outTx = tx1; inTx = tx2
-            } else {
-                outTx = tx2; inTx = tx1
+
+            let outgoing = groupTransactions.filter { isOutgoing($0) }
+            let incoming = groupTransactions.filter { !isOutgoing($0) }
+
+            outgoingLegs = outgoing.map(makeLeg(from:))
+            incomingLegs = incoming.map(makeLeg(from:))
+
+            if outgoingLegs.isEmpty {
+                outgoingLegs = [
+                    TransferLegInput(
+                        transaction: nil,
+                        account: originalTransaction.account,
+                        currency: defaultCurrency(for: originalTransaction),
+                        amountString: decimalString(from: abs(originalTransaction.amount))
+                    )
+                ]
             }
-            
-            self.fromAccount = outTx.account
-            self.toAccount = inTx.account
-            self.currencyOut = outTx.currencyCode.isEmpty ? (outTx.account?.currency ?? "HKD") : outTx.currencyCode
-            self.currencyIn = inTx.currencyCode.isEmpty ? (inTx.account?.currency ?? "HKD") : inTx.currencyCode
-            
-            self.amountOutString = "\(abs(outTx.amount))"
-            self.amountInString = "\(abs(inTx.amount))"
-            self.date = tx1.date
-            
-            let rawNote = tx1.note
-                .components(separatedBy: " (轉至").first?
-                .components(separatedBy: " (來自").first?
-                .components(separatedBy: " (借入").first?
-                .components(separatedBy: " (還款").first ?? ""
-            self.note = rawNote
-            
+
+            if incomingLegs.isEmpty {
+                incomingLegs = [
+                    TransferLegInput(
+                        transaction: nil,
+                        account: nil,
+                        currency: defaultCurrency(for: nil),
+                        amountString: decimalString(from: abs(originalTransaction.amount))
+                    )
+                ]
+            }
+
+            date = originalTransaction.date
+            note = extractMemo(from: originalTransaction.note)
             isLoading = false
         } catch {
-            errorMessage = "讀取錯誤: \(error)"
+            errorMessage = "讀取錯誤：\(error.localizedDescription)"
             isLoading = false
         }
     }
 
-    private func resolveLinkedTransaction(for tx: FinancialTransaction) throws -> FinancialTransaction? {
+    private func saveChanges() {
+        do {
+            let parsedOutgoing = try parseLegs(from: outgoingLegs, sideName: "轉出")
+            let parsedIncoming = try parseLegs(from: incomingLegs, sideName: "轉入")
+
+            let outgoingIDs = Set(parsedOutgoing.map { $0.account.id })
+            let incomingIDs = Set(parsedIncoming.map { $0.account.id })
+
+            if outgoingIDs.count != parsedOutgoing.count {
+                showValidation("轉出帳戶不可重複，請合併金額。")
+                return
+            }
+            if incomingIDs.count != parsedIncoming.count {
+                showValidation("轉入帳戶不可重複，請合併金額。")
+                return
+            }
+            if !outgoingIDs.isDisjoint(with: incomingIDs) {
+                showValidation("同一帳戶不可同時出現在轉出與轉入。")
+                return
+            }
+
+            var existing = try fetchGroupTransactions(for: originalTransaction)
+                .filter { $0.type == .transfer }
+
+            if existing.isEmpty {
+                existing = [originalTransaction]
+            }
+
+            let groupID = existing.first?.transferGroupID ?? originalTransaction.transferGroupID ?? UUID()
+            let now = Date()
+
+            var existingOutgoing = existing.filter { isOutgoing($0) }
+            var existingIncoming = existing.filter { !isOutgoing($0) }
+            existingOutgoing.sort { $0.createdAt < $1.createdAt }
+            existingIncoming.sort { $0.createdAt < $1.createdAt }
+
+            let outgoingCounterpart = counterpartSummary(accounts: parsedIncoming.map { $0.account })
+            let incomingCounterpart = counterpartSummary(accounts: parsedOutgoing.map { $0.account })
+            let baseNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let updatedOutgoing = try synchronizeLegs(
+                desired: parsedOutgoing,
+                existing: existingOutgoing,
+                side: .outgoing,
+                groupID: groupID,
+                date: date,
+                noteSuffix: "轉至 \(outgoingCounterpart)",
+                baseNote: baseNote,
+                now: now
+            )
+
+            let updatedIncoming = try synchronizeLegs(
+                desired: parsedIncoming,
+                existing: existingIncoming,
+                side: .incoming,
+                groupID: groupID,
+                date: date,
+                noteSuffix: "來自 \(incomingCounterpart)",
+                baseNote: baseNote,
+                now: now
+            )
+
+            if updatedOutgoing.count == 1, updatedIncoming.count == 1 {
+                let outTx = updatedOutgoing[0]
+                let inTx = updatedIncoming[0]
+                outTx.linkedTransactionID = inTx.id
+                inTx.linkedTransactionID = outTx.id
+            } else {
+                for tx in updatedOutgoing + updatedIncoming {
+                    tx.linkedTransactionID = nil
+                }
+            }
+
+            try modelContext.save()
+            dismiss()
+        } catch {
+            showValidation(error.localizedDescription)
+        }
+    }
+
+    private func fetchGroupTransactions(for tx: FinancialTransaction) throws -> [FinancialTransaction] {
+        if let groupID = tx.transferGroupID {
+            let descriptor = FetchDescriptor<FinancialTransaction>(
+                predicate: #Predicate { $0.transferGroupID == groupID }
+            )
+            let groupItems = try modelContext.fetch(descriptor)
+            if !groupItems.isEmpty {
+                return groupItems
+            }
+        }
+
         if let linkedID = tx.linkedTransactionID {
             let descriptor = FetchDescriptor<FinancialTransaction>(
                 predicate: #Predicate { $0.id == linkedID }
             )
             if let linked = try modelContext.fetch(descriptor).first {
-                return linked
+                return [tx, linked]
             }
         }
-        
-        guard let groupID = tx.transferGroupID else {
-            return nil
+
+        return [tx]
+    }
+
+    private func isOutgoing(_ tx: FinancialTransaction) -> Bool {
+        if let side = tx.transferSide {
+            return side == .outgoing
         }
-        
-        let groupDescriptor = FetchDescriptor<FinancialTransaction>(
-            predicate: #Predicate { $0.transferGroupID == groupID }
+        return tx.amount < 0
+    }
+
+    private func makeLeg(from tx: FinancialTransaction) -> TransferLegInput {
+        TransferLegInput(
+            transaction: tx,
+            account: tx.account,
+            currency: defaultCurrency(for: tx),
+            amountString: decimalString(from: abs(tx.amount))
         )
-        let candidates = try modelContext.fetch(groupDescriptor).filter { $0.id != tx.id }
-        guard !candidates.isEmpty else {
-            return nil
-        }
-        
-        if candidates.count > 1 {
-            // 分拆/合併轉帳不支援單一編輯頁，避免選錯配對交易。
-            return nil
-        }
-        
-        let counterpart = candidates[0]
-        if tx.linkedTransactionID == nil {
-            tx.linkedTransactionID = counterpart.id
-            tx.updatedAt = Date()
-        }
-        if counterpart.linkedTransactionID == nil {
-            counterpart.linkedTransactionID = tx.id
-            counterpart.updatedAt = Date()
-        }
-        return counterpart
     }
-    
-    private func saveChanges() {
-        guard let outTx = (originalTransaction.amount < 0 ? originalTransaction : linkedTransaction),
-              let inTx = (originalTransaction.amount > 0 ? originalTransaction : linkedTransaction),
-              let to = toAccount, let from = fromAccount
-        else { return }
-        
-        guard let amountOut = positiveDecimal(from: amountOutString) else {
-            showValidation("請輸入大於 0 的轉出金額。")
-            return
+
+    private func defaultCurrency(for tx: FinancialTransaction?) -> String {
+        if let tx, !tx.currencyCode.isEmpty {
+            return tx.currencyCode
         }
-        
-        var amountIn = amountOut
-        if currencyOut != currencyIn {
-            guard let customIn = positiveDecimal(from: amountInString) else {
-                showValidation("跨幣種轉帳請輸入大於 0 的轉入金額。")
-                return
+        return tx?.account?.currency ?? "HKD"
+    }
+
+    private func parseLegs(from legs: [TransferLegInput], sideName: String) throws -> [DesiredLeg] {
+        var parsed: [DesiredLeg] = []
+
+        for leg in legs {
+            guard let account = leg.account else {
+                throw NSError(domain: "EditTransferView", code: 1, userInfo: [NSLocalizedDescriptionKey: "請為每一筆\(sideName)項目選擇帳戶。"])
             }
-            amountIn = customIn
+            guard let amount = positiveDecimal(from: leg.amountString) else {
+                throw NSError(domain: "EditTransferView", code: 2, userInfo: [NSLocalizedDescriptionKey: "\(sideName)金額需大於 0。"])
+            }
+
+            parsed.append(
+                DesiredLeg(
+                    account: account,
+                    currency: leg.currency,
+                    amount: amount
+                )
+            )
         }
-        
-        let normalizedAmountOut = abs(amountOut)
-        let normalizedAmountIn = abs(amountIn)
-        
-        // 更新轉出
-        outTx.amount = -normalizedAmountOut
-        outTx.currencyCode = currencyOut
-        outTx.date = date
-        outTx.note = note.isEmpty ? "轉帳 (轉至 \(to.name))" : "\(note) (轉至 \(to.name))"
-        outTx.transferSide = .outgoing
-        outTx.updatedAt = Date()
-        
-        // 更新轉入
-        inTx.amount = normalizedAmountIn
-        inTx.currencyCode = currencyIn
-        inTx.date = date
-        inTx.note = note.isEmpty ? "轉帳 (來自 \(from.name))" : "\(note) (來自 \(from.name))"
-        inTx.transferSide = .incoming
-        inTx.updatedAt = Date()
-        
-        if outTx.transferGroupID == nil && inTx.transferGroupID == nil {
-            let groupID = UUID()
-            outTx.transferGroupID = groupID
-            inTx.transferGroupID = groupID
-        } else if outTx.transferGroupID == nil {
-            outTx.transferGroupID = inTx.transferGroupID
-        } else if inTx.transferGroupID == nil {
-            inTx.transferGroupID = outTx.transferGroupID
-        }
-        
-        dismiss()
+
+        return parsed
     }
-    
+
+    private func synchronizeLegs(
+        desired: [DesiredLeg],
+        existing: [FinancialTransaction],
+        side: TransferSide,
+        groupID: UUID,
+        date: Date,
+        noteSuffix: String,
+        baseNote: String,
+        now: Date
+    ) throws -> [FinancialTransaction] {
+        var updated: [FinancialTransaction] = []
+
+        for index in desired.indices {
+            let target = desired[index]
+            let tx: FinancialTransaction
+
+            if index < existing.count {
+                tx = existing[index]
+            } else {
+                tx = FinancialTransaction(
+                    amount: 0,
+                    currencyCode: target.currency,
+                    date: date,
+                    note: "",
+                    type: .transfer
+                )
+                modelContext.insert(tx)
+            }
+
+            tx.type = .transfer
+            tx.amount = (side == .outgoing) ? -abs(target.amount) : abs(target.amount)
+            tx.currencyCode = target.currency
+            tx.account = target.account
+            tx.date = date
+            tx.transferGroupID = groupID
+            tx.transferSide = side
+            tx.updatedAt = now
+            tx.note = baseNote.isEmpty
+                ? "轉帳 (\(noteSuffix))"
+                : "\(baseNote) (\(noteSuffix))"
+
+            updated.append(tx)
+        }
+
+        if existing.count > desired.count {
+            for tx in existing.dropFirst(desired.count) {
+                modelContext.delete(tx)
+            }
+        }
+
+        return updated
+    }
+
+    private func counterpartSummary(accounts: [Account]) -> String {
+        if accounts.count == 1 {
+            return accounts[0].name
+        }
+        return "\(accounts.count) 個帳戶"
+    }
+
+    private func extractMemo(from note: String) -> String {
+        let separators = [
+            " (轉至", " (來自", " (代墊給", " (還款至", " (借入至", " (還款給"
+        ]
+
+        for separator in separators {
+            if let range = note.range(of: separator) {
+                return String(note[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        return note.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func decimalString(from value: Decimal) -> String {
+        NSDecimalNumber(decimal: value).stringValue
+    }
+
     private func positiveDecimal(from value: String) -> Decimal? {
         guard let parsed = Decimal(string: value), parsed > 0 else { return nil }
         return parsed
     }
-    
+
     private func sanitizePositiveDecimalInput(_ value: String) -> String {
         let allowed = value.filter { "0123456789.".contains($0) }
         var result = ""
         var hasDot = false
-        
+
         for char in allowed {
             if char == "." {
                 if hasDot { continue }
@@ -286,10 +503,10 @@ struct EditTransferView: View {
             }
             result.append(char)
         }
-        
+
         return result == "." ? "" : result
     }
-    
+
     private func showValidation(_ message: String) {
         validationMessage = message
         showingValidationAlert = true

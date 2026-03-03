@@ -42,4 +42,74 @@ extension Color {
             return String(format: "%02lX%02lX%02lX", lroundf(r * 255), lroundf(g * 255), lroundf(b * 255))
         }
     }
+
+    func toRGBHex() -> String? {
+        let uiColor = UIColor(self)
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        guard uiColor.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
+        return String(
+            format: "%02X%02X%02X",
+            Int(round(r * 255)),
+            Int(round(g * 255)),
+            Int(round(b * 255))
+        )
+    }
+
+    static func normalizedRGBHex(_ rawHex: String) -> String {
+        let cleaned = rawHex
+            .trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+            .uppercased()
+
+        if cleaned.count == 3 {
+            return cleaned.reduce(into: "") { result, char in
+                result.append(char)
+                result.append(char)
+            }
+        }
+
+        if cleaned.count >= 6 {
+            return String(cleaned.prefix(6))
+        }
+
+        return "007AFF"
+    }
+
+    static func uniqueSystemColorHex(
+        from color: Color,
+        avoiding manualPalette: Set<String>
+    ) -> String? {
+        let normalizedPalette = Set(manualPalette.map { normalizedRGBHex($0) })
+        guard let baseHex = color.toRGBHex() else { return nil }
+        if !normalizedPalette.contains(baseHex) {
+            return baseHex
+        }
+
+        let baseUIColor = UIColor(color)
+        var h: CGFloat = 0
+        var s: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        guard baseUIColor.getHue(&h, saturation: &s, brightness: &b, alpha: &a) else {
+            return baseHex
+        }
+
+        for step in 1...24 {
+            let hueShift = CGFloat(step) * 0.035
+            let shifted = UIColor(
+                hue: (h + hueShift).truncatingRemainder(dividingBy: 1),
+                saturation: max(s, 0.45),
+                brightness: max(b, 0.45),
+                alpha: 1
+            )
+            let candidate = Color(uiColor: shifted).toRGBHex() ?? baseHex
+            if !normalizedPalette.contains(candidate) {
+                return candidate
+            }
+        }
+
+        return baseHex
+    }
 }

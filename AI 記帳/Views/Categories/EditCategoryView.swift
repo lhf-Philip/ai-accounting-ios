@@ -11,6 +11,7 @@ struct EditCategoryView: View {
     @State private var name: String = ""
     @State private var selectedIcon: String = ""
     @State private var selectedColorHex: String = ""
+    @State private var systemColor: Color = Color(hex: "007AFF")
     @State private var selectedKind: CategoryKind = .both
     
     // 圖示列表 (與新增頁面保持一致)
@@ -84,7 +85,10 @@ struct EditCategoryView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 16) {
                             ForEach(commonColors, id: \.self) { hex in
-                                Button(action: { selectedColorHex = hex }) {
+                                Button(action: {
+                                    selectedColorHex = hex
+                                    systemColor = Color(hex: hex)
+                                }) {
                                     ZStack {
                                         Circle()
                                             .fill(Color(hex: hex))
@@ -101,6 +105,21 @@ struct EditCategoryView: View {
                         }
                         .padding(.vertical, 4)
                         .padding(.horizontal, 4)
+                    }
+
+                    ColorPicker("系統選色", selection: $systemColor, supportsOpacity: false)
+                        .onChange(of: systemColor) { _, newValue in
+                            guard let uniqueHex = Color.uniqueSystemColorHex(
+                                from: newValue,
+                                avoiding: Set(commonColors)
+                            ) else { return }
+                            selectedColorHex = uniqueHex
+                        }
+
+                    if !commonColors.contains(Color.normalizedRGBHex(selectedColorHex)) {
+                        Text("目前為系統自訂色（已避開手動色盤）")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -121,7 +140,8 @@ struct EditCategoryView: View {
                 // 初始化暫存數據
                 name = category.name
                 selectedIcon = category.icon
-                selectedColorHex = category.colorHex
+                selectedColorHex = Color.normalizedRGBHex(category.colorHex)
+                systemColor = Color(hex: selectedColorHex)
                 selectedKind = category.kind
             }
         }
@@ -130,7 +150,7 @@ struct EditCategoryView: View {
     private func saveChanges() {
         category.name = name
         category.icon = selectedIcon
-        category.colorHex = selectedColorHex
+        category.colorHex = Color.normalizedRGBHex(selectedColorHex)
         category.kind = selectedKind
         dismiss()
     }

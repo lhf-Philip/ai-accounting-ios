@@ -435,6 +435,82 @@ enum AdvanceService {
             missingLinkedRecordCount: missingLinkedRecordCount
         )
     }
+
+    @MainActor
+    static func syncLinkedTransferGroup(
+        groupID: UUID,
+        modelContext: ModelContext
+    ) throws {
+        let txDescriptor = FetchDescriptor<FinancialTransaction>(
+            predicate: #Predicate { $0.transferGroupID == groupID }
+        )
+        let transfers = try modelContext.fetch(txDescriptor).filter { $0.type == .transfer }
+        guard !transfers.isEmpty else { return }
+
+        let outgoing = transfers.first(where: { $0.transferSide == .outgoing || $0.amount < 0 })
+        let incoming = transfers.first(where: { $0.transferSide == .incoming || $0.amount > 0 })
+        let now = Date()
+
+        let participantDescriptor = FetchDescriptor<AdvanceParticipant>(
+            predicate: #Predicate { $0.initialTransferGroupID == groupID }
+        )
+        if let participant = try modelContext.fetch(participantDescriptor).first {
+            if let incoming, let debtAccount = incoming.account {
+                participant.debtAccount = debtAccount
+                participant.name = debtAccount.name
+            }
+
+            if let advanceCase = participant.advanceCase {
+                if let outgoing {
+                    advanceCase.payerAccount = outgoing.account
+                }
+                if let incoming {
+                    let normalized = CurrencyService.shared.convert(
+                        amount: abs(incoming.amount),
+                        from: incoming.currencyCode,
+                        to: advanceCase.currencyCode
+                    )
+                    participant.owedAmount = normalized >= participant.repaidAmount
+                        ? normalized
+                        : participant.repaidAmount
+                }
+                advanceCase.updatedAt = now
+            }
+            participant.updatedAt = now
+        }
+
+        let repaymentDescriptor = FetchDescriptor<AdvanceRepayment>(
+            predicate: #Predicate { $0.linkedTransferGroupID == groupID }
+        )
+        if let repayment = try modelContext.fetch(repaymentDescriptor).first {
+            if let incoming {
+                repayment.amount = abs(incoming.amount)
+                repayment.currencyCode = incoming.currencyCode
+                repayment.date = incoming.date
+                repayment.note = extractTransferMemo(incoming.note)
+                repayment.receivedAccount = incoming.account
+
+                if let advanceCase = repayment.advanceCase {
+                    repayment.normalizedAmount = CurrencyService.shared.convert(
+                        amount: abs(incoming.amount),
+                        from: incoming.currencyCode,
+                        to: advanceCase.currencyCode
+                    )
+                    advanceCase.updatedAt = now
+                }
+            }
+
+            if let participant = repayment.participant, let advanceCase = repayment.advanceCase {
+                let normalizedTotal = advanceCase.repayments
+                    .filter { $0.participant?.id == participant.id }
+                    .reduce(Decimal.zero) { $0 + $1.normalizedAmount }
+                participant.repaidAmount = normalizedTotal > participant.owedAmount
+                    ? participant.owedAmount
+                    : normalizedTotal
+                participant.updatedAt = now
+            }
+        }
+    }
     
     @MainActor
     static func repairLegacyLinks(modelContext: ModelContext) throws -> LegacyLinkRepairResult {
@@ -642,5 +718,18 @@ enum AdvanceService {
     
     private static func decimalEquals(_ lhs: Decimal, _ rhs: Decimal) -> Bool {
         abs(lhs - rhs) <= roundingTolerance
+    }
+
+    private static func extractTransferMemo(_ note: String) -> String {
+        let separators = [
+            " (代墊給", " (還款至", " (轉至", " (來自", " (借入至", " (還款給"
+        ]
+
+        for separator in separators {
+            if let range = note.range(of: separator) {
+                return String(note[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return note.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

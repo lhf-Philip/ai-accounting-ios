@@ -18,11 +18,13 @@ struct EditTransactionView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if transaction.type == .transfer {
-                    Text("轉帳交易請使用「編輯轉帳」功能，或刪除後重新建立。")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Section("金額與類型") {
+                Section("金額與類型") {
+                    if transaction.type == .transfer {
+                        LabeledContent("類型") {
+                            Text("轉帳")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
                         Picker("類型", selection: $transaction.type) {
                             Text("支出").tag(TransactionType.expense)
                             Text("收入").tag(TransactionType.income)
@@ -34,24 +36,26 @@ struct EditTransactionView: View {
                                 transaction.category = nil
                             }
                         }
-                        
-                        HStack {
-                            Text(transaction.account?.currency ?? "$")
-                            TextField("金額", text: $amountString)
-                                .keyboardType(.decimalPad)
-                                .focused($isAmountFocused) // 🔥 綁定焦點
-                                .onChange(of: amountString) { _, _ in updateTransactionAmount() }
+                    }
+
+                    HStack {
+                        Text(transaction.account?.currency ?? "$")
+                        TextField("金額", text: $amountString)
+                            .keyboardType(.decimalPad)
+                            .focused($isAmountFocused) // 🔥 綁定焦點
+                            .onChange(of: amountString) { _, _ in updateTransactionAmount() }
+                    }
+                }
+
+                Section("詳細資訊") {
+                    Picker("帳戶", selection: $transaction.account) {
+                        Text("無").tag(nil as Account?)
+                        ForEach(accounts.filter { !$0.isArchived }) { acc in
+                            Text(acc.name).tag(acc as Account?)
                         }
                     }
-                    
-                    Section("詳細資訊") {
-                        Picker("帳戶", selection: $transaction.account) {
-                            Text("無").tag(nil as Account?)
-                            ForEach(accounts.filter { !$0.isArchived }) { acc in
-                                Text(acc.name).tag(acc as Account?)
-                            }
-                        }
-                        
+
+                    if transaction.type != .transfer {
                         Picker("分類", selection: $transaction.category) {
                             Text("無").tag(nil as Category?)
                             ForEach(filteredCategories) { cat in
@@ -61,11 +65,13 @@ struct EditTransactionView: View {
                                 }.tag(cat as Category?)
                             }
                         }
-                        
-                        DatePicker("日期", selection: $transaction.date)
-                        TextField("備註", text: $transaction.note)
                     }
-                    
+
+                    DatePicker("日期", selection: $transaction.date)
+                    TextField("備註", text: $transaction.note)
+                }
+
+                if transaction.type != .transfer {
                     Section("標籤") {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack {
@@ -114,11 +120,19 @@ struct EditTransactionView: View {
     
     private func updateAmountSign() {
         guard let val = Decimal(string: amountString) else { return }
+        if transaction.type == .transfer {
+            transaction.amount = transaction.amount >= 0 ? abs(val) : -abs(val)
+            return
+        }
         transaction.amount = (transaction.type == .expense) ? -abs(val) : abs(val)
     }
     
     private func updateTransactionAmount() {
         guard let val = Decimal(string: amountString) else { return }
+        if transaction.type == .transfer {
+            transaction.amount = transaction.amount >= 0 ? abs(val) : -abs(val)
+            return
+        }
         transaction.amount = (transaction.type == .expense) ? -abs(val) : abs(val)
     }
     
