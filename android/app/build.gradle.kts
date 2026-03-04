@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "org.duckdns.lhfser.aiaccounting"
     compileSdk = 35
+    buildToolsVersion = "36.1.0"
 
     defaultConfig {
         applicationId = "org.duckdns.lhfser.aiaccounting"
@@ -60,6 +61,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("com.google.android.material:material:1.12.0")
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
