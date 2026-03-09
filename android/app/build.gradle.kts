@@ -1,11 +1,22 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
+val releaseKeystoreProperties = Properties()
+val releaseKeystoreFile = rootProject.file("keystore.properties")
+val hasReleaseKeystore = releaseKeystoreFile.exists()
+
+if (hasReleaseKeystore) {
+    releaseKeystoreFile.inputStream().use(releaseKeystoreProperties::load)
+}
+
 android {
     namespace = "org.duckdns.lhfser.aiaccounting"
     compileSdk = 35
+    buildToolsVersion = "36.1.0"
 
     defaultConfig {
         applicationId = "org.duckdns.lhfser.aiaccounting"
@@ -17,9 +28,23 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = file(releaseKeystoreProperties.getProperty("storeFile"))
+                storePassword = releaseKeystoreProperties.getProperty("storePassword")
+                keyAlias = releaseKeystoreProperties.getProperty("keyAlias")
+                keyPassword = releaseKeystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -60,6 +85,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("com.google.android.material:material:1.12.0")
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")

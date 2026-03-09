@@ -28,20 +28,23 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.10.2'
-
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
         run: |
-          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;36.1.0"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Ensure Gradle Wrapper Is Executable
+        run: chmod +x android/gradlew
 
       - name: Build Debug APK
-        run: gradle -p android :app:assembleDebug --stacktrace
+        run: ./gradlew :app:assembleDebug --stacktrace
+        working-directory: android
 
       - name: Run Unit Tests
-        run: gradle -p android :app:testDebugUnitTest --stacktrace
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+        working-directory: android

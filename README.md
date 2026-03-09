@@ -62,8 +62,9 @@ iOS UI currently supports:
 ### Android (Scaffold)
 
 ```bash
-gradle -p android :app:assembleDebug
-gradle -p android :app:testDebugUnitTest
+cd android
+./gradlew :app:assembleDebug
+./gradlew :app:testDebugUnitTest
 ```
 
 ## CI
@@ -91,6 +92,7 @@ GitHub Actions on `push` / `pull_request` to `main`:
 - Contribution guide: [English](./CONTRIBUTING.md) | [繁體中文](./CONTRIBUTING.zh-Hant.md) | [简体中文](./CONTRIBUTING.zh-Hans.md)
 - Pull request template: [`.github/pull_request_template.md`](./.github/pull_request_template.md)
 - CI checklist: [`docs/CI_CHECKLIST.md`](./docs/CI_CHECKLIST.md)
+- Deployment guide: [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
 
 ## Disclaimer
 
