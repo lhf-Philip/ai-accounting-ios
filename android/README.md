@@ -27,6 +27,21 @@ cd android
 ./gradlew :app:testDebugUnitTest
 ```
 
+## Release Signing
+
+To create a Play-uploadable release bundle, add a local `android/keystore.properties`
+file with:
+
+```properties
+storeFile=/absolute/path/to/upload-keystore.jks
+storePassword=your-store-password
+keyAlias=your-key-alias
+keyPassword=your-key-password
+```
+
+The release signing config is only activated when this file exists, so CI and local
+debug builds stay unaffected.
+
 ## Environment Prerequisite
 
 If Android SDK is not auto-detected, set one of:
