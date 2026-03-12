@@ -35,6 +35,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import androidx.compose.foundation.BorderStroke
 
 @Composable
 fun BudgetsScreen() {
@@ -51,7 +52,9 @@ fun BudgetsScreen() {
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
         Text("預算與超支提醒", style = MaterialTheme.typography.titleMedium)
         Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -114,11 +117,16 @@ fun BudgetsScreen() {
 
 @Composable
 private fun BudgetRow(budget: CategoryMonthlyBudgetEntity, category: CategoryEntity?) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+    ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(category?.name ?: "未分類", style = MaterialTheme.typography.bodyLarge)
-            Text("月份：${budget.monthKey}")
-            Text("預算：${budget.amount.asCurrencyText(budget.currencyCode)}")
+            Text("月份：${budget.monthKey}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("預算：${budget.amount.asCurrencyText(budget.currencyCode)}", style = MaterialTheme.typography.titleSmall)
         }
     }
 }

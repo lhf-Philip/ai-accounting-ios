@@ -31,6 +31,7 @@ import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 import java.math.BigDecimal
 import java.math.RoundingMode
+import androidx.compose.foundation.BorderStroke
 
 @Composable
 fun ReportsScreen() {
@@ -110,7 +111,9 @@ private fun CategoryBreakdownRow(row: CategoryBreakdownRow, totalAmount: BigDeci
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(row.category.name, style = MaterialTheme.typography.bodyLarge)
