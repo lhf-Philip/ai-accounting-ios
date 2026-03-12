@@ -86,6 +86,8 @@ fun TransactionsScreen(
     var shortcutToDelete by remember { mutableStateOf<ShortcutWithDetails?>(null) }
     var showShortcutDeleteConfirm by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var transactionToDelete by remember { mutableStateOf<TransactionWithDetails?>(null) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     var filterType by remember { mutableStateOf(DateFilterType.Month) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
@@ -204,6 +206,10 @@ fun TransactionsScreen(
                                 } else {
                                     onEdit(item.transaction.id.toString())
                                 }
+                            },
+                            onLongClick = {
+                                transactionToDelete = item
+                                showDeleteConfirm = true
                             }
                         )
                     }
@@ -287,6 +293,34 @@ fun TransactionsScreen(
         )
     }
 
+    if (showDeleteConfirm && transactionToDelete != null) {
+        val target = transactionToDelete ?: return
+        val groupId = target.transaction.transferGroupId?.toString()
+        val isTransfer = target.transaction.type == TransactionType.Transfer && groupId != null
+        val title = if (isTransfer) "刪除轉帳？" else "刪除交易？"
+        val message = if (isTransfer) "將刪除此筆轉帳的所有分錄。" else "刪除後無法復原。"
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text(title) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    scope.launch {
+                        if (isTransfer) {
+                            repository.deleteTransferGroup(UUID.fromString(groupId))
+                        } else {
+                            repository.deleteTransactionById(target.transaction.id)
+                        }
+                    }
+                }) { Text("刪除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+            }
+        )
+    }
+
     if (errorMessage != null) {
         AlertDialog(
             onDismissRequest = { errorMessage = null },
@@ -336,7 +370,11 @@ fun TransactionsScreen(
 }
 
 @Composable
-private fun TransactionRow(item: TransactionWithDetails, onClick: () -> Unit) {
+private fun TransactionRow(
+    item: TransactionWithDetails,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
+) {
     val amountColor = when (item.transaction.type) {
         TransactionType.Income -> Color(0xFF2E7D32)
         TransactionType.Expense -> Color(0xFFC62828)
@@ -352,7 +390,8 @@ private fun TransactionRow(item: TransactionWithDetails, onClick: () -> Unit) {
 
     PressableCard(
         modifier = Modifier.fillMaxWidth(),
-        onClick = onClick
+        onClick = onClick,
+        onLongClick = onLongClick
     ) {
         Row(
             modifier = Modifier.padding(16.dp),

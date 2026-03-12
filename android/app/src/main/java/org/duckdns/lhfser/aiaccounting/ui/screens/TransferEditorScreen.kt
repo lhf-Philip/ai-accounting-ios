@@ -1,5 +1,6 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
+import android.app.DatePickerDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -24,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.TransferSide
@@ -34,8 +37,11 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
+import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 
 private enum class TransferEditMode(val label: String) {
@@ -55,6 +61,7 @@ private data class TransferEditLegInput(
 fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
     val repository = LocalRepository.current
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val accounts by repository.accounts.collectAsState(initial = emptyList())
     val scrollState = rememberScrollState()
 
@@ -78,6 +85,8 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
     var sourceLegs by remember { mutableStateOf(listOf(TransferEditLegInput())) }
 
     var note by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf(Instant.now()) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(groupId, accounts) {
         val id = groupId?.let(UUID::fromString) ?: return@LaunchedEffect
@@ -86,6 +95,9 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
 
         val outgoing = group.filter { it.transaction.transferSide == TransferSide.Outgoing }
         val incoming = group.filter { it.transaction.transferSide == TransferSide.Incoming }
+        val firstNote = group.firstOrNull { it.transaction.note.isNotBlank() }?.transaction?.note ?: ""
+        note = firstNote
+        date = (outgoing.firstOrNull() ?: incoming.first()).transaction.date
         when {
             outgoing.size == 1 && incoming.size == 1 -> {
                 mode = TransferEditMode.OneToOne
@@ -97,7 +109,6 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                 currencyIn = inTx.transaction.currencyCode
                 amountOut = outTx.transaction.amount.abs().toPlainString()
                 amountIn = inTx.transaction.amount.abs().toPlainString()
-                note = ""
             }
             outgoing.size == 1 && incoming.size > 1 -> {
                 mode = TransferEditMode.OneToMany
@@ -112,7 +123,6 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                         amount = tx.transaction.amount.abs().toPlainString()
                     )
                 }
-                note = ""
             }
             outgoing.size > 1 && incoming.size == 1 -> {
                 mode = TransferEditMode.ManyToOne
@@ -127,7 +137,6 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                         amount = tx.transaction.amount.abs().toPlainString()
                     )
                 }
-                note = ""
             }
         }
     }
@@ -243,6 +252,17 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
             }
         }
 
+        Text("日期", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            TextButton(onClick = {
+                showDatePicker(context, date) { picked ->
+                    date = picked
+                }
+            }) {
+                Text(date.toDateText())
+            }
+        }
+
         Text("備註", style = MaterialTheme.typography.titleMedium)
         SectionCard {
             OutlinedTextField(
@@ -272,7 +292,7 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                                 currencyOut = currencyOut,
                                 amountIn = amountInValue,
                                 currencyIn = currencyIn,
-                                date = Instant.now(),
+                                date = date,
                                 note = note
                             )
                         }
@@ -290,7 +310,7 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                                 sourceAmount = sourceValue,
                                 sourceCurrency = sourceCurrency,
                                 destinations = legs,
-                                date = Instant.now(),
+                                date = date,
                                 note = note
                             )
                         }
@@ -308,7 +328,7 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                                 destinationAmount = destinationValue,
                                 destinationCurrency = destinationCurrency,
                                 sources = legs,
-                                date = Instant.now(),
+                                date = date,
                                 note = note
                             )
                         }
@@ -319,6 +339,30 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
         ) {
             Text("儲存")
         }
+
+        TextButton(onClick = { showDeleteConfirm = true }) {
+            Text("刪除轉帳", color = MaterialTheme.colorScheme.error)
+        }
+    }
+
+    if (showDeleteConfirm && groupId != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("確認刪除轉帳？") },
+            text = { Text("刪除後無法復原。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    scope.launch {
+                        repository.deleteTransferGroup(UUID.fromString(groupId))
+                        onDone()
+                    }
+                }) { Text("刪除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+            }
+        )
     }
 }
 
@@ -423,4 +467,23 @@ private fun sanitizeAmount(input: String): String {
 
 private fun parsePositive(input: String): BigDecimal? {
     return input.toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO }
+}
+
+private fun showDatePicker(
+    context: android.content.Context,
+    initial: Instant,
+    onPicked: (Instant) -> Unit
+) {
+    val zone = ZoneId.systemDefault()
+    val date = initial.atZone(zone).toLocalDate()
+    DatePickerDialog(
+        context,
+        { _, year, month, day ->
+            val picked = LocalDate.of(year, month + 1, day)
+            onPicked(picked.atStartOfDay(zone).toInstant())
+        },
+        date.year,
+        date.monthValue - 1,
+        date.dayOfMonth
+    ).show()
 }
