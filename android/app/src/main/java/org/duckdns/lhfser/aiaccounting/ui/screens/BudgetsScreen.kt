@@ -30,6 +30,9 @@ import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
+import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
+import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import java.math.BigDecimal
 import java.time.Instant
@@ -41,13 +44,14 @@ import androidx.compose.foundation.BorderStroke
 @Composable
 fun BudgetsScreen() {
     val repository = LocalRepository.current
+    val currencyService = LocalCurrencyService.current
     val scope = rememberCoroutineScope()
     val budgets by repository.budgets.collectAsState(initial = emptyList())
     val categories by repository.categories.collectAsState(initial = emptyList())
 
     var selectedCategory by remember { mutableStateOf<CategoryEntity?>(null) }
     var amount by remember { mutableStateOf("") }
-    var currency by remember { mutableStateOf("HKD") }
+    var currency by remember { mutableStateOf(currencyService.mainCurrency) }
     var monthKey by remember { mutableStateOf(currentMonthKey()) }
 
     LazyColumn(
@@ -72,7 +76,11 @@ fun BudgetsScreen() {
                     Text("新增預算", style = MaterialTheme.typography.titleSmall)
                     CategoryPicker(categories = categories, selected = selectedCategory) { selectedCategory = it }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        TextButton(onClick = { }) { Text(currency) }
+                        CurrencyPicker(
+                            selected = currency,
+                            onSelect = { currency = it },
+                            buttonStyle = CurrencyButtonStyle.Tonal
+                        )
                         OutlinedTextField(
                             value = amount,
                             onValueChange = { amount = sanitizeAmount(it) },
