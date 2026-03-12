@@ -18,10 +18,10 @@ private val LightColors = lightColorScheme(
     primary = Color(0xFF006C4C),
     secondary = Color(0xFF3E6472),
     tertiary = Color(0xFF56643B),
-    background = Color(0xFFF5F6F8),
+    background = Color(0xFFF2F2F7),
     surface = Color(0xFFFFFFFF),
-    surfaceVariant = Color(0xFFF0F2F5),
-    outline = Color(0xFFE0E4E8)
+    surfaceVariant = Color(0xFFF7F8FA),
+    outline = Color(0xFFE1E4E8)
 )
 
 private val DarkColors = darkColorScheme(
@@ -40,14 +40,14 @@ private val AppTypography = Typography(
     titleLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
-        lineHeight = 28.sp
+        fontSize = 23.sp,
+        lineHeight = 30.sp
     ),
     titleMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 18.sp,
-        lineHeight = 24.sp
+        fontSize = 19.sp,
+        lineHeight = 26.sp
     ),
     titleSmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
