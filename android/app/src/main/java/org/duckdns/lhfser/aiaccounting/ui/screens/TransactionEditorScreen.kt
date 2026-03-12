@@ -38,6 +38,8 @@ import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
+import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
+import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
@@ -399,21 +401,11 @@ private fun TagPicker(
 
 @Composable
 private fun CurrencyPicker(selected: String, onSelect: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    TextButton(onClick = { expanded = true }) {
-        Text(selected)
-    }
-    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-        listOf("HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP").forEach { code ->
-            DropdownMenuItem(
-                text = { Text(code) },
-                onClick = {
-                    expanded = false
-                    onSelect(code)
-                }
-            )
-        }
-    }
+    CurrencyPicker(
+        selected = selected,
+        onSelect = onSelect,
+        buttonStyle = CurrencyButtonStyle.Tonal
+    )
 }
 
 @Composable

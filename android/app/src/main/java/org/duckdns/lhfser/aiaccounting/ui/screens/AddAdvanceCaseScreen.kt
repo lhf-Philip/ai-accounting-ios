@@ -32,6 +32,8 @@ import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceParticipantInput
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
+import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
+import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
@@ -219,7 +221,11 @@ private fun AmountRow(
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label, style = MaterialTheme.typography.titleSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(onClick = { }) { Text(currency) }
+            CurrencyPicker(
+                selected = currency,
+                onSelect = { },
+                buttonStyle = CurrencyButtonStyle.Tonal
+            )
             OutlinedTextField(
                 value = amount,
                 onValueChange = onAmountChange,

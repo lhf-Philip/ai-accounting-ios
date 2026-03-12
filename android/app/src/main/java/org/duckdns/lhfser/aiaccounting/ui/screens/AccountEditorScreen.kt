@@ -28,6 +28,8 @@ import org.duckdns.lhfser.aiaccounting.core.model.AccountType
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
+import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
+import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
 import java.math.BigDecimal
 import java.util.UUID
 
@@ -115,18 +117,13 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
 
 @Composable
 private fun CurrencyPicker(selected: String, onSelect: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("幣別", style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { expanded = true }) { Text(selected) }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            listOf("HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP").forEach { code ->
-                DropdownMenuItem(text = { Text(code) }, onClick = {
-                    expanded = false
-                    onSelect(code)
-                })
-            }
-        }
+        CurrencyPicker(
+            selected = selected,
+            onSelect = onSelect,
+            buttonStyle = CurrencyButtonStyle.Tonal
+        )
     }
 }
 
