@@ -5,6 +5,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import org.duckdns.lhfser.aiaccounting.ui.AIAccountingRoot
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
@@ -20,6 +22,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        window.statusBarColor = 0xFFF5F6F8.toInt()
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = true
         val isFirstLaunch = consumeIsFirstLaunch()
         val hasSeenGuide = prefs.getBoolean(KEY_HAS_SEEN_GUIDE, false)
         syncWidgetPreviewContent(isFirstLaunch)

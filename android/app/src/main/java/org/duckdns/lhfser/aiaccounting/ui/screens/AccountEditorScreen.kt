@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -38,6 +40,7 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
     val repository = LocalRepository.current
     val scope = rememberCoroutineScope()
     val accounts by repository.accounts.collectAsState(initial = emptyList())
+    val scrollState = rememberScrollState()
 
     var name by remember { mutableStateOf("") }
     var currency by remember { mutableStateOf("HKD") }
@@ -60,7 +63,8 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("帳戶資料", style = MaterialTheme.typography.titleMedium)

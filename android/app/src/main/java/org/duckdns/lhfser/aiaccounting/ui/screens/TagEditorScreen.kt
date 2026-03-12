@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -29,6 +31,7 @@ fun TagEditorScreen(tagId: String?, onDone: () -> Unit) {
     val repository = LocalRepository.current
     val scope = rememberCoroutineScope()
     val tags by repository.tags.collectAsState(initial = emptyList())
+    val scrollState = rememberScrollState()
 
     var name by remember { mutableStateOf("") }
 
@@ -43,7 +46,8 @@ fun TagEditorScreen(tagId: String?, onDone: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("標籤資料", style = MaterialTheme.typography.titleMedium)

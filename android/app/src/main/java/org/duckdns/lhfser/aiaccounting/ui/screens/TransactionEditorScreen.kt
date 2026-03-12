@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -87,6 +89,7 @@ fun TransactionEditorScreen(
     val accounts by repository.accounts.collectAsState(initial = emptyList())
     val categories by repository.categories.collectAsState(initial = emptyList())
     val tags by repository.tags.collectAsState(initial = emptyList())
+    val scrollState = rememberScrollState()
 
     LaunchedEffect(transactionId, accounts, categories, tags) {
         if (transactionId == null) return@LaunchedEffect
@@ -115,7 +118,8 @@ fun TransactionEditorScreen(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("交易模式", style = MaterialTheme.typography.titleMedium)

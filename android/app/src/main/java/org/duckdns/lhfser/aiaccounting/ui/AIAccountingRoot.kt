@@ -6,8 +6,9 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assessment
@@ -18,6 +19,7 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
@@ -126,19 +128,29 @@ fun AIAccountingRoot(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             if (showBars) {
                 CenterAlignedTopAppBar(
                     title = {
                         Text(text = topLevelDestinations.firstOrNull { it.route == currentRoute }?.label ?: "AI 記帳")
                     },
+                    windowInsets = TopAppBarDefaults.windowInsets,
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surface
                     )
                 )
             } else {
                 CenterAlignedTopAppBar(
-                    title = { Text(text = resolveTitle(backStackEntry)) }
+                    title = { Text(text = resolveTitle(backStackEntry)) },
+                    navigationIcon = {
+                        if (navController.previousBackStackEntry != null) {
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                            }
+                        }
+                    },
+                    windowInsets = TopAppBarDefaults.windowInsets
                 )
             }
         },
@@ -169,7 +181,7 @@ fun AIAccountingRoot(
                 }
             }
         },
-        contentWindowInsets = WindowInsets.systemBars
+        contentWindowInsets = WindowInsets.safeDrawing
     ) { padding ->
         NavHost(
             navController = navController,

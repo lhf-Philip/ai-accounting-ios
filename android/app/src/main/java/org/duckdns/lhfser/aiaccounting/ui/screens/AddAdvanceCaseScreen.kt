@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -55,6 +57,7 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
 
     val payerAccounts = accounts.filter { it.type != AccountType.Debt }
     val debtAccounts = accounts.filter { it.type == AccountType.Debt }
+    val scrollState = rememberScrollState()
 
     var title by remember { mutableStateOf("") }
     var myShare by remember { mutableStateOf("") }
@@ -69,7 +72,8 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("基本資料", style = MaterialTheme.typography.titleMedium)
