@@ -190,7 +190,33 @@ fun AIAccountingRoot(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            composable(AppDestination.Overview.route) { OverviewScreen() }
+            composable(AppDestination.Overview.route) {
+                OverviewScreen(
+                    onQuickAdd = { showAddSheet = true },
+                    onOpenGuide = { showGuide = true },
+                    onOpenLedger = {
+                        navController.navigate(AppDestination.Transactions.route) {
+                            launchSingleTop = true
+                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            restoreState = true
+                        }
+                    },
+                    onOpenReports = {
+                        navController.navigate(AppDestination.Reports.route) {
+                            launchSingleTop = true
+                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            restoreState = true
+                        }
+                    },
+                    onOpenAccounts = {
+                        navController.navigate(AppDestination.Accounts.route) {
+                            launchSingleTop = true
+                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            restoreState = true
+                        }
+                    }
+                )
+            }
             composable(AppDestination.Transactions.route) {
                 TransactionsScreen(
                     onEdit = { id -> navController.navigate("transaction/edit/$id") },
