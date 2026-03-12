@@ -1,8 +1,6 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
 import android.app.DatePickerDialog
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +49,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 import java.time.Instant
@@ -351,13 +350,9 @@ private fun TransactionRow(item: TransactionWithDetails, onClick: () -> Unit) {
         accountText.takeIf { it.isNotBlank() }
     ).joinToString(" · ")
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+    PressableCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -423,13 +418,13 @@ private fun ShortcutsBar(
 
 @Composable
 private fun AddShortcutTile(onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .size(84.dp)
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+    PressableCard(
+        modifier = Modifier.size(84.dp),
+        onClick = onClick,
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        pressedContainerColor = MaterialTheme.colorScheme.surface,
+        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+        pressedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
     ) {
         Column(
             modifier = Modifier.padding(8.dp),
@@ -450,14 +445,16 @@ private fun ShortcutTile(
     onLongClick: () -> Unit,
     onEdit: () -> Unit
 ) {
-    Card(
+    PressableCard(
         modifier = Modifier
             .width(92.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(vertical = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+        onClick = onClick,
+        onLongClick = onLongClick,
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        pressedContainerColor = MaterialTheme.colorScheme.surface,
+        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+        pressedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
     ) {
         Column(
             modifier = Modifier.padding(8.dp),

@@ -1,6 +1,5 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -8,12 +7,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -22,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import java.math.BigDecimal
@@ -42,13 +39,9 @@ fun AccountsScreen(onEdit: (String) -> Unit) {
             SectionHeader(title = "帳戶")
         }
         items(balances) { row ->
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onEdit(row.account.id.toString()) },
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+            PressableCard(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { onEdit(row.account.id.toString()) }
             ) {
                 Row(
                     modifier = Modifier.padding(14.dp),

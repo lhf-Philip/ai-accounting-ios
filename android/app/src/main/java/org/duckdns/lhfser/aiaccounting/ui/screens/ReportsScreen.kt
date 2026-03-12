@@ -1,6 +1,5 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -8,8 +7,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,11 +24,11 @@ import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 import java.math.BigDecimal
 import java.math.RoundingMode
-import androidx.compose.foundation.BorderStroke
 
 @Composable
 fun ReportsScreen() {
@@ -107,13 +104,9 @@ private fun CategoryBreakdownRow(row: CategoryBreakdownRow, totalAmount: BigDeci
         row.total.divide(totalAmount, 4, RoundingMode.HALF_UP).toFloat().coerceIn(0f, 1f)
     } else 0f
     val color = parseColor(row.category.colorHex)
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+    PressableCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(row.category.name, style = MaterialTheme.typography.bodyLarge)
