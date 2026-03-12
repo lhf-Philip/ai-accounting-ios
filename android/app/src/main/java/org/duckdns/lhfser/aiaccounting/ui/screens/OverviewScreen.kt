@@ -50,6 +50,7 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 
 private enum class OverviewFilterType(val label: String) {
     All("全部"),
@@ -104,7 +105,7 @@ fun OverviewScreen(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(scrollState)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -142,7 +143,7 @@ fun OverviewScreen(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
             pressedContainerColor = MaterialTheme.colorScheme.surface
         ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.padding(AppSpacing.card), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("快速開始", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
@@ -226,7 +227,7 @@ private fun SummaryTile(label: String, value: String, tint: Color, modifier: Mod
         borderColor = tint.copy(alpha = 0.12f),
         pressedBorderColor = tint.copy(alpha = 0.2f)
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(modifier = Modifier.padding(AppSpacing.card), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value, style = MaterialTheme.typography.titleSmall, color = tint)
         }
@@ -247,7 +248,7 @@ private fun EntryButton(
         pressedContainerColor = MaterialTheme.colorScheme.surface
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(AppSpacing.card),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {

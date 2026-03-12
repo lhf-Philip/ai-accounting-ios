@@ -52,6 +52,7 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -113,16 +114,16 @@ fun TransactionsScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         Card(
             modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
                 .fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
         ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+        Column(
+            modifier = Modifier.padding(AppSpacing.card),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
                 Text("篩選與搜尋", style = MaterialTheme.typography.titleMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DateFilterType.values().forEach { type ->
@@ -157,7 +158,7 @@ fun TransactionsScreen(
         }
 
         ShortcutsBar(
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal),
             shortcuts = shortcuts,
             onAddShortcut = onAddShortcut,
             onShortcutTap = {
@@ -178,7 +179,10 @@ fun TransactionsScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                contentPadding = PaddingValues(
+                    horizontal = AppSpacing.screenHorizontal,
+                    vertical = AppSpacing.screenVertical
+                ),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 dailySections.forEach { section ->
@@ -394,7 +398,7 @@ private fun TransactionRow(
         onLongClick = onLongClick
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(AppSpacing.card),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -430,7 +434,7 @@ private fun ShortcutsBar(
         border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(AppSpacing.card),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

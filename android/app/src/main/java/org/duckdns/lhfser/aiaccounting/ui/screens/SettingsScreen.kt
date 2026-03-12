@@ -38,6 +38,7 @@ import kotlinx.coroutines.withContext
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 
 @Composable
 fun SettingsScreen(
@@ -97,7 +98,7 @@ fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -169,7 +170,10 @@ private fun SettingRow(title: String, subtitle: String, onClick: () -> Unit) {
         onClick = onClick
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.padding(
+                horizontal = AppSpacing.card,
+                vertical = AppSpacing.inline
+            ),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Column(modifier = Modifier.weight(1f)) {

@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 
 @Composable
 fun CategoriesScreen(onEdit: (String) -> Unit) {
@@ -31,7 +32,10 @@ fun CategoriesScreen(onEdit: (String) -> Unit) {
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        contentPadding = PaddingValues(
+            horizontal = AppSpacing.screenHorizontal,
+            vertical = AppSpacing.screenVertical
+        ),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(categories) { category ->
@@ -47,7 +51,7 @@ private fun CategoryRow(category: CategoryEntity, onClick: () -> Unit) {
         onClick = onClick
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(AppSpacing.card),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {

@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import androidx.compose.foundation.BorderStroke
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 
 @Composable
 fun DataHealthScreen() {
@@ -34,7 +35,7 @@ fun DataHealthScreen() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -44,7 +45,7 @@ fun DataHealthScreen() {
             border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = Modifier.padding(AppSpacing.card), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("可快速檢查缺失資料與未使用分類", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(onClick = {
                     val missingAccount = transactions.count { it.transaction.accountId == null }
