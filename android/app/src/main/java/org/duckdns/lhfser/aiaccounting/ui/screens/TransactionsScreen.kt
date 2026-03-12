@@ -1,24 +1,34 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
+import android.app.DatePickerDialog
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.ExperimentalFoundationApi
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
@@ -39,8 +50,17 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.launch
+
+private enum class DateFilterType(val label: String) {
+    Month("本月"),
+    Year("本年"),
+    Custom("自訂區間")
+}
 
 @Composable
 fun TransactionsScreen(
@@ -51,6 +71,7 @@ fun TransactionsScreen(
 ) {
     val repository = LocalRepository.current
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val transactions by repository.transactions.collectAsState(initial = emptyList())
     val shortcuts by repository.shortcuts.collectAsState(initial = emptyList())
 
@@ -60,38 +81,88 @@ fun TransactionsScreen(
     var showShortcutDeleteConfirm by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    LazyColumn(
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        item {
-            ShortcutsBar(
-                shortcuts = shortcuts,
-                onAddShortcut = onAddShortcut,
-                onShortcutTap = {
-                    pendingShortcut = it
-                    showShortcutConfirm = true
+    var filterType by remember { mutableStateOf(DateFilterType.Month) }
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var customStartDate by remember { mutableStateOf(LocalDate.now()) }
+    var customEndDate by remember { mutableStateOf(LocalDate.now()) }
+    var showFilterDialog by remember { mutableStateOf(false) }
+    var searchText by remember { mutableStateOf("") }
+
+    val (rangeStart, rangeEnd) = remember(filterType, selectedDate, customStartDate, customEndDate) {
+        resolveDateRange(filterType, selectedDate, customStartDate, customEndDate)
+    }
+    val filteredTransactions = remember(transactions, rangeStart, rangeEnd, searchText) {
+        filterTransactions(transactions, rangeStart, rangeEnd, searchText)
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("篩選區間", style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { showFilterDialog = true }) {
+                    Text(filterLabel(filterType, selectedDate, customStartDate, customEndDate))
+                }
+            }
+
+            OutlinedTextField(
+                value = searchText,
+                onValueChange = { searchText = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("搜尋備註、分類、標籤、金額") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchText.isNotBlank()) {
+                        IconButton(onClick = { searchText = "" }) {
+                            Icon(Icons.Default.Clear, contentDescription = "清除")
+                        }
+                    }
                 },
-                onShortcutLongPress = {
-                    shortcutToDelete = it
-                    showShortcutDeleteConfirm = true
-                },
-                onShortcutEdit = { onEditShortcut(it.shortcut.id.toString()) }
+                singleLine = true
             )
         }
-        items(transactions) { item ->
-            val groupId = item.transaction.transferGroupId?.toString()
-            val isTransfer = item.transaction.type == TransactionType.Transfer && groupId != null
-            TransactionRow(
-                item = item,
-                onClick = {
-                    if (isTransfer) {
-                        onEditTransfer(groupId!!)
-                    } else {
-                        onEdit(item.transaction.id.toString())
-                    }
+
+        ShortcutsBar(
+            shortcuts = shortcuts,
+            onAddShortcut = onAddShortcut,
+            onShortcutTap = {
+                pendingShortcut = it
+                showShortcutConfirm = true
+            },
+            onShortcutLongPress = {
+                shortcutToDelete = it
+                showShortcutDeleteConfirm = true
+            },
+            onShortcutEdit = { onEditShortcut(it.shortcut.id.toString()) }
+        )
+
+        if (filteredTransactions.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("沒有符合條件的帳目", style = MaterialTheme.typography.bodyMedium)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(filteredTransactions) { item ->
+                    val groupId = item.transaction.transferGroupId?.toString()
+                    val isTransfer = item.transaction.type == TransactionType.Transfer && groupId != null
+                    TransactionRow(
+                        item = item,
+                        onClick = {
+                            if (isTransfer) {
+                                onEditTransfer(groupId!!)
+                            } else {
+                                onEdit(item.transaction.id.toString())
+                            }
+                        }
+                    )
                 }
-            )
+            }
         }
     }
 
@@ -177,6 +248,42 @@ fun TransactionsScreen(
             text = { Text(errorMessage ?: "") },
             confirmButton = {
                 TextButton(onClick = { errorMessage = null }) { Text("了解") }
+            }
+        )
+    }
+
+    if (showFilterDialog) {
+        AlertDialog(
+            onDismissRequest = { showFilterDialog = false },
+            title = { Text("篩選區間") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DateFilterType.values().forEach { type ->
+                        TextButton(onClick = {
+                            filterType = type
+                        }) {
+                            Text(type.label)
+                        }
+                    }
+                    if (filterType == DateFilterType.Custom) {
+                        Spacer(modifier = Modifier.padding(top = 4.dp))
+                        Text("開始日期", style = MaterialTheme.typography.labelMedium)
+                        TextButton(onClick = {
+                            showDatePicker(context, customStartDate) { customStartDate = it }
+                        }) {
+                            Text(customStartDate.format(DateTimeFormatter.ISO_DATE))
+                        }
+                        Text("結束日期", style = MaterialTheme.typography.labelMedium)
+                        TextButton(onClick = {
+                            showDatePicker(context, customEndDate) { customEndDate = it }
+                        }) {
+                            Text(customEndDate.format(DateTimeFormatter.ISO_DATE))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showFilterDialog = false }) { Text("完成") }
             }
         )
     }
@@ -276,4 +383,88 @@ private fun ShortcutTile(
             TextButton(onClick = onEdit) { Text("編輯") }
         }
     }
+}
+
+private fun filterLabel(
+    filterType: DateFilterType,
+    selectedDate: LocalDate,
+    customStart: LocalDate,
+    customEnd: LocalDate
+): String {
+    return when (filterType) {
+        DateFilterType.Month -> selectedDate.format(DateTimeFormatter.ofPattern("yyyy-MM"))
+        DateFilterType.Year -> selectedDate.year.toString()
+        DateFilterType.Custom -> {
+            val start = customStart
+            val end = customEnd
+            "${start.format(DateTimeFormatter.ISO_DATE)} ~ ${end.format(DateTimeFormatter.ISO_DATE)}"
+        }
+    }
+}
+
+private fun resolveDateRange(
+    filterType: DateFilterType,
+    selectedDate: LocalDate,
+    customStart: LocalDate,
+    customEnd: LocalDate
+): Pair<Instant?, Instant?> {
+    val zone = ZoneId.systemDefault()
+    return when (filterType) {
+        DateFilterType.Month -> {
+            val start = selectedDate.withDayOfMonth(1).atStartOfDay(zone).toInstant()
+            val end = selectedDate.withDayOfMonth(1).plusMonths(1).atStartOfDay(zone).toInstant()
+            start to end
+        }
+        DateFilterType.Year -> {
+            val start = LocalDate.of(selectedDate.year, 1, 1).atStartOfDay(zone).toInstant()
+            val end = LocalDate.of(selectedDate.year + 1, 1, 1).atStartOfDay(zone).toInstant()
+            start to end
+        }
+        DateFilterType.Custom -> {
+            val startDate = if (customEnd.isBefore(customStart)) customEnd else customStart
+            val endDate = if (customEnd.isBefore(customStart)) customStart else customEnd
+            val start = startDate.atStartOfDay(zone).toInstant()
+            val end = endDate.plusDays(1).atStartOfDay(zone).toInstant()
+            start to end
+        }
+    }
+}
+
+private fun filterTransactions(
+    transactions: List<TransactionWithDetails>,
+    rangeStart: Instant?,
+    rangeEnd: Instant?,
+    query: String
+): List<TransactionWithDetails> {
+    val normalized = query.trim().lowercase()
+    return transactions.filter { tx ->
+        val dateOk = if (rangeStart != null && rangeEnd != null) {
+            tx.transaction.date >= rangeStart && tx.transaction.date < rangeEnd
+        } else true
+        if (!dateOk) return@filter false
+        if (normalized.isBlank()) return@filter true
+        val note = tx.transaction.note.lowercase()
+        val category = tx.category?.name?.lowercase().orEmpty()
+        val account = tx.account?.name?.lowercase().orEmpty()
+        val tags = tx.tags.joinToString(" ") { it.name.lowercase() }
+        val amount = tx.transaction.amount.abs().toPlainString()
+        val currency = tx.transaction.currencyCode.lowercase()
+        listOf(note, category, account, tags, amount, currency).any { it.contains(normalized) }
+    }
+}
+
+private fun showDatePicker(
+    context: android.content.Context,
+    initialDate: LocalDate,
+    onSelected: (LocalDate) -> Unit
+) {
+    DatePickerDialog(
+        context,
+        { _, year, month, day ->
+            onSelected(LocalDate.of(year, month + 1, day))
+        },
+        initialDate.year,
+        initialDate.monthValue - 1,
+        initialDate.dayOfMonth
+    ).show()
 }
