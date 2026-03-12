@@ -39,6 +39,7 @@ import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
@@ -94,7 +95,7 @@ fun AdvanceDetailScreen(caseId: String?) {
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     if (advanceCase == null) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(AppSpacing.screenHorizontal)) {
             Text("載入中...", style = MaterialTheme.typography.bodyLarge)
         }
         return
@@ -148,7 +149,7 @@ fun AdvanceDetailScreen(caseId: String?) {
     }
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {

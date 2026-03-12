@@ -20,6 +20,7 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import java.math.BigDecimal
 
 @Composable
@@ -28,7 +29,7 @@ fun AdvancesScreen(onOpenCase: (String) -> Unit) {
     val cases by repository.advanceCases.collectAsState(initial = emptyList())
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(cases) { advanceCase ->
@@ -48,7 +49,7 @@ private fun AdvanceCaseRow(advanceCase: AdvanceCaseWithDetails, onClick: () -> U
         onClick = onClick
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(AppSpacing.card),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {

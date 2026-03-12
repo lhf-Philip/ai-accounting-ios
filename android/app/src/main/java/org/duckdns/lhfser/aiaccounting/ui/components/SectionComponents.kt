@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 
 @Composable
 fun SectionHeader(
@@ -48,7 +49,7 @@ fun SectionHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .padding(vertical = AppSpacing.tight),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -72,8 +73,8 @@ fun SectionCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(AppSpacing.card),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.card)
         ) {
             content()
         }

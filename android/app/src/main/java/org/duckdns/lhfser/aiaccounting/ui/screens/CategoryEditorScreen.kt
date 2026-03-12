@@ -35,6 +35,7 @@ import org.duckdns.lhfser.aiaccounting.core.model.CategoryKind
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import java.util.UUID
 
 @Composable
@@ -63,7 +64,7 @@ fun CategoryEditorScreen(categoryId: String?, onDone: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {

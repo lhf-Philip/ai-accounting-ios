@@ -58,6 +58,7 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
@@ -156,7 +157,7 @@ fun ReportsScreen() {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -197,7 +198,10 @@ fun ReportsScreen() {
 
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            contentPadding = PaddingValues(
+                horizontal = AppSpacing.screenHorizontal,
+                vertical = AppSpacing.screenVertical
+            ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (chartMode == ReportChartMode.Tag && selectedTag != null) {
@@ -318,7 +322,7 @@ private fun ReportRow(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(modifier = Modifier.padding(AppSpacing.card), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ColorDot(color = item.color)
                 Column(modifier = Modifier.weight(1f)) {
@@ -401,7 +405,7 @@ private fun BudgetAlertCard(alerts: List<BudgetAlert>) {
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.error.copy(alpha = 0.06f), shape = MaterialTheme.shapes.medium)
-            .padding(12.dp),
+            .padding(AppSpacing.card),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text("本月超支提醒", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -431,7 +435,7 @@ private fun ReportDetailSheet(detail: ReportDetail) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(detail.title, style = MaterialTheme.typography.titleMedium)

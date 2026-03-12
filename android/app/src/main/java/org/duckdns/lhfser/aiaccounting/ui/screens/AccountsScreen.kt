@@ -20,6 +20,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import java.math.BigDecimal
 
 @Composable
@@ -31,7 +32,7 @@ fun AccountsScreen(onEdit: (String) -> Unit) {
     val balances = calculateBalances(accounts, transactions)
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(balances) { row ->
@@ -40,7 +41,7 @@ fun AccountsScreen(onEdit: (String) -> Unit) {
                 onClick = { onEdit(row.account.id.toString()) }
             ) {
                 Row(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(AppSpacing.card),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {

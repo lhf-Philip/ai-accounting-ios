@@ -53,6 +53,7 @@ import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 
 private data class BudgetStatus(
     val budget: CategoryMonthlyBudgetEntity,
@@ -111,7 +112,7 @@ fun BudgetsScreen() {
     }
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 20.dp)
     ) {
@@ -122,7 +123,7 @@ fun BudgetsScreen() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(AppSpacing.card),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text("月份", style = MaterialTheme.typography.titleSmall)
@@ -154,7 +155,7 @@ fun BudgetsScreen() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(AppSpacing.card),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(if (editingBudget == null) "新增預算" else "編輯預算", style = MaterialTheme.typography.titleSmall)
