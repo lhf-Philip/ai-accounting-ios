@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.map
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
+import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import java.math.BigDecimal
@@ -30,15 +31,16 @@ import java.time.ZoneId
 @Composable
 fun OverviewScreen() {
     val repository = LocalRepository.current
+    val currencyService = LocalCurrencyService.current
     val accounts by repository.accounts.collectAsState(initial = emptyList())
     val transactions by repository.transactions.collectAsState(initial = emptyList())
 
-    val baseCurrency = accounts.firstOrNull()?.currency ?: "HKD"
+    val baseCurrency = currencyService.mainCurrency
     val monthStart = LocalDate.now().withDayOfMonth(1)
         .atStartOfDay(ZoneId.systemDefault())
         .toInstant()
 
-    val summary = rememberSummary(transactions, baseCurrency, monthStart)
+    val summary = rememberSummary(transactions, currencyService, baseCurrency, monthStart)
     val balances = rememberAccountBalances(accounts, transactions)
 
     LazyColumn(
@@ -89,21 +91,22 @@ private data class AccountBalanceRow(
 @Composable
 private fun rememberSummary(
     transactions: List<TransactionWithDetails>,
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
     baseCurrency: String,
     monthStart: Instant
 ): MonthlySummary {
     val filtered = transactions.filter { tx ->
-        tx.transaction.currencyCode == baseCurrency &&
-            tx.transaction.date >= monthStart &&
+        tx.transaction.date >= monthStart &&
             tx.transaction.type != TransactionType.Transfer
     }
 
     var income = BigDecimal.ZERO
     var expense = BigDecimal.ZERO
     filtered.forEach { tx ->
+        val converted = currencyService.convert(tx.transaction.amount.abs(), tx.transaction.currencyCode, baseCurrency)
         when (tx.transaction.type) {
-            TransactionType.Income -> income = income + tx.transaction.amount.abs()
-            TransactionType.Expense -> expense = expense + tx.transaction.amount.abs()
+            TransactionType.Income -> income = income + converted
+            TransactionType.Expense -> expense = expense + converted
             else -> Unit
         }
     }

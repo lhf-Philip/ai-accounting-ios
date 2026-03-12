@@ -436,6 +436,7 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
         advanceCase: AdvanceCaseEntity,
         participant: AdvanceParticipantEntity,
         amount: BigDecimal,
+        normalizedAmount: BigDecimal,
         currencyCode: String,
         date: Instant,
         note: String,
@@ -444,7 +445,7 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
         tagIds: List<UUID>
     ) {
         val now = Instant.now()
-        val normalizedAmount = amount.abs()
+        val normalized = normalizedAmount.abs()
         val transferGroupId = UUID.randomUUID()
         val outId = UUID.randomUUID()
         val inId = UUID.randomUUID()
@@ -453,7 +454,7 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
 
         val outTx = TransactionEntity(
             id = outId,
-            amount = normalizedAmount.negate(),
+            amount = amount.abs().negate(),
             currencyCode = currencyCode,
             date = date,
             note = "$transferMemo (還款給 ${receiveAccount.name})",
@@ -470,7 +471,7 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
 
         val inTx = TransactionEntity(
             id = inId,
-            amount = normalizedAmount,
+            amount = amount.abs(),
             currencyCode = currencyCode,
             date = date,
             note = "$transferMemo (來自 ${participant.name})",
@@ -493,7 +494,7 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
         }
 
         val updatedParticipant = participant.copy(
-            repaidAmount = participant.repaidAmount + normalizedAmount,
+            repaidAmount = participant.repaidAmount + normalized,
             updatedAt = now
         )
         advanceDao.upsertParticipants(listOf(updatedParticipant))
@@ -502,7 +503,7 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
             id = UUID.randomUUID(),
             amount = amount.abs(),
             currencyCode = currencyCode,
-            normalizedAmount = normalizedAmount,
+            normalizedAmount = normalized,
             date = date,
             note = note.trim(),
             linkedTransferGroupId = transferGroupId,

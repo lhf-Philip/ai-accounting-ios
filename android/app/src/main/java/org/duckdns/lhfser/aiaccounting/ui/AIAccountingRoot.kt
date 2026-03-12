@@ -53,6 +53,7 @@ import org.duckdns.lhfser.aiaccounting.ui.screens.DataHealthScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.OverviewScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.ReportsScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.SettingsScreen
+import org.duckdns.lhfser.aiaccounting.ui.screens.ShortcutEditorScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.TagEditorScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.TagsScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.TransferEditorScreen
@@ -86,6 +87,7 @@ private sealed class AppDestination(
     data object Budgets : AppDestination("budgets", "預算與提醒")
     data object DataHealth : AppDestination("data-health", "資料健康檢查")
     data object AccountEdit : AppDestination("accounts/edit/{accountId}", "編輯帳戶")
+    data object ShortcutEdit : AppDestination("shortcuts/edit/{shortcutId}", "編輯捷徑")
 }
 
 private val topLevelDestinations = listOf(
@@ -104,6 +106,7 @@ fun AIAccountingRoot(
     onGuideSeen: () -> Unit
 ) {
     val navController = rememberNavController()
+    val currencyService = LocalCurrencyService.current
     var showAddSheet by remember { mutableStateOf(false) }
     var showGuide by remember { mutableStateOf(showUserGuide) }
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -116,6 +119,10 @@ fun AIAccountingRoot(
         navController.navigate(startDestination) {
             popUpTo(0)
         }
+    }
+
+    LaunchedEffect(currencyService.mainCurrency) {
+        currencyService.fetchRates()
     }
 
     Scaffold(
@@ -175,7 +182,9 @@ fun AIAccountingRoot(
             composable(AppDestination.Transactions.route) {
                 TransactionsScreen(
                     onEdit = { id -> navController.navigate("transaction/edit/$id") },
-                    onEditTransfer = { groupId -> navController.navigate("transfer/edit/$groupId") }
+                    onEditTransfer = { groupId -> navController.navigate("transfer/edit/$groupId") },
+                    onAddShortcut = { navController.navigate("shortcuts/edit/${UUID.randomUUID()}") },
+                    onEditShortcut = { id -> navController.navigate("shortcuts/edit/$id") }
                 )
             }
             composable(AppDestination.Reports.route) { ReportsScreen() }
@@ -267,6 +276,15 @@ fun AIAccountingRoot(
                     onDone = { navController.popBackStack() }
                 )
             }
+            composable(
+                AppDestination.ShortcutEdit.route,
+                arguments = listOf(navArgument("shortcutId") { type = NavType.StringType })
+            ) { entry ->
+                ShortcutEditorScreen(
+                    shortcutId = entry.arguments?.getString("shortcutId"),
+                    onDone = { navController.popBackStack() }
+                )
+            }
         }
     }
 
@@ -341,6 +359,7 @@ private fun resolveTitle(backStackEntry: NavBackStackEntry?): String {
         route == AppDestination.Budgets.route -> "預算與提醒"
         route == AppDestination.DataHealth.route -> "資料健康檢查"
         route.startsWith("accounts/edit") -> "編輯帳戶"
+        route.startsWith("shortcuts/edit") -> "編輯捷徑"
         else -> "AI 記帳"
     }
 }

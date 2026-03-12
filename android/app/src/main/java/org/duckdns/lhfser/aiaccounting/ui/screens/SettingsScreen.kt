@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 
 @Composable
@@ -35,11 +38,14 @@ fun SettingsScreen(
     onOpenHealth: () -> Unit
 ) {
     val repository = LocalRepository.current
+    val currencyService = LocalCurrencyService.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var replaceExisting by remember { mutableStateOf(true) }
     var message by remember { mutableStateOf<String?>(null) }
+    var mainCurrency by remember { mutableStateOf(currencyService.mainCurrency) }
+    var currencyMenuExpanded by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -83,6 +89,27 @@ fun SettingsScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        Text("偏好設定", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("主要貨幣")
+            Button(onClick = { currencyMenuExpanded = true }) {
+                Text(mainCurrency)
+            }
+            DropdownMenu(expanded = currencyMenuExpanded, onDismissRequest = { currencyMenuExpanded = false }) {
+                listOf("HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP").forEach { code ->
+                    DropdownMenuItem(
+                        text = { Text(code) },
+                        onClick = {
+                            currencyMenuExpanded = false
+                            mainCurrency = code
+                            currencyService.mainCurrency = code
+                            scope.launch { currencyService.fetchRates() }
+                        }
+                    )
+                }
+            }
+        }
+
         Text("資料與工具", style = MaterialTheme.typography.titleMedium)
         Button(onClick = onOpenCategories) { Text("分類管理") }
         Button(onClick = onOpenTags) { Text("標籤管理") }

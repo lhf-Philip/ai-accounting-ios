@@ -101,6 +101,14 @@ fun TransactionEditorScreen(
         }
     }
 
+    val filteredCategories = categories.filter { it.kind.supports(transactionType) }
+
+    LaunchedEffect(transactionType, filteredCategories) {
+        if (selectedCategory != null && filteredCategories.none { it.id == selectedCategory?.id }) {
+            selectedCategory = null
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -182,7 +190,7 @@ fun TransactionEditorScreen(
         }
 
         CategoryPicker(
-            categories = categories,
+            categories = filteredCategories,
             selected = selectedCategory,
             onSelect = { selectedCategory = it }
         )

@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
+import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
@@ -31,14 +32,16 @@ import java.math.BigDecimal
 @Composable
 fun ReportsScreen() {
     val repository = LocalRepository.current
+    val currencyService = LocalCurrencyService.current
     val transactions by repository.transactions.collectAsState(initial = emptyList())
     val categories by repository.categories.collectAsState(initial = emptyList())
 
     var selectedCategory by remember { mutableStateOf<CategoryEntity?>(null) }
     var selectedType by remember { mutableStateOf(TransactionType.Expense) }
 
-    val expenseBreakdown = categoryBreakdown(transactions, categories, TransactionType.Expense)
-    val incomeBreakdown = categoryBreakdown(transactions, categories, TransactionType.Income)
+    val baseCurrency = currencyService.mainCurrency
+    val expenseBreakdown = categoryBreakdown(transactions, categories, currencyService, baseCurrency, TransactionType.Expense)
+    val incomeBreakdown = categoryBreakdown(transactions, categories, currencyService, baseCurrency, TransactionType.Income)
 
     LazyColumn(
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -109,6 +112,8 @@ private fun CategoryBreakdownRow(row: CategoryBreakdownRow, onClick: () -> Unit)
 private fun categoryBreakdown(
     transactions: List<TransactionWithDetails>,
     categories: List<CategoryEntity>,
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
+    baseCurrency: String,
     type: TransactionType
 ): List<CategoryBreakdownRow> {
     val filtered = transactions.filter { it.transaction.type == type }
@@ -121,7 +126,9 @@ private fun categoryBreakdown(
             colorHex = "#90A4AE",
             kind = org.duckdns.lhfser.aiaccounting.core.model.CategoryKind.Both
         )
-        val total = items.fold(BigDecimal.ZERO) { acc, tx -> acc + tx.transaction.amount.abs() }
-        CategoryBreakdownRow(category, total, items.firstOrNull()?.transaction?.currencyCode ?: "HKD")
+        val total = items.fold(BigDecimal.ZERO) { acc, tx ->
+            acc + currencyService.convert(tx.transaction.amount.abs(), tx.transaction.currencyCode, baseCurrency)
+        }
+        CategoryBreakdownRow(category, total, baseCurrency)
     }.sortedByDescending { it.total }
 }

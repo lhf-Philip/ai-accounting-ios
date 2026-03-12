@@ -86,7 +86,9 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
             currency = currency,
             onCurrencyChange = { currency = it }
         )
-        CategoryPicker(categories = categories, selected = expenseCategory) { expenseCategory = it }
+        CategoryPicker(categories = categories.filter { it.kind.supports(org.duckdns.lhfser.aiaccounting.core.model.TransactionType.Expense) }, selected = expenseCategory) {
+            expenseCategory = it
+        }
         TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
 
         Text("代墊對象", style = MaterialTheme.typography.titleSmall)

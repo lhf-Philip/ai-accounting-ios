@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import org.duckdns.lhfser.aiaccounting.ui.AIAccountingRoot
+import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.theme.AIAccountingTheme
 import org.duckdns.lhfser.aiaccounting.widget.SummaryWidgetProvider
@@ -22,11 +23,14 @@ class MainActivity : ComponentActivity() {
         val isFirstLaunch = consumeIsFirstLaunch()
         val hasSeenGuide = prefs.getBoolean(KEY_HAS_SEEN_GUIDE, false)
         syncWidgetPreviewContent(isFirstLaunch)
-        val repository = (application as AIAccountingApp).container.repository
+        val appContainer = (application as AIAccountingApp).container
 
         setContent {
             AIAccountingTheme {
-                CompositionLocalProvider(LocalRepository provides repository) {
+                CompositionLocalProvider(
+                    LocalRepository provides appContainer.repository,
+                    LocalCurrencyService provides appContainer.currencyService
+                ) {
                     AIAccountingRoot(
                         startOnOverview = isFirstLaunch,
                         showUserGuide = !hasSeenGuide,
