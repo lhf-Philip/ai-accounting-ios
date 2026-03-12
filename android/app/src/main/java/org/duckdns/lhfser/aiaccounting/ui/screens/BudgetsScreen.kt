@@ -2,6 +2,7 @@ package org.duckdns.lhfser.aiaccounting.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -49,68 +50,70 @@ fun BudgetsScreen() {
     var currency by remember { mutableStateOf("HKD") }
     var monthKey by remember { mutableStateOf(currentMonthKey()) }
 
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Text("預算與超支提醒", style = MaterialTheme.typography.titleMedium)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+    LazyColumn(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 12.dp)
+    ) {
+        item {
+            Text("預算與超支提醒", style = MaterialTheme.typography.titleMedium)
+        }
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text("新增預算", style = MaterialTheme.typography.titleSmall)
-                CategoryPicker(categories = categories, selected = selectedCategory) { selectedCategory = it }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(onClick = { }) { Text(currency) }
-                    OutlinedTextField(
-                        value = amount,
-                        onValueChange = { amount = sanitizeAmount(it) },
-                        label = { Text("預算金額") },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                OutlinedTextField(
-                    value = monthKey,
-                    onValueChange = { monthKey = it },
-                    label = { Text("月份 (YYYY-MM)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Button(
-                    onClick = {
-                        scope.launch {
-                            val category = selectedCategory ?: return@launch
-                            val amountValue = amount.toBigDecimalOrNull() ?: return@launch
-                            repository.upsertBudget(
-                                CategoryMonthlyBudgetEntity(
-                                    id = UUID.randomUUID(),
-                                    monthKey = monthKey,
-                                    amount = amountValue,
-                                    currencyCode = currency,
-                                    isEnabled = true,
-                                    createdAt = Instant.now(),
-                                    updatedAt = Instant.now(),
-                                    categoryId = category.id
-                                )
-                            )
-                            amount = ""
-                        }
-                    }
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("儲存")
+                    Text("新增預算", style = MaterialTheme.typography.titleSmall)
+                    CategoryPicker(categories = categories, selected = selectedCategory) { selectedCategory = it }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        TextButton(onClick = { }) { Text(currency) }
+                        OutlinedTextField(
+                            value = amount,
+                            onValueChange = { amount = sanitizeAmount(it) },
+                            label = { Text("預算金額") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    OutlinedTextField(
+                        value = monthKey,
+                        onValueChange = { monthKey = it },
+                        label = { Text("月份 (YYYY-MM)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                val category = selectedCategory ?: return@launch
+                                val amountValue = amount.toBigDecimalOrNull() ?: return@launch
+                                repository.upsertBudget(
+                                    CategoryMonthlyBudgetEntity(
+                                        id = UUID.randomUUID(),
+                                        monthKey = monthKey,
+                                        amount = amountValue,
+                                        currencyCode = currency,
+                                        isEnabled = true,
+                                        createdAt = Instant.now(),
+                                        updatedAt = Instant.now(),
+                                        categoryId = category.id
+                                    )
+                                )
+                                amount = ""
+                            }
+                        }
+                    ) {
+                        Text("儲存")
+                    }
                 }
             }
         }
-
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(top = 12.dp)
-        ) {
-            items(budgets) { budget ->
-                BudgetRow(budget = budget, category = categories.firstOrNull { it.id == budget.categoryId })
-            }
+        items(budgets) { budget ->
+            BudgetRow(budget = budget, category = categories.firstOrNull { it.id == budget.categoryId })
         }
     }
 }
