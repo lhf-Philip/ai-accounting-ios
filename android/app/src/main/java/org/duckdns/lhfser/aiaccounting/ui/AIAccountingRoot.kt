@@ -15,7 +15,6 @@ import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -26,6 +25,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -130,29 +130,43 @@ fun AIAccountingRoot(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            if (showBars) {
-                CenterAlignedTopAppBar(
-                    title = {
-                        Text(text = topLevelDestinations.firstOrNull { it.route == currentRoute }?.label ?: "AI 記帳")
-                    },
-                    windowInsets = TopAppBarDefaults.windowInsets,
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                )
+            val title = if (showBars) {
+                topLevelDestinations.firstOrNull { it.route == currentRoute }?.label ?: "AI 記帳"
             } else {
-                CenterAlignedTopAppBar(
-                    title = { Text(text = resolveTitle(backStackEntry)) },
-                    navigationIcon = {
-                        if (navController.previousBackStackEntry != null) {
-                            IconButton(onClick = { navController.popBackStack() }) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                resolveTitle(backStackEntry)
+            }
+            TopAppBar(
+                title = { Text(text = title, style = MaterialTheme.typography.titleLarge) },
+                navigationIcon = {
+                    if (!showBars && navController.previousBackStackEntry != null) {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        }
+                    }
+                },
+                actions = {
+                    when (currentRoute) {
+                        AppDestination.Categories.route -> {
+                            IconButton(onClick = {
+                                navController.navigate("categories/edit/${UUID.randomUUID()}")
+                            }) {
+                                Icon(Icons.Default.Add, contentDescription = "新增分類")
                             }
                         }
-                    },
-                    windowInsets = TopAppBarDefaults.windowInsets
+                        AppDestination.Tags.route -> {
+                            IconButton(onClick = {
+                                navController.navigate("tags/edit/${UUID.randomUUID()}")
+                            }) {
+                                Icon(Icons.Default.Add, contentDescription = "新增標籤")
+                            }
+                        }
+                    }
+                },
+                windowInsets = TopAppBarDefaults.windowInsets,
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
                 )
-            }
+            )
         },
         bottomBar = {
             if (showBars) {
@@ -390,9 +404,9 @@ private fun resolveTitle(backStackEntry: NavBackStackEntry?): String {
         route == AppDestination.TransferAdd.route -> "轉帳"
         route == AppDestination.AdvanceAdd.route -> "新增代墊"
         route.startsWith("advance/") -> "代墊明細"
-        route == AppDestination.Categories.route -> "分類管理"
+        route == AppDestination.Categories.route -> "分類"
         route.startsWith("categories/edit") -> "編輯分類"
-        route == AppDestination.Tags.route -> "標籤管理"
+        route == AppDestination.Tags.route -> "標籤"
         route.startsWith("tags/edit") -> "編輯標籤"
         route == AppDestination.Budgets.route -> "預算與提醒"
         route == AppDestination.DataHealth.route -> "資料健康檢查"

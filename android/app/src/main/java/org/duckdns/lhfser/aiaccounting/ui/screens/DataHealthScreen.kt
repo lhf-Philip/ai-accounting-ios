@@ -38,7 +38,6 @@ fun DataHealthScreen() {
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("資料健康檢查", style = MaterialTheme.typography.titleMedium)
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),

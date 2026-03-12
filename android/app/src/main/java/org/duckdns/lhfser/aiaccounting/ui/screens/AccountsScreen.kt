@@ -19,7 +19,6 @@ import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
-import org.duckdns.lhfser.aiaccounting.ui.components.SectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import java.math.BigDecimal
 
@@ -35,9 +34,6 @@ fun AccountsScreen(onEdit: (String) -> Unit) {
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item {
-            SectionHeader(title = "帳戶")
-        }
         items(balances) { row ->
             PressableCard(
                 modifier = Modifier.fillMaxWidth(),

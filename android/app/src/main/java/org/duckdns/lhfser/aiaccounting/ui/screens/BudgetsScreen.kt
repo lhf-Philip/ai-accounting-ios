@@ -116,10 +116,6 @@ fun BudgetsScreen() {
         contentPadding = PaddingValues(bottom = 20.dp)
     ) {
         item {
-            SectionHeader(title = "預算與超支提醒")
-        }
-
-        item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),

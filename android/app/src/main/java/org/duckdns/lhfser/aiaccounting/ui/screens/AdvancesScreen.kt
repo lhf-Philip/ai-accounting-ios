@@ -18,7 +18,6 @@ import androidx.compose.ui.unit.dp
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
-import org.duckdns.lhfser.aiaccounting.ui.components.SectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 import java.math.BigDecimal
@@ -32,7 +31,6 @@ fun AdvancesScreen(onOpenCase: (String) -> Unit) {
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item { SectionHeader(title = "代墊追蹤") }
         items(cases) { advanceCase ->
             AdvanceCaseRow(advanceCase = advanceCase, onClick = { onOpenCase(advanceCase.advanceCase.id.toString()) })
         }
