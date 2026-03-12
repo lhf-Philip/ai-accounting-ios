@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -69,52 +71,63 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        OutlinedTextField(
-            value = title,
-            onValueChange = { title = it },
-            label = { Text("標題") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        AccountPicker(label = "付款帳戶", accounts = payerAccounts, selected = payerAccount) { acc ->
-            payerAccount = acc
-            if (acc != null) currency = acc.currency
-        }
+        Text("基本資料", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                label = { Text("標題") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            AccountPicker(label = "付款帳戶", accounts = payerAccounts, selected = payerAccount) { acc ->
+                payerAccount = acc
+                if (acc != null) currency = acc.currency
+            }
         AmountRow(
             label = "自己的份額",
             amount = myShare,
             onAmountChange = { myShare = sanitizeAmount(it) },
-            currency = currency,
-            onCurrencyChange = { currency = it }
+            currency = currency
         )
-        CategoryPicker(categories = categories.filter { it.kind.supports(org.duckdns.lhfser.aiaccounting.core.model.TransactionType.Expense) }, selected = expenseCategory) {
-            expenseCategory = it
         }
-        TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
 
-        Text("代墊對象", style = MaterialTheme.typography.titleSmall)
-        participants.forEachIndexed { index, participant ->
-            ParticipantEditor(
-                index = index,
-                participant = participant,
-                debtAccounts = debtAccounts,
-                onUpdate = { updated ->
-                    participants = participants.toMutableList().also { it[index] = updated }
-                },
-                onRemove = if (participants.size > 1) {
-                    { participants = participants.toMutableList().also { it.removeAt(index) } }
-                } else null
+        Text("分類與標籤", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            CategoryPicker(categories = categories.filter { it.kind.supports(org.duckdns.lhfser.aiaccounting.core.model.TransactionType.Expense) }, selected = expenseCategory) {
+                expenseCategory = it
+            }
+            TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
+        }
+
+        Text("代墊對象", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            participants.forEachIndexed { index, participant ->
+                ParticipantEditor(
+                    index = index,
+                    participant = participant,
+                    debtAccounts = debtAccounts,
+                    onUpdate = { updated ->
+                        participants = participants.toMutableList().also { it[index] = updated }
+                    },
+                    onRemove = if (participants.size > 1) {
+                        { participants = participants.toMutableList().also { it.removeAt(index) } }
+                    } else null
+                )
+            }
+            TextButton(onClick = { participants = participants + ParticipantDraft() }) {
+                Text("新增對象")
+            }
+        }
+
+        Text("備註", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it },
+                label = { Text("備註") },
+                modifier = Modifier.fillMaxWidth()
             )
         }
-        TextButton(onClick = { participants = participants + ParticipantDraft() }) {
-            Text("新增對象")
-        }
-
-        OutlinedTextField(
-            value = note,
-            onValueChange = { note = it },
-            label = { Text("備註") },
-            modifier = Modifier.fillMaxWidth()
-        )
 
         Button(
             onClick = {
@@ -148,6 +161,23 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
 }
 
 @Composable
+private fun SectionCard(content: @Composable () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
 private fun ParticipantEditor(
     index: Int,
     participant: ParticipantDraft,
@@ -164,8 +194,7 @@ private fun ParticipantEditor(
             label = "代墊金額",
             amount = participant.amount,
             onAmountChange = { onUpdate(participant.copy(amount = sanitizeAmount(it))) },
-            currency = participant.debtAccount?.currency ?: "HKD",
-            onCurrencyChange = {}
+            currency = participant.debtAccount?.currency ?: "HKD"
         )
         if (onRemove != null) {
             TextButton(onClick = onRemove) { Text("移除") }
@@ -202,8 +231,7 @@ private fun AmountRow(
     label: String,
     amount: String,
     onAmountChange: (String) -> Unit,
-    currency: String,
-    onCurrencyChange: (String) -> Unit
+    currency: String
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label, style = MaterialTheme.typography.titleSmall)

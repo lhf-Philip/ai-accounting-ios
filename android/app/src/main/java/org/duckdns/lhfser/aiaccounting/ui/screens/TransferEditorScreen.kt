@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -132,111 +134,119 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("模式", style = MaterialTheme.typography.titleSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TransferEditMode.values().forEach { item ->
-                FilterChip(
-                    selected = mode == item,
-                    onClick = { mode = item },
-                    label = { Text(item.label) }
-                )
-            }
-        }
-
-        when (mode) {
-            TransferEditMode.OneToOne -> {
-                AccountPicker(label = "轉出帳戶", accounts = accounts, selected = fromAccount) { acc ->
-                    fromAccount = acc
-                    if (acc != null) currencyOut = acc.currency
-                }
-                AmountRow(
-                    label = "轉出金額",
-                    amount = amountOut,
-                    onAmountChange = {
-                        amountOut = sanitizeAmount(it)
-                        if (currencyOut == currencyIn) amountIn = amountOut
-                    },
-                    currency = currencyOut,
-                    onCurrencyChange = { currencyOut = it }
-                )
-                AccountPicker(label = "轉入帳戶", accounts = accounts, selected = toAccount) { acc ->
-                    toAccount = acc
-                    if (acc != null) currencyIn = acc.currency
-                }
-                AmountRow(
-                    label = "轉入金額",
-                    amount = amountIn,
-                    onAmountChange = { amountIn = sanitizeAmount(it) },
-                    currency = currencyIn,
-                    onCurrencyChange = { currencyIn = it }
-                )
-            }
-            TransferEditMode.OneToMany -> {
-                AccountPicker(label = "轉出帳戶", accounts = accounts, selected = sourceAccount) { acc ->
-                    sourceAccount = acc
-                    if (acc != null) sourceCurrency = acc.currency
-                }
-                AmountRow(
-                    label = "轉出總額",
-                    amount = sourceAmount,
-                    onAmountChange = { sourceAmount = sanitizeAmount(it) },
-                    currency = sourceCurrency,
-                    onCurrencyChange = { sourceCurrency = it }
-                )
-                destinationLegs.forEachIndexed { index, leg ->
-                    TransferLegEditor(
-                        title = "轉入帳戶 ${index + 1}",
-                        leg = leg,
-                        accounts = accounts.filter { it.id != sourceAccount?.id },
-                        onUpdate = { updated ->
-                            destinationLegs = destinationLegs.toMutableList().also { it[index] = updated }
-                        },
-                        onRemove = if (destinationLegs.size > 1) {
-                            { destinationLegs = destinationLegs.toMutableList().also { it.removeAt(index) } }
-                        } else null
+        Text("轉帳模式", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TransferEditMode.values().forEach { item ->
+                    FilterChip(
+                        selected = mode == item,
+                        onClick = { mode = item },
+                        label = { Text(item.label) }
                     )
-                }
-                TextButton(onClick = { destinationLegs = destinationLegs + TransferEditLegInput() }) {
-                    Text("新增轉入帳戶")
-                }
-            }
-            TransferEditMode.ManyToOne -> {
-                AccountPicker(label = "轉入帳戶", accounts = accounts, selected = destinationAccount) { acc ->
-                    destinationAccount = acc
-                    if (acc != null) destinationCurrency = acc.currency
-                }
-                AmountRow(
-                    label = "轉入總額",
-                    amount = destinationAmount,
-                    onAmountChange = { destinationAmount = sanitizeAmount(it) },
-                    currency = destinationCurrency,
-                    onCurrencyChange = { destinationCurrency = it }
-                )
-                sourceLegs.forEachIndexed { index, leg ->
-                    TransferLegEditor(
-                        title = "轉出帳戶 ${index + 1}",
-                        leg = leg,
-                        accounts = accounts.filter { it.id != destinationAccount?.id },
-                        onUpdate = { updated ->
-                            sourceLegs = sourceLegs.toMutableList().also { it[index] = updated }
-                        },
-                        onRemove = if (sourceLegs.size > 1) {
-                            { sourceLegs = sourceLegs.toMutableList().also { it.removeAt(index) } }
-                        } else null
-                    )
-                }
-                TextButton(onClick = { sourceLegs = sourceLegs + TransferEditLegInput() }) {
-                    Text("新增轉出帳戶")
                 }
             }
         }
 
-        OutlinedTextField(
-            value = note,
-            onValueChange = { note = it },
-            label = { Text("備註") },
-            modifier = Modifier.fillMaxWidth()
-        )
+        Text("轉帳內容", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            when (mode) {
+                TransferEditMode.OneToOne -> {
+                    AccountPicker(label = "轉出帳戶", accounts = accounts, selected = fromAccount) { acc ->
+                        fromAccount = acc
+                        if (acc != null) currencyOut = acc.currency
+                    }
+                    AmountRow(
+                        label = "轉出金額",
+                        amount = amountOut,
+                        onAmountChange = {
+                            amountOut = sanitizeAmount(it)
+                            if (currencyOut == currencyIn) amountIn = amountOut
+                        },
+                        currency = currencyOut,
+                        onCurrencyChange = { currencyOut = it }
+                    )
+                    AccountPicker(label = "轉入帳戶", accounts = accounts, selected = toAccount) { acc ->
+                        toAccount = acc
+                        if (acc != null) currencyIn = acc.currency
+                    }
+                    AmountRow(
+                        label = "轉入金額",
+                        amount = amountIn,
+                        onAmountChange = { amountIn = sanitizeAmount(it) },
+                        currency = currencyIn,
+                        onCurrencyChange = { currencyIn = it }
+                    )
+                }
+                TransferEditMode.OneToMany -> {
+                    AccountPicker(label = "轉出帳戶", accounts = accounts, selected = sourceAccount) { acc ->
+                        sourceAccount = acc
+                        if (acc != null) sourceCurrency = acc.currency
+                    }
+                    AmountRow(
+                        label = "轉出總額",
+                        amount = sourceAmount,
+                        onAmountChange = { sourceAmount = sanitizeAmount(it) },
+                        currency = sourceCurrency,
+                        onCurrencyChange = { sourceCurrency = it }
+                    )
+                    destinationLegs.forEachIndexed { index, leg ->
+                        TransferLegEditor(
+                            title = "轉入帳戶 ${index + 1}",
+                            leg = leg,
+                            accounts = accounts.filter { it.id != sourceAccount?.id },
+                            onUpdate = { updated ->
+                                destinationLegs = destinationLegs.toMutableList().also { it[index] = updated }
+                            },
+                            onRemove = if (destinationLegs.size > 1) {
+                                { destinationLegs = destinationLegs.toMutableList().also { it.removeAt(index) } }
+                            } else null
+                        )
+                    }
+                    TextButton(onClick = { destinationLegs = destinationLegs + TransferEditLegInput() }) {
+                        Text("新增轉入帳戶")
+                    }
+                }
+                TransferEditMode.ManyToOne -> {
+                    AccountPicker(label = "轉入帳戶", accounts = accounts, selected = destinationAccount) { acc ->
+                        destinationAccount = acc
+                        if (acc != null) destinationCurrency = acc.currency
+                    }
+                    AmountRow(
+                        label = "轉入總額",
+                        amount = destinationAmount,
+                        onAmountChange = { destinationAmount = sanitizeAmount(it) },
+                        currency = destinationCurrency,
+                        onCurrencyChange = { destinationCurrency = it }
+                    )
+                    sourceLegs.forEachIndexed { index, leg ->
+                        TransferLegEditor(
+                            title = "轉出帳戶 ${index + 1}",
+                            leg = leg,
+                            accounts = accounts.filter { it.id != destinationAccount?.id },
+                            onUpdate = { updated ->
+                                sourceLegs = sourceLegs.toMutableList().also { it[index] = updated }
+                            },
+                            onRemove = if (sourceLegs.size > 1) {
+                                { sourceLegs = sourceLegs.toMutableList().also { it.removeAt(index) } }
+                            } else null
+                        )
+                    }
+                    TextButton(onClick = { sourceLegs = sourceLegs + TransferEditLegInput() }) {
+                        Text("新增轉出帳戶")
+                    }
+                }
+            }
+        }
+
+        Text("備註", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it },
+                label = { Text("備註") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
         Button(
             onClick = {
@@ -303,6 +313,23 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
             }
         ) {
             Text("儲存")
+        }
+    }
+}
+
+@Composable
+private fun SectionCard(content: @Composable () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            content()
         }
     }
 }

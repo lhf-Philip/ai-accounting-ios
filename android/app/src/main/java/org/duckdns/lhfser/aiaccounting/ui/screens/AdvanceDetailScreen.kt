@@ -6,8 +6,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -150,215 +151,222 @@ fun AdvanceDetailScreen(caseId: String?) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(caseData.advanceCase.title, style = MaterialTheme.typography.titleLarge)
-                Text("日期：${caseData.advanceCase.date.toDateText()}")
-                Text("幣種：$caseCurrency")
-                Text("備註：${caseData.advanceCase.note.ifBlank { "-" }}")
-            }
-        }
-
-        item { Text("代墊對象", style = MaterialTheme.typography.titleMedium) }
-        items(caseData.participants) { participant ->
-            ParticipantRow(participant = participant, currency = caseCurrency)
-        }
-
-        item { Text("記錄還款", style = MaterialTheme.typography.titleMedium) }
-
-        item {
-            ParticipantPicker(
-                participants = caseData.participants,
-                selected = selectedParticipant,
-                onSelect = { selectedParticipant = it }
-            )
-        }
-
-        item {
-            Text("模式", style = MaterialTheme.typography.titleSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                RepaymentMode.values().forEach { item ->
-                    FilterChip(
-                        selected = mode == item,
-                        onClick = { mode = item },
-                        label = { Text(item.label) }
-                    )
+            Text("案件資訊", style = MaterialTheme.typography.titleMedium)
+            SectionCard {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(caseData.advanceCase.title, style = MaterialTheme.typography.titleLarge)
+                    Text("日期：${caseData.advanceCase.date.toDateText()}")
+                    Text("幣種：$caseCurrency")
+                    Text("備註：${caseData.advanceCase.note.ifBlank { "-" }}")
                 }
             }
         }
 
-        if (mode != RepaymentMode.Split) {
-            item {
-                AccountPicker(
-                    label = "入帳帳戶",
-                    accounts = receiveAccounts,
-                    selected = selectedReceiveAccount,
-                    onSelect = { acc ->
-                        selectedReceiveAccount = acc
-                        if (acc != null) selectedCurrency = acc.currency
-                    }
+        item {
+            Text("代墊對象", style = MaterialTheme.typography.titleMedium)
+            SectionCard {
+                caseData.participants.forEach { participant ->
+                    ParticipantRow(participant = participant, currency = caseCurrency)
+                }
+            }
+        }
+
+        item {
+            Text("記錄還款", style = MaterialTheme.typography.titleMedium)
+            SectionCard {
+                ParticipantPicker(
+                    participants = caseData.participants,
+                    selected = selectedParticipant,
+                    onSelect = { selectedParticipant = it }
                 )
-            }
-        }
 
-        when (mode) {
-            RepaymentMode.Normal -> {
-                item {
-                    AmountRow(
-                        label = "還款金額",
-                        amount = amountInput,
-                        onAmountChange = { amountInput = sanitizeAmount(it) },
-                        currency = selectedCurrency,
-                        onCurrencyChange = { selectedCurrency = it }
-                    )
+                Text("模式", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RepaymentMode.values().forEach { item ->
+                        FilterChip(
+                            selected = mode == item,
+                            onClick = { mode = item },
+                            label = { Text(item.label) }
+                        )
+                    }
                 }
-            }
-            RepaymentMode.Split -> {
-                items(splitLegs) { leg ->
-                    SplitLegEditor(
-                        leg = leg,
+
+                if (mode != RepaymentMode.Split) {
+                    AccountPicker(
+                        label = "入帳帳戶",
                         accounts = receiveAccounts,
-                        onUpdate = { updated ->
-                            splitLegs = splitLegs.map { if (it.id == leg.id) updated else it }
-                        },
-                        onRemove = if (splitLegs.size > 1) {
-                            { splitLegs = splitLegs.filterNot { it.id == leg.id } }
-                        } else null
+                        selected = selectedReceiveAccount,
+                        onSelect = { acc ->
+                            selectedReceiveAccount = acc
+                            if (acc != null) selectedCurrency = acc.currency
+                        }
                     )
                 }
-                item {
-                    TextButton(onClick = { splitLegs = splitLegs + RepaymentSplitLeg() }) {
-                        Text("新增分拆入帳帳戶")
-                    }
-                }
-            }
-            RepaymentMode.Merge -> {
-                items(mergeLegs) { leg ->
-                    MergeLegEditor(
-                        leg = leg,
-                        onUpdate = { updated ->
-                            mergeLegs = mergeLegs.map { if (it.id == leg.id) updated else it }
-                        },
-                        onRemove = if (mergeLegs.size > 1) {
-                            { mergeLegs = mergeLegs.filterNot { it.id == leg.id } }
-                        } else null
-                    )
-                }
-                item {
-                    TextButton(onClick = { mergeLegs = mergeLegs + RepaymentMergeLeg(currency = selectedCurrency) }) {
-                        Text("新增合併金額項")
-                    }
-                }
-            }
-        }
 
-        item {
-            CategoryPicker(categories = incomeCategories, selected = selectedCategory) {
-                selectedCategory = it
-            }
-        }
-        item {
-            TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
-        }
-        item {
-            OutlinedTextField(
-                value = note,
-                onValueChange = { note = it },
-                label = { Text("備註") },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-        item {
-            Button(
-                onClick = {
-                    scope.launch {
-                        val participant = selectedParticipant ?: return@launch
-                        when (mode) {
-                            RepaymentMode.Normal -> {
-                                val receiveAccount = selectedReceiveAccount ?: return@launch
-                                val amount = parsePositive(amountInput) ?: return@launch
-                                if (!validateTotal(currencyService, caseCurrency, remaining, listOf(amount to selectedCurrency))) {
-                                    errorMessage = "還款金額超過未還餘額。"
-                                    return@launch
-                                }
-                                recordSingleRepayment(
-                                    repository = repository,
-                                    currencyService = currencyService,
-                                    advanceCase = caseData,
-                                    participant = participant,
-                                    receiveAccount = receiveAccount,
-                                    amount = amount,
-                                    currency = selectedCurrency,
-                                    note = note,
-                                    category = selectedCategory,
-                                    tagIds = selectedTags.map { it.id }
-                                )
-                            }
-                            RepaymentMode.Split -> {
-                                val legs = splitLegs.mapNotNull { leg ->
-                                    val account = leg.account ?: return@mapNotNull null
-                                    val amount = parsePositive(leg.amount) ?: return@mapNotNull null
-                                    Triple(account, amount, leg.currency)
-                                }
-                                if (!validateTotal(currencyService, caseCurrency, remaining, legs.map { it.second to it.third })) {
-                                    errorMessage = "分拆總金額超過未還餘額。"
-                                    return@launch
-                                }
-                                legs.forEachIndexed { index, leg ->
-                                    recordSingleRepayment(
-                                        repository = repository,
-                                        currencyService = currencyService,
-                                        advanceCase = caseData,
-                                        participant = participant,
-                                        receiveAccount = leg.first,
-                                        amount = leg.second,
-                                        currency = leg.third,
-                                        note = indexedNote(note, "分拆", index, legs.size),
-                                        category = selectedCategory,
-                                        tagIds = selectedTags.map { it.id }
-                                    )
-                                }
-                            }
-                            RepaymentMode.Merge -> {
-                                val receiveAccount = selectedReceiveAccount ?: return@launch
-                                val legs = mergeLegs.mapNotNull { leg ->
-                                    val amount = parsePositive(leg.amount) ?: return@mapNotNull null
-                                    amount to leg.currency
-                                }
-                                if (!validateTotal(currencyService, caseCurrency, remaining, legs)) {
-                                    errorMessage = "合併總金額超過未還餘額。"
-                                    return@launch
-                                }
-                                legs.forEachIndexed { index, item ->
+                when (mode) {
+                    RepaymentMode.Normal -> {
+                        AmountRow(
+                            label = "還款金額",
+                            amount = amountInput,
+                            onAmountChange = { amountInput = sanitizeAmount(it) },
+                            currency = selectedCurrency,
+                            onCurrencyChange = { selectedCurrency = it }
+                        )
+                    }
+                    RepaymentMode.Split -> {
+                        splitLegs.forEach { leg ->
+                            SplitLegEditor(
+                                leg = leg,
+                                accounts = receiveAccounts,
+                                onUpdate = { updated ->
+                                    splitLegs = splitLegs.map { if (it.id == leg.id) updated else it }
+                                },
+                                onRemove = if (splitLegs.size > 1) {
+                                    { splitLegs = splitLegs.filterNot { it.id == leg.id } }
+                                } else null
+                            )
+                        }
+                        TextButton(onClick = { splitLegs = splitLegs + RepaymentSplitLeg() }) {
+                            Text("新增分拆入帳帳戶")
+                        }
+                    }
+                    RepaymentMode.Merge -> {
+                        mergeLegs.forEach { leg ->
+                            MergeLegEditor(
+                                leg = leg,
+                                onUpdate = { updated ->
+                                    mergeLegs = mergeLegs.map { if (it.id == leg.id) updated else it }
+                                },
+                                onRemove = if (mergeLegs.size > 1) {
+                                    { mergeLegs = mergeLegs.filterNot { it.id == leg.id } }
+                                } else null
+                            )
+                        }
+                        TextButton(onClick = { mergeLegs = mergeLegs + RepaymentMergeLeg(currency = selectedCurrency) }) {
+                            Text("新增合併金額項")
+                        }
+                    }
+                }
+
+                CategoryPicker(categories = incomeCategories, selected = selectedCategory) {
+                    selectedCategory = it
+                }
+                TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("備註") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val participant = selectedParticipant ?: return@launch
+                            when (mode) {
+                                RepaymentMode.Normal -> {
+                                    val receiveAccount = selectedReceiveAccount ?: return@launch
+                                    val amount = parsePositive(amountInput) ?: return@launch
+                                    if (!validateTotal(currencyService, caseCurrency, remaining, listOf(amount to selectedCurrency))) {
+                                        errorMessage = "還款金額超過未還餘額。"
+                                        return@launch
+                                    }
                                     recordSingleRepayment(
                                         repository = repository,
                                         currencyService = currencyService,
                                         advanceCase = caseData,
                                         participant = participant,
                                         receiveAccount = receiveAccount,
-                                        amount = item.first,
-                                        currency = item.second,
-                                        note = indexedNote(note, "合併", index, legs.size),
+                                        amount = amount,
+                                        currency = selectedCurrency,
+                                        note = note,
                                         category = selectedCategory,
                                         tagIds = selectedTags.map { it.id }
                                     )
                                 }
+                                RepaymentMode.Split -> {
+                                    val legs = splitLegs.mapNotNull { leg ->
+                                        val account = leg.account ?: return@mapNotNull null
+                                        val amount = parsePositive(leg.amount) ?: return@mapNotNull null
+                                        Triple(account, amount, leg.currency)
+                                    }
+                                    if (!validateTotal(currencyService, caseCurrency, remaining, legs.map { it.second to it.third })) {
+                                        errorMessage = "分拆總金額超過未還餘額。"
+                                        return@launch
+                                    }
+                                    legs.forEachIndexed { index, leg ->
+                                        recordSingleRepayment(
+                                            repository = repository,
+                                            currencyService = currencyService,
+                                            advanceCase = caseData,
+                                            participant = participant,
+                                            receiveAccount = leg.first,
+                                            amount = leg.second,
+                                            currency = leg.third,
+                                            note = indexedNote(note, "分拆", index, legs.size),
+                                            category = selectedCategory,
+                                            tagIds = selectedTags.map { it.id }
+                                        )
+                                    }
+                                }
+                                RepaymentMode.Merge -> {
+                                    val receiveAccount = selectedReceiveAccount ?: return@launch
+                                    val legs = mergeLegs.mapNotNull { leg ->
+                                        val amount = parsePositive(leg.amount) ?: return@mapNotNull null
+                                        amount to leg.currency
+                                    }
+                                    if (!validateTotal(currencyService, caseCurrency, remaining, legs)) {
+                                        errorMessage = "合併總金額超過未還餘額。"
+                                        return@launch
+                                    }
+                                    legs.forEachIndexed { index, item ->
+                                        recordSingleRepayment(
+                                            repository = repository,
+                                            currencyService = currencyService,
+                                            advanceCase = caseData,
+                                            participant = participant,
+                                            receiveAccount = receiveAccount,
+                                            amount = item.first,
+                                            currency = item.second,
+                                            note = indexedNote(note, "合併", index, legs.size),
+                                            category = selectedCategory,
+                                            tagIds = selectedTags.map { it.id }
+                                        )
+                                    }
+                                }
                             }
+                            errorMessage = null
+                            amountInput = ""
+                            note = ""
+                            advanceCase = repository.getAdvanceCase(caseData.advanceCase.id)
                         }
-                        errorMessage = null
-                        amountInput = ""
-                        note = ""
-                        advanceCase = repository.getAdvanceCase(caseData.advanceCase.id)
-                    }
-                },
-                enabled = canSubmit
-            ) {
-                Text("儲存")
+                    },
+                    enabled = canSubmit
+                ) {
+                    Text("儲存")
+                }
+
+                if (errorMessage != null) {
+                    Text(errorMessage ?: "", color = MaterialTheme.colorScheme.error)
+                }
             }
         }
-        if (errorMessage != null) {
-            item {
-                Text(errorMessage ?: "", color = MaterialTheme.colorScheme.error)
-            }
+    }
+}
+
+@Composable
+private fun SectionCard(content: @Composable () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            content()
         }
     }
 }

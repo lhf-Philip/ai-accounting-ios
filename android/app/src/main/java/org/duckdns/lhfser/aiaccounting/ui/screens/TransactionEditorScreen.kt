@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -115,94 +117,106 @@ fun TransactionEditorScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        ModePicker(entryMode = entryMode, onModeChange = { entryMode = it })
-        TypePicker(type = transactionType, onChange = { transactionType = it })
+        Text("交易模式", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            ModePicker(entryMode = entryMode, onModeChange = { entryMode = it })
+            TypePicker(type = transactionType, onChange = { transactionType = it })
+        }
 
-        when (entryMode) {
-            EntryMode.Normal -> {
-                AmountRow(
-                    label = "金額",
-                    amount = amountInput,
-                    onAmountChange = { amountInput = sanitizeAmount(it) },
-                    currency = selectedCurrency,
-                    onCurrencyChange = { selectedCurrency = it }
-                )
-                AccountPicker(
-                    label = "帳戶",
-                    accounts = accounts,
-                    selected = selectedAccount,
-                    onSelect = { acc ->
-                        selectedAccount = acc
-                        if (acc != null) {
-                            selectedCurrency = acc.currency
-                        }
-                    }
-                )
-            }
-            EntryMode.Split -> {
-                splitLegs.forEachIndexed { index, leg ->
-                    SplitLegEditor(
-                        index = index,
-                        leg = leg,
+        Text("交易內容", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            when (entryMode) {
+                EntryMode.Normal -> {
+                    AmountRow(
+                        label = "金額",
+                        amount = amountInput,
+                        onAmountChange = { amountInput = sanitizeAmount(it) },
+                        currency = selectedCurrency,
+                        onCurrencyChange = { selectedCurrency = it }
+                    )
+                    AccountPicker(
+                        label = "帳戶",
                         accounts = accounts,
-                        onUpdate = { updated ->
-                            splitLegs = splitLegs.toMutableList().also { it[index] = updated }
-                        },
-                        onRemove = if (splitLegs.size > 1) {
-                            {
-                                splitLegs = splitLegs.toMutableList().also { it.removeAt(index) }
+                        selected = selectedAccount,
+                        onSelect = { acc ->
+                            selectedAccount = acc
+                            if (acc != null) {
+                                selectedCurrency = acc.currency
                             }
-                        } else null
+                        }
                     )
                 }
-                TextButton(onClick = { splitLegs = splitLegs + SplitLeg() }) {
-                    Text("新增分拆項")
-                }
-            }
-            EntryMode.Merge -> {
-                mergeLegs.forEachIndexed { index, leg ->
-                    MergeLegEditor(
-                        index = index,
-                        leg = leg,
-                        onUpdate = { updated ->
-                            mergeLegs = mergeLegs.toMutableList().also { it[index] = updated }
-                        },
-                        onRemove = if (mergeLegs.size > 1) {
-                            {
-                                mergeLegs = mergeLegs.toMutableList().also { it.removeAt(index) }
-                            }
-                        } else null
-                    )
-                }
-                TextButton(onClick = { mergeLegs = mergeLegs + MergeLeg(currency = selectedCurrency) }) {
-                    Text("新增合併項")
-                }
-                AccountPicker(
-                    label = "合併入帳戶",
-                    accounts = accounts,
-                    selected = selectedAccount,
-                    onSelect = { acc ->
-                        selectedAccount = acc
-                        if (acc != null) selectedCurrency = acc.currency
+                EntryMode.Split -> {
+                    splitLegs.forEachIndexed { index, leg ->
+                        SplitLegEditor(
+                            index = index,
+                            leg = leg,
+                            accounts = accounts,
+                            onUpdate = { updated ->
+                                splitLegs = splitLegs.toMutableList().also { it[index] = updated }
+                            },
+                            onRemove = if (splitLegs.size > 1) {
+                                {
+                                    splitLegs = splitLegs.toMutableList().also { it.removeAt(index) }
+                                }
+                            } else null
+                        )
                     }
-                )
+                    TextButton(onClick = { splitLegs = splitLegs + SplitLeg() }) {
+                        Text("新增分拆項")
+                    }
+                }
+                EntryMode.Merge -> {
+                    mergeLegs.forEachIndexed { index, leg ->
+                        MergeLegEditor(
+                            index = index,
+                            leg = leg,
+                            onUpdate = { updated ->
+                                mergeLegs = mergeLegs.toMutableList().also { it[index] = updated }
+                            },
+                            onRemove = if (mergeLegs.size > 1) {
+                                {
+                                    mergeLegs = mergeLegs.toMutableList().also { it.removeAt(index) }
+                                }
+                            } else null
+                        )
+                    }
+                    TextButton(onClick = { mergeLegs = mergeLegs + MergeLeg(currency = selectedCurrency) }) {
+                        Text("新增合併項")
+                    }
+                    AccountPicker(
+                        label = "合併入帳戶",
+                        accounts = accounts,
+                        selected = selectedAccount,
+                        onSelect = { acc ->
+                            selectedAccount = acc
+                            if (acc != null) selectedCurrency = acc.currency
+                        }
+                    )
+                }
             }
         }
 
-        CategoryPicker(
-            categories = filteredCategories,
-            selected = selectedCategory,
-            onSelect = { selectedCategory = it }
-        )
+        Text("分類與標籤", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            CategoryPicker(
+                categories = filteredCategories,
+                selected = selectedCategory,
+                onSelect = { selectedCategory = it }
+            )
 
-        TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
+            TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
+        }
 
-        OutlinedTextField(
-            value = note,
-            onValueChange = { note = it },
-            label = { Text("備註") },
-            modifier = Modifier.fillMaxWidth()
-        )
+        Text("備註", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it },
+                label = { Text("備註") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
         Button(
             onClick = {
@@ -234,6 +248,23 @@ fun TransactionEditorScreen(
             )
         ) {
             Text("儲存")
+        }
+    }
+}
+
+@Composable
+private fun SectionCard(content: @Composable () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            content()
         }
     }
 }
