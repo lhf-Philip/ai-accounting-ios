@@ -1,0 +1,21 @@
+package org.duckdns.lhfser.aiaccounting.data
+
+import android.content.Context
+import androidx.room.Room
+import org.duckdns.lhfser.aiaccounting.data.db.AIAccountingDatabase
+import org.duckdns.lhfser.aiaccounting.data.db.SeedData
+import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
+
+class AppContainer(context: Context) {
+    private val appContext = context.applicationContext
+
+    val database: AIAccountingDatabase by lazy {
+        Room.databaseBuilder(appContext, AIAccountingDatabase::class.java, "ai_accounting.db")
+            .addCallback(SeedData.callback(appContext))
+            .build()
+    }
+
+    val repository: AccountingRepository by lazy {
+        AccountingRepository(database)
+    }
+}
