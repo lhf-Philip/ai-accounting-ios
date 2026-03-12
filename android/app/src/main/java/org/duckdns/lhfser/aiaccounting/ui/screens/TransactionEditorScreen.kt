@@ -1,5 +1,6 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
+import android.app.DatePickerDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
@@ -42,8 +45,11 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
+import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 
 private enum class EntryMode(val label: String) {
@@ -72,6 +78,7 @@ fun TransactionEditorScreen(
 ) {
     val repository = LocalRepository.current
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     var entryMode by remember { mutableStateOf(EntryMode.Normal) }
     var transactionType by remember { mutableStateOf(TransactionType.Expense) }
@@ -82,6 +89,7 @@ fun TransactionEditorScreen(
     var selectedTags by remember { mutableStateOf<List<TagEntity>>(emptyList()) }
     var selectedCurrency by remember { mutableStateOf("HKD") }
     var date by remember { mutableStateOf(Instant.now()) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     var splitLegs by remember { mutableStateOf(listOf(SplitLeg())) }
     var mergeLegs by remember { mutableStateOf(listOf(MergeLeg())) }
@@ -202,6 +210,17 @@ fun TransactionEditorScreen(
             }
         }
 
+        Text("日期", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            TextButton(onClick = {
+                showDatePicker(context, date) { picked ->
+                    date = picked
+                }
+            }) {
+                Text(date.toDateText())
+            }
+        }
+
         Text("分類與標籤", style = MaterialTheme.typography.titleMedium)
         SectionCard {
             CategoryPicker(
@@ -254,6 +273,32 @@ fun TransactionEditorScreen(
         ) {
             Text("儲存")
         }
+
+        if (transactionId != null) {
+            TextButton(onClick = { showDeleteConfirm = true }) {
+                Text("刪除交易", color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+
+    if (showDeleteConfirm && transactionId != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("確認刪除？") },
+            text = { Text("刪除後無法復原。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    scope.launch {
+                        repository.deleteTransactionById(UUID.fromString(transactionId))
+                        onDone()
+                    }
+                }) { Text("刪除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+            }
+        )
     }
 }
 
@@ -481,6 +526,25 @@ private fun sanitizeAmount(input: String): String {
 
 private fun parsePositive(input: String): BigDecimal? {
     return input.toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO }
+}
+
+private fun showDatePicker(
+    context: android.content.Context,
+    initial: Instant,
+    onPicked: (Instant) -> Unit
+) {
+    val zone = ZoneId.systemDefault()
+    val date = initial.atZone(zone).toLocalDate()
+    DatePickerDialog(
+        context,
+        { _, year, month, day ->
+            val picked = LocalDate.of(year, month + 1, day)
+            onPicked(picked.atStartOfDay(zone).toInstant())
+        },
+        date.year,
+        date.monthValue - 1,
+        date.dayOfMonth
+    ).show()
 }
 
 private fun canSubmit(
