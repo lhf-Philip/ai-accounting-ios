@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -89,43 +91,47 @@ fun ShortcutEditorScreen(shortcutId: String?, onDone: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("捷徑外觀", style = MaterialTheme.typography.titleMedium)
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("捷徑名稱") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            value = icon,
-            onValueChange = { icon = it },
-            label = { Text("圖示（Emoji 或簡短文字）") },
-            modifier = Modifier.fillMaxWidth()
-        )
+        SectionCard {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("捷徑名稱") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = icon,
+                onValueChange = { icon = it },
+                label = { Text("圖示（Emoji 或簡短文字）") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
         Text("預設交易內容", style = MaterialTheme.typography.titleMedium)
-        TypePicker(type = type, onChange = { type = it })
-        AmountRow(
-            amount = amount,
-            onAmountChange = { amount = sanitizeAmount(it) },
-            currency = currency,
-            onCurrencyChange = { currency = it }
-        )
-        OutlinedTextField(
-            value = note,
-            onValueChange = { note = it },
-            label = { Text("備註（選填）") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        AccountPicker(
-            accounts = availableAccounts,
-            selected = selectedAccount,
-            onSelect = { acc ->
-                selectedAccount = acc
-                if (acc != null) currency = acc.currency
-            }
-        )
-        CategoryPicker(categories = filteredCategories, selected = selectedCategory) { selectedCategory = it }
-        TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
+        SectionCard {
+            TypePicker(type = type, onChange = { type = it })
+            AmountRow(
+                amount = amount,
+                onAmountChange = { amount = sanitizeAmount(it) },
+                currency = currency,
+                onCurrencyChange = { currency = it }
+            )
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it },
+                label = { Text("備註（選填）") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            AccountPicker(
+                accounts = availableAccounts,
+                selected = selectedAccount,
+                onSelect = { acc ->
+                    selectedAccount = acc
+                    if (acc != null) currency = acc.currency
+                }
+            )
+            CategoryPicker(categories = filteredCategories, selected = selectedCategory) { selectedCategory = it }
+            TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
+        }
 
         Button(
             onClick = {
@@ -165,6 +171,23 @@ fun ShortcutEditorScreen(shortcutId: String?, onDone: () -> Unit) {
             }) {
                 Text("刪除捷徑")
             }
+        }
+    }
+}
+
+@Composable
+private fun SectionCard(content: @Composable () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            content()
         }
     }
 }

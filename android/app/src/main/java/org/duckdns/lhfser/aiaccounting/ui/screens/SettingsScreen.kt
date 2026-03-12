@@ -8,12 +8,21 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -90,46 +99,97 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("偏好設定", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("主要貨幣")
-            Button(onClick = { currencyMenuExpanded = true }) {
-                Text(mainCurrency)
-            }
-            DropdownMenu(expanded = currencyMenuExpanded, onDismissRequest = { currencyMenuExpanded = false }) {
-                listOf("HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP").forEach { code ->
-                    DropdownMenuItem(
-                        text = { Text(code) },
-                        onClick = {
-                            currencyMenuExpanded = false
-                            mainCurrency = code
-                            currencyService.mainCurrency = code
-                            scope.launch { currencyService.fetchRates() }
-                        }
-                    )
+        SectionCard {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("主要貨幣", style = MaterialTheme.typography.titleSmall)
+                    Text("報表與總覽以此幣別顯示", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Button(onClick = { currencyMenuExpanded = true }) {
+                    Text(mainCurrency)
+                }
+                DropdownMenu(expanded = currencyMenuExpanded, onDismissRequest = { currencyMenuExpanded = false }) {
+                    listOf("HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP").forEach { code ->
+                        DropdownMenuItem(
+                            text = { Text(code) },
+                            onClick = {
+                                currencyMenuExpanded = false
+                                mainCurrency = code
+                                currencyService.mainCurrency = code
+                                scope.launch { currencyService.fetchRates() }
+                            }
+                        )
+                    }
                 }
             }
         }
 
         Text("資料與工具", style = MaterialTheme.typography.titleMedium)
-        Button(onClick = onOpenCategories) { Text("分類管理") }
-        Button(onClick = onOpenTags) { Text("標籤管理") }
-        Button(onClick = onOpenAdvances) { Text("代墊追蹤") }
-        Button(onClick = onOpenBudgets) { Text("預算與超支提醒") }
-        Button(onClick = onOpenHealth) { Text("資料健康檢查") }
+        SectionCard {
+            SettingRow(title = "分類管理", subtitle = "支援收入/支出/兩者", onClick = onOpenCategories)
+            SettingRow(title = "標籤管理", subtitle = "用於快速篩選與統計", onClick = onOpenTags)
+            SettingRow(title = "代墊追蹤", subtitle = "查看待還款與還款紀錄", onClick = onOpenAdvances)
+            SettingRow(title = "預算與超支提醒", subtitle = "設定每月分類預算", onClick = onOpenBudgets)
+            SettingRow(title = "資料健康檢查", subtitle = "檢查缺失分類/帳戶", onClick = onOpenHealth)
+        }
 
         Text("備份與匯入", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("匯入時覆蓋現有資料")
-            Switch(checked = replaceExisting, onCheckedChange = { replaceExisting = it })
+        SectionCard {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("匯入時覆蓋現有資料", style = MaterialTheme.typography.titleSmall)
+                    Text("開啟後會以匯入檔案為準", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = replaceExisting, onCheckedChange = { replaceExisting = it })
+            }
+            Spacer(modifier = Modifier.padding(top = 4.dp))
+            Button(onClick = { exportLauncher.launch("Backup.json") }, modifier = Modifier.fillMaxWidth()) {
+                Text("匯出 JSON 備份")
+            }
+            Button(onClick = { importLauncher.launch(arrayOf("application/json")) }, modifier = Modifier.fillMaxWidth()) {
+                Text("匯入 JSON 備份")
+            }
+            if (message != null) {
+                Text(message ?: "", style = MaterialTheme.typography.bodySmall)
+            }
         }
-        Button(onClick = { exportLauncher.launch("Backup.json") }) {
-            Text("匯出 JSON 備份")
+    }
+}
+
+@Composable
+private fun SectionCard(content: @Composable () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            content()
         }
-        Button(onClick = { importLauncher.launch(arrayOf("application/json")) }) {
-            Text("匯入 JSON 備份")
-        }
-        if (message != null) {
-            Text(message ?: "", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun SettingRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Surface(
+        tonalElevation = 0.dp,
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
         }
     }
 }

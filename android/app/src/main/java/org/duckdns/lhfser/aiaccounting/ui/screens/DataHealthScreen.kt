@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,20 +34,28 @@ fun DataHealthScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("資料健康檢查", style = MaterialTheme.typography.titleMedium)
-        Button(onClick = {
-            val missingAccount = transactions.count { it.transaction.accountId == null }
-            val missingCategory = transactions.count { it.transaction.categoryId == null }
-            val orphanCategory = categories.count { cat -> transactions.none { it.category?.id == cat.id } }
-            report = buildString {
-                appendLine("缺少帳戶交易：$missingAccount")
-                appendLine("缺少分類交易：$missingCategory")
-                appendLine("未被使用的分類：$orphanCategory")
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("可快速檢查缺失資料與未使用分類", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button(onClick = {
+                    val missingAccount = transactions.count { it.transaction.accountId == null }
+                    val missingCategory = transactions.count { it.transaction.categoryId == null }
+                    val orphanCategory = categories.count { cat -> transactions.none { it.category?.id == cat.id } }
+                    report = buildString {
+                        appendLine("缺少帳戶交易：$missingAccount")
+                        appendLine("缺少分類交易：$missingCategory")
+                        appendLine("未被使用的分類：$orphanCategory")
+                    }
+                }) {
+                    Text("開始檢查")
+                }
+                if (report != null) {
+                    Text(report ?: "", style = MaterialTheme.typography.bodyMedium)
+                }
             }
-        }) {
-            Text("開始檢查")
-        }
-        if (report != null) {
-            Text(report ?: "", style = MaterialTheme.typography.bodyMedium)
         }
     }
 }

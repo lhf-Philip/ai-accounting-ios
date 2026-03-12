@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,12 +47,15 @@ fun TagEditorScreen(tagId: String?, onDone: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("標籤名稱") },
-            modifier = Modifier.fillMaxWidth()
-        )
+        Text("標籤資料", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("標籤名稱") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         Button(
             onClick = {
                 scope.launch {
@@ -61,6 +67,23 @@ fun TagEditorScreen(tagId: String?, onDone: () -> Unit) {
             enabled = name.isNotBlank()
         ) {
             Text("儲存")
+        }
+    }
+}
+
+@Composable
+private fun SectionCard(content: @Composable () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            content()
         }
     }
 }

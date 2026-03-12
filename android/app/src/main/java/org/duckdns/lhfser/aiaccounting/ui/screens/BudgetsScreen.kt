@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -48,45 +49,56 @@ fun BudgetsScreen() {
     var monthKey by remember { mutableStateOf(currentMonthKey()) }
 
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Text("新增預算", style = MaterialTheme.typography.titleMedium)
-        CategoryPicker(categories = categories, selected = selectedCategory) { selectedCategory = it }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(onClick = { }) { Text(currency) }
-            OutlinedTextField(
-                value = amount,
-                onValueChange = { amount = sanitizeAmount(it) },
-                label = { Text("預算金額") },
-                modifier = Modifier.weight(1f)
-            )
-        }
-        OutlinedTextField(
-            value = monthKey,
-            onValueChange = { monthKey = it },
-            label = { Text("月份 (YYYY-MM)") },
+        Text("預算與超支提醒", style = MaterialTheme.typography.titleMedium)
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
             modifier = Modifier.fillMaxWidth()
-        )
-        Button(
-            onClick = {
-                scope.launch {
-                    val category = selectedCategory ?: return@launch
-                    val amountValue = amount.toBigDecimalOrNull() ?: return@launch
-                    repository.upsertBudget(
-                        CategoryMonthlyBudgetEntity(
-                            id = UUID.randomUUID(),
-                            monthKey = monthKey,
-                            amount = amountValue,
-                            currencyCode = currency,
-                            isEnabled = true,
-                            createdAt = Instant.now(),
-                            updatedAt = Instant.now(),
-                            categoryId = category.id
-                        )
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("新增預算", style = MaterialTheme.typography.titleSmall)
+                CategoryPicker(categories = categories, selected = selectedCategory) { selectedCategory = it }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextButton(onClick = { }) { Text(currency) }
+                    OutlinedTextField(
+                        value = amount,
+                        onValueChange = { amount = sanitizeAmount(it) },
+                        label = { Text("預算金額") },
+                        modifier = Modifier.weight(1f)
                     )
-                    amount = ""
+                }
+                OutlinedTextField(
+                    value = monthKey,
+                    onValueChange = { monthKey = it },
+                    label = { Text("月份 (YYYY-MM)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val category = selectedCategory ?: return@launch
+                            val amountValue = amount.toBigDecimalOrNull() ?: return@launch
+                            repository.upsertBudget(
+                                CategoryMonthlyBudgetEntity(
+                                    id = UUID.randomUUID(),
+                                    monthKey = monthKey,
+                                    amount = amountValue,
+                                    currencyCode = currency,
+                                    isEnabled = true,
+                                    createdAt = Instant.now(),
+                                    updatedAt = Instant.now(),
+                                    categoryId = category.id
+                                )
+                            )
+                            amount = ""
+                        }
+                    }
+                ) {
+                    Text("儲存")
                 }
             }
-        ) {
-            Text("儲存")
         }
 
         LazyColumn(

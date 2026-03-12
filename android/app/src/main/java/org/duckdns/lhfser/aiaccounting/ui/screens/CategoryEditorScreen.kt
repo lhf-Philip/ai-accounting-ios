@@ -5,7 +5,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -13,6 +16,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -57,33 +62,43 @@ fun CategoryEditorScreen(categoryId: String?, onDone: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("分類名稱") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            value = icon,
-            onValueChange = { icon = it },
-            label = { Text("圖示（SF Symbol 名稱）") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            value = colorHex,
-            onValueChange = { colorHex = it },
-            label = { Text("顏色 Hex") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Button(
-            onClick = {
-                val existing = categories.map { it.colorHex }
-                colorHex = autoPickDistinctColor(existing)
+        Text("分類資料", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("分類名稱") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = icon,
+                onValueChange = { icon = it },
+                label = { Text("圖示（SF Symbol 名稱）") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ColorDot(colorHex = colorHex)
+                OutlinedTextField(
+                    value = colorHex,
+                    onValueChange = { colorHex = it },
+                    label = { Text("顏色 Hex") },
+                    modifier = Modifier.weight(1f)
+                )
             }
-        ) {
-            Text("自動選擇不衝突顏色")
+            Button(
+                onClick = {
+                    val existing = categories.map { it.colorHex }
+                    colorHex = autoPickDistinctColor(existing)
+                }
+            ) {
+                Text("自動選擇不衝突顏色")
+            }
         }
-        KindPicker(kind = kind, onChange = { kind = it })
+
+        Text("分類類型", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            KindPicker(kind = kind, onChange = { kind = it })
+        }
         Button(
             onClick = {
                 scope.launch {
@@ -139,4 +154,31 @@ private fun autoPickDistinctColor(existing: List<String>): String {
     )
     return palette.firstOrNull { color -> existing.none { it.equals(color, ignoreCase = true) } }
         ?: palette.random()
+}
+
+@Composable
+private fun SectionCard(content: @Composable () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun ColorDot(colorHex: String) {
+    val color = runCatching { Color(android.graphics.Color.parseColor(colorHex)) }
+        .getOrElse { MaterialTheme.colorScheme.primary }
+    Card(
+        modifier = Modifier.size(28.dp),
+        colors = CardDefaults.cardColors(containerColor = color)
+    ) {}
 }

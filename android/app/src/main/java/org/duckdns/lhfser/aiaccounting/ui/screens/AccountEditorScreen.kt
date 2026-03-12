@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -60,25 +62,32 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("帳戶名稱") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        CurrencyPicker(selected = currency, onSelect = { currency = it })
-        AccountTypePicker(type = type, onChange = { type = it })
-        OutlinedTextField(
-            value = baseBalance,
-            onValueChange = { baseBalance = sanitizeAmount(it) },
-            label = { Text("初始餘額") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        FilterChip(
-            selected = isArchived,
-            onClick = { isArchived = !isArchived },
-            label = { Text("歸檔帳戶") }
-        )
+        Text("帳戶資料", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("帳戶名稱") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            CurrencyPicker(selected = currency, onSelect = { currency = it })
+            AccountTypePicker(type = type, onChange = { type = it })
+            OutlinedTextField(
+                value = baseBalance,
+                onValueChange = { baseBalance = sanitizeAmount(it) },
+                label = { Text("初始餘額") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        Text("其他設定", style = MaterialTheme.typography.titleMedium)
+        SectionCard {
+            FilterChip(
+                selected = isArchived,
+                onClick = { isArchived = !isArchived },
+                label = { Text("歸檔帳戶") }
+            )
+        }
         Button(
             onClick = {
                 scope.launch {
@@ -150,4 +159,21 @@ private fun sanitizeAmount(input: String): String {
         result.append(char)
     }
     return result.toString()
+}
+
+@Composable
+private fun SectionCard(content: @Composable () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            content()
+        }
+    }
 }
