@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -28,6 +30,7 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 import java.math.BigDecimal
+import java.math.RoundingMode
 
 @Composable
 fun ReportsScreen() {
@@ -42,6 +45,8 @@ fun ReportsScreen() {
     val baseCurrency = currencyService.mainCurrency
     val expenseBreakdown = categoryBreakdown(transactions, categories, currencyService, baseCurrency, TransactionType.Expense)
     val incomeBreakdown = categoryBreakdown(transactions, categories, currencyService, baseCurrency, TransactionType.Income)
+    val expenseTotal = expenseBreakdown.fold(BigDecimal.ZERO) { acc, row -> acc + row.total }
+    val incomeTotal = incomeBreakdown.fold(BigDecimal.ZERO) { acc, row -> acc + row.total }
 
     LazyColumn(
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -49,14 +54,14 @@ fun ReportsScreen() {
     ) {
         item { Text("支出分類", style = MaterialTheme.typography.titleMedium) }
         items(expenseBreakdown) { row ->
-            CategoryBreakdownRow(row) {
+            CategoryBreakdownRow(row, expenseTotal) {
                 selectedCategory = row.category
                 selectedType = TransactionType.Expense
             }
         }
         item { Text("收入分類", style = MaterialTheme.typography.titleMedium) }
         items(incomeBreakdown) { row ->
-            CategoryBreakdownRow(row) {
+            CategoryBreakdownRow(row, incomeTotal) {
                 selectedCategory = row.category
                 selectedType = TransactionType.Income
             }
@@ -96,15 +101,25 @@ private data class CategoryBreakdownRow(
 )
 
 @Composable
-private fun CategoryBreakdownRow(row: CategoryBreakdownRow, onClick: () -> Unit) {
+private fun CategoryBreakdownRow(row: CategoryBreakdownRow, totalAmount: BigDecimal, onClick: () -> Unit) {
+    val progress = if (totalAmount > BigDecimal.ZERO) {
+        row.total.divide(totalAmount, 4, RoundingMode.HALF_UP).toFloat().coerceIn(0f, 1f)
+    } else 0f
+    val color = parseColor(row.category.colorHex)
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(row.category.name, style = MaterialTheme.typography.bodyLarge)
-            Text(row.total.asCurrencyText(row.currency))
+            Text(row.total.asCurrencyText(row.currency), style = MaterialTheme.typography.titleSmall)
+            LinearProgressIndicator(
+                progress = { progress },
+                color = color,
+                trackColor = MaterialTheme.colorScheme.surface
+            )
         }
     }
 }
@@ -131,4 +146,13 @@ private fun categoryBreakdown(
         }
         CategoryBreakdownRow(category, total, baseCurrency)
     }.sortedByDescending { it.total }
+}
+
+@Composable
+private fun parseColor(hex: String): androidx.compose.ui.graphics.Color {
+    return runCatching {
+        androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(hex))
+    }.getOrElse {
+        MaterialTheme.colorScheme.primary
+    }
 }

@@ -12,7 +12,7 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -68,7 +68,7 @@ private sealed class AppDestination(
     val icon: androidx.compose.ui.graphics.vector.ImageVector? = null
 ) {
     data object Overview : AppDestination("overview", "總覽", Icons.Default.Home)
-    data object Transactions : AppDestination("transactions", "帳目", Icons.Default.List)
+    data object Transactions : AppDestination("transactions", "帳目", Icons.AutoMirrored.Filled.List)
     data object Reports : AppDestination("reports", "報表", Icons.Default.Assessment)
     data object Accounts : AppDestination("accounts", "帳戶", Icons.Default.AccountBalanceWallet)
     data object Settings : AppDestination("settings", "設定", Icons.Default.Settings)

@@ -3,17 +3,21 @@ package org.duckdns.lhfser.aiaccounting.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.map
@@ -50,12 +54,17 @@ fun OverviewScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("本月重點", style = MaterialTheme.typography.titleMedium)
-                    Text("收入：${summary.income.asCurrencyText(baseCurrency)}")
-                    Text("支出：${summary.expense.asCurrencyText(baseCurrency)}")
-                    Text("結餘：${summary.net.asCurrencyText(baseCurrency)}")
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                        SummaryTile(label = "收入", value = summary.income.asCurrencyText(baseCurrency), positive = true, modifier = Modifier.weight(1f))
+                        SummaryTile(label = "支出", value = summary.expense.asCurrencyText(baseCurrency), positive = false, modifier = Modifier.weight(1f))
+                        SummaryTile(label = "結餘", value = summary.net.asCurrencyText(baseCurrency), positive = summary.net >= BigDecimal.ZERO, modifier = Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -66,12 +75,40 @@ fun OverviewScreen() {
         }
 
         items(balances) { row ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(row.name, style = MaterialTheme.typography.bodyLarge)
-                    Text(row.balance.asCurrencyText(row.currency))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(row.name, style = MaterialTheme.typography.bodyLarge)
+                        Text(row.currency, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text(row.balance.asCurrencyText(row.currency), style = MaterialTheme.typography.titleMedium)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SummaryTile(
+    label: String,
+    value: String,
+    positive: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val color = if (positive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.titleSmall, color = color)
         }
     }
 }

@@ -19,12 +19,16 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
@@ -62,7 +66,10 @@ private enum class DateFilterType(val label: String) {
     Custom("自訂區間")
 }
 
+private data class DailySection(val date: LocalDate, val items: List<TransactionWithDetails>)
+
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun TransactionsScreen(
     onEdit: (String) -> Unit,
     onEditTransfer: (String) -> Unit,
@@ -94,37 +101,60 @@ fun TransactionsScreen(
     val filteredTransactions = remember(transactions, rangeStart, rangeEnd, searchText) {
         filterTransactions(transactions, rangeStart, rangeEnd, searchText)
     }
+    val dailySections = remember(filteredTransactions) {
+        val zone = ZoneId.systemDefault()
+        filteredTransactions
+            .groupBy { it.transaction.date.atZone(zone).toLocalDate() }
+            .map { (date, items) -> DailySection(date, items) }
+            .sortedByDescending { it.date }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ElevatedCard(
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .fillMaxWidth(),
+            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("篩選區間", style = MaterialTheme.typography.titleMedium)
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("篩選與搜尋", style = MaterialTheme.typography.titleMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DateFilterType.values().forEach { type ->
+                        FilterChip(
+                            selected = filterType == type,
+                            onClick = { filterType = type },
+                            label = { Text(type.label) }
+                        )
+                    }
+                }
                 TextButton(onClick = { showFilterDialog = true }) {
+                    Icon(Icons.Default.DateRange, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(filterLabel(filterType, selectedDate, customStartDate, customEndDate))
                 }
-            }
-
-            OutlinedTextField(
-                value = searchText,
-                onValueChange = { searchText = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("搜尋備註、分類、標籤、金額") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (searchText.isNotBlank()) {
-                        IconButton(onClick = { searchText = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = "清除")
+                OutlinedTextField(
+                    value = searchText,
+                    onValueChange = { searchText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("搜尋備註、分類、標籤、金額") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchText.isNotBlank()) {
+                            IconButton(onClick = { searchText = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "清除")
+                            }
                         }
-                    }
-                },
-                singleLine = true
-            )
+                    },
+                    singleLine = true
+                )
+            }
         }
 
         ShortcutsBar(
+            modifier = Modifier.padding(horizontal = 16.dp),
             shortcuts = shortcuts,
             onAddShortcut = onAddShortcut,
             onShortcutTap = {
@@ -148,19 +178,33 @@ fun TransactionsScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(filteredTransactions) { item ->
-                    val groupId = item.transaction.transferGroupId?.toString()
-                    val isTransfer = item.transaction.type == TransactionType.Transfer && groupId != null
-                    TransactionRow(
-                        item = item,
-                        onClick = {
-                            if (isTransfer) {
-                                onEditTransfer(groupId!!)
-                            } else {
-                                onEdit(item.transaction.id.toString())
-                            }
+                dailySections.forEach { section ->
+                    stickyHeader {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = formatHeaderDate(section.date),
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
                         }
-                    )
+                    }
+                    items(section.items, key = { it.transaction.id }) { item ->
+                        val groupId = item.transaction.transferGroupId?.toString()
+                        val isTransfer = item.transaction.type == TransactionType.Transfer && groupId != null
+                        TransactionRow(
+                            item = item,
+                            onClick = {
+                                if (isTransfer) {
+                                    onEditTransfer(groupId!!)
+                                } else {
+                                    onEdit(item.transaction.id.toString())
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -299,44 +343,71 @@ private fun TransactionRow(item: TransactionWithDetails, onClick: () -> Unit) {
     val amountText = item.transaction.amount.asCurrencyText(item.transaction.currencyCode)
     val categoryText = item.category?.name ?: "未分類"
     val accountText = item.account?.name ?: "未指定帳戶"
+    val metaText = listOfNotNull(
+        categoryText.takeIf { it.isNotBlank() },
+        accountText.takeIf { it.isNotBlank() }
+    ).joinToString(" · ")
 
-    Card(
+    ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(item.transaction.note.ifBlank { categoryText }, style = MaterialTheme.typography.bodyLarge)
-            Text("${item.transaction.date.toDateText()} · $accountText", style = MaterialTheme.typography.bodySmall)
-            Text(amountText, color = amountColor, style = MaterialTheme.typography.titleMedium)
+        Row(
+            modifier = Modifier.padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    item.transaction.note.ifBlank { categoryText },
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(metaText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(item.transaction.date.toDateText(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(amountText, color = amountColor, style = MaterialTheme.typography.titleMedium)
+                Text(item.transaction.currencyCode, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
 
 @Composable
 private fun ShortcutsBar(
+    modifier: Modifier = Modifier,
     shortcuts: List<ShortcutWithDetails>,
     onAddShortcut: () -> Unit,
     onShortcutTap: (ShortcutWithDetails) -> Unit,
     onShortcutLongPress: (ShortcutWithDetails) -> Unit,
     onShortcutEdit: (ShortcutWithDetails) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("捷徑", style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = onAddShortcut) { Text("新增") }
-        }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            item {
-                AddShortcutTile(onClick = onAddShortcut)
+    ElevatedCard(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("捷徑", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.weight(1f))
+                TextButton(onClick = onAddShortcut) { Text("新增") }
             }
-            items(shortcuts, key = { it.shortcut.id }) { shortcut ->
-                ShortcutTile(
-                    shortcut = shortcut,
-                    onClick = { onShortcutTap(shortcut) },
-                    onLongClick = { onShortcutLongPress(shortcut) },
-                    onEdit = { onShortcutEdit(shortcut) }
-                )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                item {
+                    AddShortcutTile(onClick = onAddShortcut)
+                }
+                items(shortcuts, key = { it.shortcut.id }) { shortcut ->
+                    ShortcutTile(
+                        shortcut = shortcut,
+                        onClick = { onShortcutTap(shortcut) },
+                        onLongClick = { onShortcutLongPress(shortcut) },
+                        onEdit = { onShortcutEdit(shortcut) }
+                    )
+                }
             }
         }
     }
@@ -344,10 +415,11 @@ private fun ShortcutsBar(
 
 @Composable
 private fun AddShortcutTile(onClick: () -> Unit) {
-    ElevatedCard(
+    Card(
         modifier = Modifier
-            .size(72.dp)
-            .clickable(onClick = onClick)
+            .size(84.dp)
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(
             modifier = Modifier.padding(8.dp),
@@ -368,10 +440,12 @@ private fun ShortcutTile(
     onLongClick: () -> Unit,
     onEdit: () -> Unit
 ) {
-    ElevatedCard(
+    Card(
         modifier = Modifier
-            .width(86.dp)
+            .width(92.dp)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(vertical = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(
             modifier = Modifier.padding(8.dp),
@@ -467,4 +541,13 @@ private fun showDatePicker(
         initialDate.monthValue - 1,
         initialDate.dayOfMonth
     ).show()
+}
+
+private fun formatHeaderDate(date: LocalDate): String {
+    val today = LocalDate.now()
+    return when (date) {
+        today -> "今天"
+        today.minusDays(1) -> "昨天"
+        else -> date.format(DateTimeFormatter.ofPattern("yyyy/MM/dd"))
+    }
 }
