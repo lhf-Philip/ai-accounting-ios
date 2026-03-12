@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
@@ -23,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.SectionHeader
 import java.util.UUID
 
 @Composable
@@ -31,15 +31,11 @@ fun CategoriesScreen(onEdit: (String) -> Unit) {
     val categories by repository.categories.collectAsState(initial = emptyList())
 
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text("分類", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            Button(onClick = { onEdit(UUID.randomUUID().toString()) }) {
-                Text("新增分類")
-            }
-        }
+        SectionHeader(
+            title = "分類",
+            actionLabel = "新增分類",
+            onAction = { onEdit(UUID.randomUUID().toString()) }
+        )
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.padding(top = 12.dp)

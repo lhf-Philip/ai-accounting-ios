@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.SectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import java.math.BigDecimal
 
@@ -37,7 +38,7 @@ fun AccountsScreen(onEdit: (String) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Text("帳戶", style = MaterialTheme.typography.titleMedium)
+            SectionHeader(title = "帳戶")
         }
         items(balances) { row ->
             Card(

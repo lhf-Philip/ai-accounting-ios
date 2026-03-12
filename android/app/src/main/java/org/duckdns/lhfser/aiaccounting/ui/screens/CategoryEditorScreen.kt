@@ -32,6 +32,7 @@ import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.CategoryKind
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
 import java.util.UUID
 
 @Composable
@@ -156,22 +157,6 @@ private fun autoPickDistinctColor(existing: List<String>): String {
         ?: palette.random()
 }
 
-@Composable
-private fun SectionCard(content: @Composable () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            content()
-        }
-    }
-}
 
 @Composable
 private fun ColorDot(colorHex: String) {
