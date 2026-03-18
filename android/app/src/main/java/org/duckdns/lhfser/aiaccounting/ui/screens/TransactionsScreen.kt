@@ -21,7 +21,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -137,7 +137,7 @@ fun TransactionsScreen(
             }
         }
 
-        Divider()
+        HorizontalDivider()
 
         ShortcutsBar(
             modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal),
@@ -154,7 +154,7 @@ fun TransactionsScreen(
             onShortcutEdit = { onEditShortcut(it.shortcut.id.toString()) }
         )
 
-        Divider()
+        HorizontalDivider()
 
         LazyColumn(
             modifier = Modifier.weight(1f),
