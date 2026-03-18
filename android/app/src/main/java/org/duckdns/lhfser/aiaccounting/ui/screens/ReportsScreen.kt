@@ -330,11 +330,12 @@ private fun ReportRow(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ColorDot(color = item.color)
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(item.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                    Text(item.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                     Text(
                         item.amount.asCurrencyText(baseCurrency),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
                 Text(
@@ -352,10 +353,10 @@ private fun ReportRow(
 @Composable
 private fun DonutChart(data: List<ReportSlice>, baseCurrency: String, title: String) {
     val total = totalAmount(data)
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(contentAlignment = Alignment.Center) {
-            Canvas(modifier = Modifier.size(220.dp)) {
-                val stroke = Stroke(width = 26.dp.toPx(), cap = StrokeCap.Butt)
+            Canvas(modifier = Modifier.size(200.dp)) {
+                val stroke = Stroke(width = 22.dp.toPx(), cap = StrokeCap.Butt)
                 val diameter = minOf(size.width, size.height)
                 val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
                 val rect = Rect(topLeft, Size(diameter, diameter))
@@ -380,7 +381,9 @@ private fun DonutChart(data: List<ReportSlice>, baseCurrency: String, title: Str
                 Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                     total.asCurrencyText(baseCurrency),
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }
