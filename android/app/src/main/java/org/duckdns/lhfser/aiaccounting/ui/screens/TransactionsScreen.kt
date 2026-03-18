@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -465,7 +466,7 @@ private fun ShortcutsBar(
 @Composable
 private fun AddShortcutTile(onClick: () -> Unit) {
     PressableCard(
-        modifier = Modifier.size(72.dp),
+        modifier = Modifier.size(68.dp),
         onClick = onClick,
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
         pressedContainerColor = MaterialTheme.colorScheme.surface,
@@ -477,8 +478,8 @@ private fun AddShortcutTile(onClick: () -> Unit) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("+", style = MaterialTheme.typography.titleMedium)
-            Text("捷徑", style = MaterialTheme.typography.labelSmall)
+            Text("+", fontSize = 20.sp, fontWeight = FontWeight.Medium)
+            Text("捷徑", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
         }
     }
 }
@@ -493,7 +494,7 @@ private fun ShortcutTile(
 ) {
     PressableCard(
         modifier = Modifier
-            .width(76.dp)
+            .width(72.dp)
             .padding(vertical = 2.dp),
         onClick = onClick,
         onLongClick = onLongClick,
@@ -508,8 +509,17 @@ private fun ShortcutTile(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(shortcut.shortcut.icon.ifBlank { "⚡" }, style = MaterialTheme.typography.titleMedium)
-                Text(shortcut.shortcut.name, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                Text(
+                    shortcut.shortcut.icon.ifBlank { "⚡" },
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    shortcut.shortcut.name,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1
+                )
             }
             IconButton(
                 onClick = onEdit,
