@@ -2,7 +2,6 @@ package org.duckdns.lhfser.aiaccounting.ui.screens
 
 import android.app.DatePickerDialog
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -19,11 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -43,6 +39,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.ExperimentalFoundationApi
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
@@ -112,50 +110,30 @@ fun TransactionsScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Card(
+        Row(
             modifier = Modifier
-                .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
-                .fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+                .fillMaxWidth()
+                .padding(vertical = AppSpacing.inline),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-        Column(
-            modifier = Modifier.padding(AppSpacing.card),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-                Text("篩選與搜尋", style = MaterialTheme.typography.titleMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DateFilterType.values().forEach { type ->
-                        FilterChip(
-                            selected = filterType == type,
-                            onClick = { filterType = type },
-                            label = { Text(type.label) }
-                        )
-                    }
-                }
-                TextButton(onClick = { showFilterDialog = true }) {
+            Surface(
+                modifier = Modifier.clickable { showFilterDialog = true },
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.tight),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Icon(Icons.Default.DateRange, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text(filterLabel(filterType, selectedDate, customStartDate, customEndDate))
                 }
-                OutlinedTextField(
-                    value = searchText,
-                    onValueChange = { searchText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("搜尋備註、分類、標籤、金額") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (searchText.isNotBlank()) {
-                            IconButton(onClick = { searchText = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "清除")
-                            }
-                        }
-                    },
-                    singleLine = true
-                )
             }
         }
+
+        Divider()
 
         ShortcutsBar(
             modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal),
@@ -172,19 +150,46 @@ fun TransactionsScreen(
             onShortcutEdit = { onEditShortcut(it.shortcut.id.toString()) }
         )
 
-        if (filteredTransactions.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("沒有符合條件的帳目", style = MaterialTheme.typography.bodyMedium)
+        Divider()
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(
+                horizontal = AppSpacing.screenHorizontal,
+                vertical = AppSpacing.screenVertical
+            ),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.item)
+        ) {
+            item {
+                OutlinedTextField(
+                    value = searchText,
+                    onValueChange = { searchText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("搜尋備註、分類、標籤、金額") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchText.isNotBlank()) {
+                            IconButton(onClick = { searchText = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "清除")
+                            }
+                        }
+                    },
+                    singleLine = true
+                )
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(
-                    horizontal = AppSpacing.screenHorizontal,
-                    vertical = AppSpacing.screenVertical
-                ),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+
+            if (filteredTransactions.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("沒有符合條件的帳目", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            } else {
                 dailySections.forEach { section ->
                     stickyHeader {
                         Surface(
@@ -194,7 +199,10 @@ fun TransactionsScreen(
                             Text(
                                 text = formatHeaderDate(section.date),
                                 style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                modifier = Modifier.padding(
+                                    horizontal = AppSpacing.screenHorizontal,
+                                    vertical = AppSpacing.inline
+                                ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -427,33 +435,24 @@ private fun ShortcutsBar(
     onShortcutLongPress: (ShortcutWithDetails) -> Unit,
     onShortcutEdit: (ShortcutWithDetails) -> Unit
 ) {
-    Card(
+    Column(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)
     ) {
-        Column(
-            modifier = Modifier.padding(AppSpacing.card),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = AppSpacing.inline)
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("捷徑", style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.weight(1f))
-                TextButton(onClick = onAddShortcut) { Text("新增") }
+            item {
+                AddShortcutTile(onClick = onAddShortcut)
             }
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                item {
-                    AddShortcutTile(onClick = onAddShortcut)
-                }
-                items(shortcuts, key = { it.shortcut.id }) { shortcut ->
-                    ShortcutTile(
-                        shortcut = shortcut,
-                        onClick = { onShortcutTap(shortcut) },
-                        onLongClick = { onShortcutLongPress(shortcut) },
-                        onEdit = { onShortcutEdit(shortcut) }
-                    )
-                }
+            items(shortcuts, key = { it.shortcut.id }) { shortcut ->
+                ShortcutTile(
+                    shortcut = shortcut,
+                    onClick = { onShortcutTap(shortcut) },
+                    onLongClick = { onShortcutLongPress(shortcut) },
+                    onEdit = { onShortcutEdit(shortcut) }
+                )
             }
         }
     }
