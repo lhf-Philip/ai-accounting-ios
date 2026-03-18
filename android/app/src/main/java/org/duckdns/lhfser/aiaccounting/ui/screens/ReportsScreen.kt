@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
@@ -158,7 +159,7 @@ fun ReportsScreen() {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { showFilterDialog = true }) {
@@ -169,7 +170,7 @@ fun ReportsScreen() {
                 Spacer(modifier = Modifier.weight(1f))
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
                 ReportFlowMode.values().forEach { mode ->
                     FilterChip(
                         selected = flowMode == mode,
@@ -182,7 +183,7 @@ fun ReportsScreen() {
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
                 ReportChartMode.values().forEach { mode ->
                     FilterChip(
                         selected = chartMode == mode,
@@ -212,7 +213,7 @@ fun ReportsScreen() {
                         }
                         Text(
                             selectedTag ?: "",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -324,19 +325,24 @@ private fun ReportRow(
     ) {
         Column(
             modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.inline),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.tight)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ColorDot(color = item.color)
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(item.name, style = MaterialTheme.typography.bodyLarge)
+                    Text(item.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                     Text(
                         item.amount.asCurrencyText(baseCurrency),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Text(trailingLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                Text(
+                    trailingLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
             LinearProgressIndicator(progress = { progress }, color = item.color, trackColor = MaterialTheme.colorScheme.surface)
         }

@@ -106,10 +106,10 @@ fun OverviewScreen(
             .fillMaxWidth()
             .verticalScroll(scrollState)
             .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("歡迎使用 AI 記帳", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.tight)) {
+            Text("歡迎使用 AI 記帳", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
                 "今天是 ${LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年 M月d日"))}",
                 style = MaterialTheme.typography.bodySmall,
@@ -122,9 +122,9 @@ fun OverviewScreen(
             )
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
             TextButton(onClick = { showFilterDialog = true }) {
-                Text(filterDisplayString(filterType, selectedDate))
+                Text(filterDisplayString(filterType, selectedDate), style = MaterialTheme.typography.bodyMedium)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OverviewFilterType.values().forEach { type ->
@@ -143,8 +143,8 @@ fun OverviewScreen(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
             pressedContainerColor = MaterialTheme.colorScheme.surface
         ) {
-            Column(modifier = Modifier.padding(AppSpacing.card), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("快速開始", style = MaterialTheme.typography.titleSmall)
+            Column(modifier = Modifier.padding(AppSpacing.card), verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
+                Text("快速開始", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
                         onClick = onQuickAdd,
@@ -168,8 +168,12 @@ fun OverviewScreen(
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("${filterDisplayString(filterType, selectedDate)}重點（$baseCurrency）", style = MaterialTheme.typography.titleSmall)
+        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
+            Text(
+                "${filterDisplayString(filterType, selectedDate)}重點（$baseCurrency）",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SummaryTile(label = "收入", value = incomeTotal.asCurrencyText(baseCurrency), tint = Color(0xFF2E7D32), modifier = Modifier.weight(1f))
                 SummaryTile(label = "支出", value = expenseTotal.asCurrencyText(baseCurrency), tint = Color(0xFFC62828), modifier = Modifier.weight(1f))
@@ -180,8 +184,8 @@ fun OverviewScreen(
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("功能入口", style = MaterialTheme.typography.titleSmall)
+        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
+            Text("功能入口", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             EntryButton(
                 icon = Icons.AutoMirrored.Filled.List,
                 title = "查看帳目明細",
@@ -227,9 +231,14 @@ private fun SummaryTile(label: String, value: String, tint: Color, modifier: Mod
         borderColor = tint.copy(alpha = 0.12f),
         pressedBorderColor = tint.copy(alpha = 0.2f)
     ) {
-        Column(modifier = Modifier.padding(AppSpacing.card), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.titleSmall, color = tint)
+        Column(modifier = Modifier.padding(AppSpacing.card), verticalArrangement = Arrangement.spacedBy(AppSpacing.tight)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = tint)
         }
     }
 }
@@ -259,8 +268,8 @@ private fun EntryButton(
                 tint = MaterialTheme.colorScheme.primary
             )
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge)
-                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
