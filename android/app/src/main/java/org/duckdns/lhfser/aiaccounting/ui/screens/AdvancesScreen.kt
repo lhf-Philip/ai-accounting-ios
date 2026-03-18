@@ -49,7 +49,7 @@ private fun AdvanceCaseRow(advanceCase: AdvanceCaseWithDetails, onClick: () -> U
         onClick = onClick
     ) {
         Row(
-            modifier = Modifier.padding(AppSpacing.card),
+            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.inline),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {

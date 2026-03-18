@@ -202,7 +202,7 @@ fun ReportsScreen() {
                 horizontal = AppSpacing.screenHorizontal,
                 vertical = AppSpacing.screenVertical
             ),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.item)
         ) {
             if (chartMode == ReportChartMode.Tag && selectedTag != null) {
                 item {
@@ -322,7 +322,10 @@ private fun ReportRow(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick
     ) {
-        Column(modifier = Modifier.padding(AppSpacing.card), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(
+            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.inline),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ColorDot(color = item.color)
                 Column(modifier = Modifier.weight(1f)) {

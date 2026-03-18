@@ -4,6 +4,7 @@ import android.app.DatePickerDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Divider
@@ -38,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -406,20 +409,21 @@ private fun TransactionRow(
         onLongClick = onLongClick
     ) {
         Row(
-            modifier = Modifier.padding(AppSpacing.card),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.inline),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     item.transaction.note.ifBlank { categoryText },
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
                 )
                 Text(metaText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(item.transaction.date.toDateText(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(amountText, color = amountColor, style = MaterialTheme.typography.titleMedium)
+                Text(amountText, color = amountColor, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 Text(item.transaction.currencyCode, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -461,7 +465,7 @@ private fun ShortcutsBar(
 @Composable
 private fun AddShortcutTile(onClick: () -> Unit) {
     PressableCard(
-        modifier = Modifier.size(84.dp),
+        modifier = Modifier.size(72.dp),
         onClick = onClick,
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
         pressedContainerColor = MaterialTheme.colorScheme.surface,
@@ -473,7 +477,7 @@ private fun AddShortcutTile(onClick: () -> Unit) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("+", style = MaterialTheme.typography.titleLarge)
+            Text("+", style = MaterialTheme.typography.titleMedium)
             Text("捷徑", style = MaterialTheme.typography.labelSmall)
         }
     }
@@ -489,7 +493,7 @@ private fun ShortcutTile(
 ) {
     PressableCard(
         modifier = Modifier
-            .width(92.dp)
+            .width(76.dp)
             .padding(vertical = 2.dp),
         onClick = onClick,
         onLongClick = onLongClick,
@@ -498,14 +502,23 @@ private fun ShortcutTile(
         borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
         pressedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
     ) {
-        Column(
-            modifier = Modifier.padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(shortcut.shortcut.icon.ifBlank { "⚡" }, style = MaterialTheme.typography.titleLarge)
-            Text(shortcut.shortcut.name, style = MaterialTheme.typography.labelSmall, maxLines = 1)
-            TextButton(onClick = onEdit) { Text("編輯") }
+        Box(modifier = Modifier.padding(6.dp)) {
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(shortcut.shortcut.icon.ifBlank { "⚡" }, style = MaterialTheme.typography.titleMedium)
+                Text(shortcut.shortcut.name, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+            }
+            IconButton(
+                onClick = onEdit,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(24.dp)
+            ) {
+                Icon(Icons.Default.Edit, contentDescription = "編輯", modifier = Modifier.size(16.dp))
+            }
         }
     }
 }

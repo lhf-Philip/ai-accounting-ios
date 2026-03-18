@@ -41,7 +41,7 @@ fun AccountsScreen(onEdit: (String) -> Unit) {
                 onClick = { onEdit(row.account.id.toString()) }
             ) {
                 Row(
-                    modifier = Modifier.padding(AppSpacing.card),
+                    modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.inline),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
