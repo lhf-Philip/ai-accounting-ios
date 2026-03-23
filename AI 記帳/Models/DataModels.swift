@@ -51,7 +51,7 @@ enum CategoryKind: String, Codable, CaseIterable, Identifiable {
         switch transactionType {
         case .expense:
             return self == .expense || self == .both
-        case .income:
+        case .income: 
             return self == .income || self == .both
         case .transfer:
             return false
