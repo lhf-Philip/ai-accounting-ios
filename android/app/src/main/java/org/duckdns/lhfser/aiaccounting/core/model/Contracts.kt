@@ -32,6 +32,14 @@ enum class CategoryKind(val rawValue: String) {
             return entries.firstOrNull { it.rawValue == rawValue } ?: Both
         }
     }
+
+    fun supports(type: TransactionType): Boolean {
+        return when (type) {
+            TransactionType.Income -> this == Income || this == Both
+            TransactionType.Expense -> this == Expense || this == Both
+            TransactionType.Transfer -> true
+        }
+    }
 }
 
 data class Account(

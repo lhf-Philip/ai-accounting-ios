@@ -1,0 +1,124 @@
+package org.duckdns.lhfser.aiaccounting.data.backup
+
+import java.math.BigDecimal
+import java.time.Instant
+import java.util.UUID
+
+data class FullBackupData(
+    val version: String,
+    val timestamp: Instant,
+    val accounts: List<AccountCodable>,
+    val categories: List<CategoryCodable>,
+    val tags: List<TagCodable>,
+    val transactions: List<TransactionCodable>,
+    val shortcuts: List<ShortcutCodable>,
+    val budgets: List<BudgetCodable>?,
+    val advanceCases: List<AdvanceCaseCodable>?,
+    val advanceParticipants: List<AdvanceParticipantCodable>?,
+    val advanceRepayments: List<AdvanceRepaymentCodable>?
+) {
+    data class AccountCodable(
+        val id: UUID,
+        val name: String,
+        val currency: String,
+        val type: String,
+        val baseBalance: BigDecimal,
+        val sortOrder: Int,
+        val isArchived: Boolean?
+    )
+
+    data class CategoryCodable(
+        val id: UUID,
+        val name: String,
+        val icon: String,
+        val colorHex: String,
+        val kind: String?
+    )
+
+    data class TagCodable(
+        val id: UUID,
+        val name: String
+    )
+
+    data class TransactionCodable(
+        val id: UUID,
+        val amount: BigDecimal,
+        val currencyCode: String,
+        val date: Instant,
+        val note: String,
+        val type: String,
+        val linkedTransactionID: UUID?,
+        val transferGroupID: UUID?,
+        val transferSide: String?,
+        val photoPath: String?,
+        val createdAt: Instant?,
+        val updatedAt: Instant?,
+        val accountID: UUID?,
+        val categoryID: UUID?,
+        val tagIDs: List<UUID>
+    )
+
+    data class ShortcutCodable(
+        val id: UUID,
+        val name: String,
+        val icon: String,
+        val amount: BigDecimal,
+        val type: String,
+        val note: String,
+        val currencyCode: String?,
+        val accountID: UUID?,
+        val categoryID: UUID?,
+        val tagIDs: List<UUID>
+    )
+
+    data class BudgetCodable(
+        val id: UUID,
+        val monthKey: String,
+        val amount: BigDecimal,
+        val currencyCode: String,
+        val isEnabled: Boolean?,
+        val categoryID: UUID?,
+        val createdAt: Instant?,
+        val updatedAt: Instant?
+    )
+
+    data class AdvanceCaseCodable(
+        val id: UUID,
+        val title: String,
+        val date: Instant,
+        val currencyCode: String,
+        val myShareAmount: BigDecimal?,
+        val note: String?,
+        val selfExpenseTransactionID: UUID?,
+        val payerAccountID: UUID?,
+        val expenseCategoryID: UUID?,
+        val createdAt: Instant?,
+        val updatedAt: Instant?
+    )
+
+    data class AdvanceParticipantCodable(
+        val id: UUID,
+        val name: String,
+        val owedAmount: BigDecimal,
+        val repaidAmount: BigDecimal?,
+        val initialTransferGroupID: UUID?,
+        val advanceCaseID: UUID?,
+        val debtAccountID: UUID?,
+        val createdAt: Instant?,
+        val updatedAt: Instant?
+    )
+
+    data class AdvanceRepaymentCodable(
+        val id: UUID,
+        val amount: BigDecimal,
+        val currencyCode: String,
+        val normalizedAmount: BigDecimal?,
+        val date: Instant,
+        val note: String?,
+        val linkedTransferGroupID: UUID?,
+        val advanceCaseID: UUID?,
+        val participantID: UUID?,
+        val receivedAccountID: UUID?,
+        val createdAt: Instant?
+    )
+}
