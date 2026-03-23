@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -36,6 +37,7 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
@@ -45,6 +47,11 @@ private data class ParticipantDraft(
     var debtAccount: AccountEntity? = null,
     var amount: String = ""
 )
+
+private enum class AdvanceDirection(val label: String) {
+    IAdvanceOthers("我代墊他人"),
+    OthersAdvanceMe("他人代墊我")
+}
 
 @Composable
 fun AddAdvanceCaseScreen(onDone: () -> Unit) {
@@ -63,21 +70,44 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
     var myShare by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var currency by remember { mutableStateOf("HKD") }
+    var direction by remember { mutableStateOf(AdvanceDirection.IAdvanceOthers) }
 
     var payerAccount by remember { mutableStateOf<AccountEntity?>(null) }
     var expenseCategory by remember { mutableStateOf<CategoryEntity?>(null) }
     var selectedTags by remember { mutableStateOf<List<TagEntity>>(emptyList()) }
     var participants by remember { mutableStateOf(listOf(ParticipantDraft())) }
+    var showCreateDebtDialog by remember { mutableStateOf(false) }
+    var newDebtName by remember { mutableStateOf("") }
+
+    val flowCategories = when (direction) {
+        AdvanceDirection.IAdvanceOthers -> categories.filter { it.kind.supports(org.duckdns.lhfser.aiaccounting.core.model.TransactionType.Expense) }
+        AdvanceDirection.OthersAdvanceMe -> categories.filter { it.kind.supports(org.duckdns.lhfser.aiaccounting.core.model.TransactionType.Income) }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("基本資料", style = MaterialTheme.typography.titleMedium)
         SectionCard {
+            Text("方向", style = MaterialTheme.typography.titleSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AdvanceDirection.values().forEach { mode ->
+                    FilterChip(
+                        selected = direction == mode,
+                        onClick = {
+                            direction = mode
+                            if (expenseCategory != null && flowCategories.none { it.id == expenseCategory?.id }) {
+                                expenseCategory = null
+                            }
+                        },
+                        label = { Text(mode.label) }
+                    )
+                }
+            }
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
@@ -98,13 +128,17 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
 
         Text("分類與標籤", style = MaterialTheme.typography.titleMedium)
         SectionCard {
-            CategoryPicker(categories = categories.filter { it.kind.supports(org.duckdns.lhfser.aiaccounting.core.model.TransactionType.Expense) }, selected = expenseCategory) {
+            CategoryPicker(
+                categories = flowCategories,
+                selected = expenseCategory,
+                label = if (direction == AdvanceDirection.IAdvanceOthers) "支出分類" else "收入分類"
+            ) {
                 expenseCategory = it
             }
             TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
         }
 
-        Text("代墊對象", style = MaterialTheme.typography.titleMedium)
+        Text(if (direction == AdvanceDirection.IAdvanceOthers) "代墊對象" else "借款對象", style = MaterialTheme.typography.titleMedium)
         SectionCard {
             participants.forEachIndexed { index, participant ->
                 ParticipantEditor(
@@ -121,6 +155,9 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
             }
             TextButton(onClick = { participants = participants + ParticipantDraft() }) {
                 Text("新增對象")
+            }
+            TextButton(onClick = { showCreateDebtDialog = true }) {
+                Text("新增債務人物")
             }
         }
 
@@ -154,7 +191,8 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
                         payerAccount = payer,
                         expenseCategory = expenseCategory,
                         tagIds = selectedTags.map { it.id },
-                        participants = inputs
+                        participants = inputs,
+                        isBorrowedByMe = direction == AdvanceDirection.OthersAdvanceMe
                     )
                     onDone()
                 }
@@ -162,6 +200,59 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
         ) {
             Text("儲存")
         }
+    }
+
+    if (showCreateDebtDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showCreateDebtDialog = false
+                newDebtName = ""
+            },
+            title = { Text("新增債務人物") },
+            text = {
+                OutlinedTextField(
+                    value = newDebtName,
+                    onValueChange = { newDebtName = it },
+                    label = { Text("人物名稱") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val trimmed = newDebtName.trim()
+                    if (trimmed.isNotEmpty()) {
+                        scope.launch {
+                            val existing = debtAccounts.firstOrNull { it.name == trimmed }
+                            val created = existing ?: AccountEntity(
+                                id = UUID.randomUUID(),
+                                name = trimmed,
+                                currency = currency,
+                                type = AccountType.Debt,
+                                baseBalance = BigDecimal.ZERO,
+                                sortOrder = (accounts.maxOfOrNull { it.sortOrder } ?: -1) + 1,
+                                isArchived = false
+                            ).also { repository.upsertAccount(it) }
+                            participants = participants.toMutableList().also { list ->
+                                val emptyIndex = list.indexOfFirst { it.debtAccount == null }
+                                if (emptyIndex >= 0) {
+                                    list[emptyIndex] = list[emptyIndex].copy(debtAccount = created)
+                                } else {
+                                    list.add(ParticipantDraft(debtAccount = created))
+                                }
+                            }
+                            showCreateDebtDialog = false
+                            newDebtName = ""
+                        }
+                    }
+                }) { Text("新增") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showCreateDebtDialog = false
+                    newDebtName = ""
+                }) { Text("取消") }
+            }
+        )
     }
 }
 
@@ -244,11 +335,12 @@ private fun AmountRow(
 private fun CategoryPicker(
     categories: List<CategoryEntity>,
     selected: CategoryEntity?,
+    label: String = "分類",
     onSelect: (CategoryEntity?) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("分類", style = MaterialTheme.typography.titleSmall)
+        Text(label, style = MaterialTheme.typography.titleSmall)
         TextButton(onClick = { expanded = true }) {
             Text(selected?.name ?: "無分類")
         }

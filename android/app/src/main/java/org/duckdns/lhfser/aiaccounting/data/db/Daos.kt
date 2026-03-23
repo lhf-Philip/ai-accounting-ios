@@ -78,6 +78,10 @@ interface TransactionDao {
     suspend fun getTransaction(transactionId: UUID): TransactionWithDetails?
 
     @Transaction
+    @Query("SELECT * FROM transactions ORDER BY date DESC, createdAt DESC")
+    suspend fun getAllWithDetails(): List<TransactionWithDetails>
+
+    @Transaction
     @Query("SELECT * FROM transactions WHERE transferGroupId = :groupId ORDER BY date DESC")
     suspend fun getTransferGroup(groupId: UUID): List<TransactionWithDetails>
 
@@ -158,6 +162,10 @@ interface AdvanceDao {
     @Transaction
     @Query("SELECT * FROM advance_cases WHERE id = :caseId")
     suspend fun getAdvanceCase(caseId: UUID): AdvanceCaseWithDetails?
+
+    @Transaction
+    @Query("SELECT * FROM advance_cases")
+    suspend fun getAllCasesWithDetails(): List<AdvanceCaseWithDetails>
 
     @Query("SELECT * FROM advance_cases")
     suspend fun getAllCases(): List<AdvanceCaseEntity>

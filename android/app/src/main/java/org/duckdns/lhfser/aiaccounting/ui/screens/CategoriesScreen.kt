@@ -2,6 +2,7 @@ package org.duckdns.lhfser.aiaccounting.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -22,27 +23,23 @@ import androidx.compose.ui.unit.dp
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
-import org.duckdns.lhfser.aiaccounting.ui.components.SectionHeader
-import java.util.UUID
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 
 @Composable
 fun CategoriesScreen(onEdit: (String) -> Unit) {
     val repository = LocalRepository.current
     val categories by repository.categories.collectAsState(initial = emptyList())
 
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-        SectionHeader(
-            title = "分類",
-            actionLabel = "新增分類",
-            onAction = { onEdit(UUID.randomUUID().toString()) }
-        )
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(top = 12.dp)
-        ) {
-            items(categories) { category ->
-                CategoryRow(category = category, onClick = { onEdit(category.id.toString()) })
-            }
+    LazyColumn(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(
+            horizontal = AppSpacing.screenHorizontal,
+            vertical = AppSpacing.screenVertical
+        ),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items(categories) { category ->
+            CategoryRow(category = category, onClick = { onEdit(category.id.toString()) })
         }
     }
 }
@@ -54,7 +51,7 @@ private fun CategoryRow(category: CategoryEntity, onClick: () -> Unit) {
         onClick = onClick
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.inline),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {

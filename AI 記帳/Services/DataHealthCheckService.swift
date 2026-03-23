@@ -41,7 +41,13 @@ enum DataHealthCheckService {
         checkTransferGroups(transactions, into: &issues)
         checkCategories(categories, into: &issues)
         checkBudgets(budgets, into: &issues)
-        checkAdvances(cases: advanceCases, participants: advanceParticipants, repayments: advanceRepayments, into: &issues)
+        checkAdvances(
+            cases: advanceCases,
+            participants: advanceParticipants,
+            repayments: advanceRepayments,
+            transactions: transactions,
+            into: &issues
+        )
         
         if issues.isEmpty {
             issues.append(
@@ -217,6 +223,7 @@ enum DataHealthCheckService {
         cases: [AdvanceCase],
         participants: [AdvanceParticipant],
         repayments: [AdvanceRepayment],
+        transactions: [FinancialTransaction],
         into issues: inout [HealthIssue]
     ) {
         let orphanParticipants = participants.filter { $0.advanceCase == nil }
@@ -313,6 +320,150 @@ enum DataHealthCheckService {
                     title: "代墊對象缺少初始轉帳連結",
                     detail: "共有 \(participantsMissingInitialTransferLink.count) 位對象無 initialTransferGroupID。",
                     recommendation: "舊資料可正常使用，但整單連動刪除時可能無法完整刪除初始代墊轉帳。"
+                )
+            )
+        }
+
+        checkAdvanceTransferMappings(
+            participants: participants,
+            repayments: repayments,
+            transactions: transactions,
+            into: &issues
+        )
+    }
+
+    private static func checkAdvanceTransferMappings(
+        participants: [AdvanceParticipant],
+        repayments: [AdvanceRepayment],
+        transactions: [FinancialTransaction],
+        into issues: inout [HealthIssue]
+    ) {
+        let groupedTransfers = Dictionary(grouping: transactions.filter { $0.type == .transfer && $0.transferGroupID != nil }) {
+            $0.transferGroupID!
+        }
+
+        var malformedInitialGroups = 0
+        var initialMappingMismatches = 0
+
+        for participant in participants {
+            guard let groupID = participant.initialTransferGroupID else { continue }
+            guard let group = groupedTransfers[groupID] else {
+                malformedInitialGroups += 1
+                continue
+            }
+
+            let outgoing = group.filter { $0.transferSide == .outgoing || $0.amount < 0 }
+            let incoming = group.filter { $0.transferSide == .incoming || $0.amount > 0 }
+            guard !outgoing.isEmpty && !incoming.isEmpty else {
+                malformedInitialGroups += 1
+                continue
+            }
+
+            guard
+                let debtAccountID = participant.debtAccount?.id,
+                let payerAccountID = participant.advanceCase?.payerAccount?.id
+            else {
+                continue
+            }
+
+            let outgoingAccountIDs = Set(outgoing.compactMap { $0.account?.id })
+            let incomingAccountIDs = Set(incoming.compactMap { $0.account?.id })
+            guard !outgoingAccountIDs.isEmpty && !incomingAccountIDs.isEmpty else {
+                malformedInitialGroups += 1
+                continue
+            }
+
+            let iAdvancedOthersPattern = outgoingAccountIDs.isSubset(of: [payerAccountID]) &&
+                incomingAccountIDs.isSubset(of: [debtAccountID])
+            let othersAdvancedMePattern = outgoingAccountIDs.isSubset(of: [debtAccountID]) &&
+                incomingAccountIDs.isSubset(of: [payerAccountID])
+
+            if !(iAdvancedOthersPattern || othersAdvancedMePattern) {
+                initialMappingMismatches += 1
+            }
+        }
+
+        if malformedInitialGroups > 0 {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "代墊初始轉帳群組不完整",
+                    detail: "共有 \(malformedInitialGroups) 位代墊對象的 initialTransferGroup 缺少有效轉出/轉入。",
+                    recommendation: "建議檢查匯入資料或手動重建該筆代墊。"
+                )
+            )
+        }
+
+        if initialMappingMismatches > 0 {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "代墊初始轉帳方向不一致",
+                    detail: "共有 \(initialMappingMismatches) 位代墊對象的轉出/轉入帳戶與付款帳戶或借貸帳戶不一致。",
+                    recommendation: "請檢查該筆代墊是否被手動改動為錯誤帳戶。"
+                )
+            )
+        }
+
+        var malformedRepaymentGroups = 0
+        var repaymentMappingMismatches = 0
+
+        for repayment in repayments {
+            guard let groupID = repayment.linkedTransferGroupID else { continue }
+            guard let group = groupedTransfers[groupID] else {
+                malformedRepaymentGroups += 1
+                continue
+            }
+
+            let outgoing = group.filter { $0.transferSide == .outgoing || $0.amount < 0 }
+            let incoming = group.filter { $0.transferSide == .incoming || $0.amount > 0 }
+            guard !outgoing.isEmpty && !incoming.isEmpty else {
+                malformedRepaymentGroups += 1
+                continue
+            }
+
+            guard
+                let debtAccountID = repayment.participant?.debtAccount?.id,
+                let receivedAccountID = repayment.receivedAccount?.id
+            else {
+                continue
+            }
+
+            let outgoingAccountIDs = Set(outgoing.compactMap { $0.account?.id })
+            let incomingAccountIDs = Set(incoming.compactMap { $0.account?.id })
+            guard !outgoingAccountIDs.isEmpty && !incomingAccountIDs.isEmpty else {
+                malformedRepaymentGroups += 1
+                continue
+            }
+
+            let iAdvancedOthersPattern = outgoingAccountIDs.isSubset(of: [debtAccountID]) &&
+                incomingAccountIDs.isSubset(of: [receivedAccountID])
+            let othersAdvancedMePattern = outgoingAccountIDs.isSubset(of: [receivedAccountID]) &&
+                incomingAccountIDs.isSubset(of: [debtAccountID])
+
+            if !(iAdvancedOthersPattern || othersAdvancedMePattern) {
+                repaymentMappingMismatches += 1
+            }
+        }
+
+        if malformedRepaymentGroups > 0 {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "代墊還款轉帳群組不完整",
+                    detail: "共有 \(malformedRepaymentGroups) 筆還款的 linkedTransferGroup 缺少有效轉出/轉入。",
+                    recommendation: "建議檢查該筆還款是否被不完整刪除。"
+                )
+            )
+        }
+
+        if repaymentMappingMismatches > 0 {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "代墊還款方向不一致",
+                    detail: "共有 \(repaymentMappingMismatches) 筆還款的轉出/轉入帳戶與對象/入帳帳戶不一致。",
+                    recommendation: "請檢查還款方向與收款帳戶是否設定正確。"
                 )
             )
         }

@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
@@ -58,6 +59,7 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
@@ -156,8 +158,8 @@ fun ReportsScreen() {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { showFilterDialog = true }) {
@@ -168,7 +170,7 @@ fun ReportsScreen() {
                 Spacer(modifier = Modifier.weight(1f))
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
                 ReportFlowMode.values().forEach { mode ->
                     FilterChip(
                         selected = flowMode == mode,
@@ -181,7 +183,7 @@ fun ReportsScreen() {
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
                 ReportChartMode.values().forEach { mode ->
                     FilterChip(
                         selected = chartMode == mode,
@@ -197,8 +199,11 @@ fun ReportsScreen() {
 
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(
+                horizontal = AppSpacing.screenHorizontal,
+                vertical = AppSpacing.screenVertical
+            ),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.item)
         ) {
             if (chartMode == ReportChartMode.Tag && selectedTag != null) {
                 item {
@@ -208,7 +213,7 @@ fun ReportsScreen() {
                         }
                         Text(
                             selectedTag ?: "",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -318,18 +323,27 @@ private fun ReportRow(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(
+            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.inline),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.tight)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ColorDot(color = item.color)
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(item.name, style = MaterialTheme.typography.bodyLarge)
+                    Text(item.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                     Text(
                         item.amount.asCurrencyText(baseCurrency),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
-                Text(trailingLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                Text(
+                    trailingLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
             LinearProgressIndicator(progress = { progress }, color = item.color, trackColor = MaterialTheme.colorScheme.surface)
         }
@@ -339,10 +353,10 @@ private fun ReportRow(
 @Composable
 private fun DonutChart(data: List<ReportSlice>, baseCurrency: String, title: String) {
     val total = totalAmount(data)
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(contentAlignment = Alignment.Center) {
-            Canvas(modifier = Modifier.size(220.dp)) {
-                val stroke = Stroke(width = 26.dp.toPx(), cap = StrokeCap.Butt)
+            Canvas(modifier = Modifier.size(200.dp)) {
+                val stroke = Stroke(width = 22.dp.toPx(), cap = StrokeCap.Butt)
                 val diameter = minOf(size.width, size.height)
                 val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
                 val rect = Rect(topLeft, Size(diameter, diameter))
@@ -367,7 +381,9 @@ private fun DonutChart(data: List<ReportSlice>, baseCurrency: String, title: Str
                 Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                     total.asCurrencyText(baseCurrency),
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }
@@ -401,7 +417,7 @@ private fun BudgetAlertCard(alerts: List<BudgetAlert>) {
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.error.copy(alpha = 0.06f), shape = MaterialTheme.shapes.medium)
-            .padding(12.dp),
+            .padding(AppSpacing.card),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text("本月超支提醒", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -431,7 +447,7 @@ private fun ReportDetailSheet(detail: ReportDetail) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(detail.title, style = MaterialTheme.typography.titleMedium)

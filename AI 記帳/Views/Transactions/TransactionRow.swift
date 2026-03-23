@@ -4,6 +4,12 @@ import SwiftData
 struct TransactionRow: View {
     let transaction: FinancialTransaction
     let transferCounterpart: TransferCounterpartInfo?
+
+    private enum AdvanceTransferKind {
+        case created
+        case repayment
+        case none
+    }
     
     private static let rowDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -15,22 +21,53 @@ struct TransactionRow: View {
         Self.rowDateFormatter.string(from: transaction.date)
     }
     
-    private var isAdvanceTransfer: Bool {
-        guard transaction.type == .transfer else { return false }
+    private var advanceTransferKind: AdvanceTransferKind {
+        guard transaction.type == .transfer else { return .none }
         let compacted = transaction.note.replacingOccurrences(of: " ", with: "")
-        return compacted.contains("(代墊給") || compacted.contains("(還款至")
+        if compacted.contains("(代墊給") || compacted.contains("(代墊給我") {
+            return .created
+        }
+        if compacted.contains("(還款至") || compacted.contains("(還款給") {
+            return .repayment
+        }
+        return .none
+    }
+
+    private var isAdvanceTransfer: Bool {
+        advanceTransferKind != .none
     }
     
     private var transferIconName: String {
-        isAdvanceTransfer ? "person.2.fill" : "arrow.left.arrow.right"
+        switch advanceTransferKind {
+        case .created:
+            return "person.2.fill"
+        case .repayment:
+            return "arrow.down.circle.fill"
+        case .none:
+            return "arrow.left.arrow.right"
+        }
     }
     
     private var transferBadgeText: String {
-        isAdvanceTransfer ? "代墊追蹤" : "轉帳"
+        switch advanceTransferKind {
+        case .created:
+            return "代墊建立"
+        case .repayment:
+            return "代墊還款"
+        case .none:
+            return "轉帳"
+        }
     }
     
     private var transferTint: Color {
-        isAdvanceTransfer ? .orange : .blue
+        switch advanceTransferKind {
+        case .created:
+            return .orange
+        case .repayment:
+            return .teal
+        case .none:
+            return .blue
+        }
     }
     
     var body: some View {
