@@ -1,7 +1,7 @@
 # CI Checklist (iOS + Android)
 
 Status: Active  
-Last updated: 2026-03-03
+Last updated: 2026-03-23
 
 This checklist is the baseline for PR quality gates for dual-platform delivery.
 
@@ -25,6 +25,7 @@ xcodebuild -project 'AI 記帳.xcodeproj' \
   -scheme 'AI 記帳' \
   -configuration Debug \
   -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO \
   build
 ```
 
@@ -34,18 +35,20 @@ python3 -m json.tool Localizable.xcstrings > /dev/null
 xcrun xcstringstool compile --dry-run --output-directory /tmp/xcstrings-build Localizable.xcstrings
 ```
 
-### Android (scaffold phase)
+### Android
 ```bash
-gradle -p android :app:assembleDebug
-gradle -p android :app:testDebugUnitTest
+cd android
+./gradlew assembleDebug
+./gradlew testDebugUnitTest
 ```
 
 ## 4. Manual Validation (Minimum)
 
 - Add transaction (income/expense) and verify report totals.
 - Transfer flow (including grouped transfer) and verify it does not affect income/expense totals.
-- Backup export/import with an existing JSON sample.
+- Backup export/import with `android/app/src/test/resources/fixtures/legacy_bidirectional_advances.json`.
 - Advance tracking flow (create case, repayment, remaining amount).
+- Follow the cross-platform matrix in `docs/VALIDATION_MATRIX.md`.
 
 ## 5. Release Gate
 

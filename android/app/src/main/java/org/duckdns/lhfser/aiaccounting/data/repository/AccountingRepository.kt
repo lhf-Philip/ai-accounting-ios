@@ -8,6 +8,9 @@ import org.duckdns.lhfser.aiaccounting.core.backup.BackupBudgetInput
 import org.duckdns.lhfser.aiaccounting.core.backup.BackupCategoryInput
 import org.duckdns.lhfser.aiaccounting.core.backup.BackupDefaults
 import org.duckdns.lhfser.aiaccounting.core.backup.BackupShortcutInput
+import org.duckdns.lhfser.aiaccounting.core.health.DataHealthChecker
+import org.duckdns.lhfser.aiaccounting.core.health.DataHealthReport
+import org.duckdns.lhfser.aiaccounting.core.health.DataHealthSnapshot
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.core.model.TransferSide
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
@@ -63,6 +66,19 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
 
     suspend fun getAdvanceCase(caseId: UUID): AdvanceCaseWithDetails? {
         return advanceDao.getAdvanceCase(caseId)
+    }
+
+    suspend fun buildDataHealthReport(): DataHealthReport {
+        return DataHealthChecker.run(
+            DataHealthSnapshot(
+                transactions = transactionDao.getAllWithDetails(),
+                categories = categoryDao.getAll(),
+                budgets = budgetDao.getAll(),
+                advanceCases = advanceDao.getAllCasesWithDetails(),
+                advanceParticipants = advanceDao.getAllParticipants(),
+                advanceRepayments = advanceDao.getAllRepayments()
+            )
+        )
     }
 
     suspend fun upsertAccount(account: AccountEntity) {

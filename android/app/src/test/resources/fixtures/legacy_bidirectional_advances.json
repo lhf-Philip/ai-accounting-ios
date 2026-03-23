@@ -1,0 +1,491 @@
+{
+  "version": "1.5",
+  "timestamp": "2026-03-01T00:00:00Z",
+  "accounts": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "Cash Wallet",
+      "currency": "HKD",
+      "type": "Cash",
+      "baseBalance": 500,
+      "sortOrder": 0,
+      "isArchived": false
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222221",
+      "name": "Friend A",
+      "currency": "HKD",
+      "type": "Debt",
+      "baseBalance": 0,
+      "sortOrder": 1,
+      "isArchived": false
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "name": "Friend B",
+      "currency": "HKD",
+      "type": "Debt",
+      "baseBalance": 0,
+      "sortOrder": 2,
+      "isArchived": false
+    },
+    {
+      "id": "33333333-3333-3333-3333-333333333333",
+      "name": "HSBC",
+      "currency": "HKD",
+      "type": "Bank",
+      "baseBalance": 1200,
+      "sortOrder": 3,
+      "isArchived": false
+    },
+    {
+      "id": "44444444-4444-4444-4444-444444444444",
+      "name": "Pocket Cash",
+      "currency": "HKD",
+      "type": "Cash",
+      "baseBalance": 150,
+      "sortOrder": 4,
+      "isArchived": false
+    }
+  ],
+  "categories": [
+    {
+      "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1",
+      "name": "Food",
+      "icon": "fork.knife",
+      "colorHex": "#F97316",
+      "kind": "Expense"
+    },
+    {
+      "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2",
+      "name": "Salary",
+      "icon": "banknote",
+      "colorHex": "#10B981",
+      "kind": null
+    }
+  ],
+  "tags": [
+    {
+      "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1",
+      "name": "shared"
+    },
+    {
+      "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb2",
+      "name": "reimbursement"
+    }
+  ],
+  "transactions": [
+    {
+      "id": "55555555-5555-5555-5555-555555555551",
+      "amount": 1000,
+      "currencyCode": "HKD",
+      "date": "2026-02-01T09:00:00Z",
+      "note": "February salary",
+      "type": "Income",
+      "linkedTransactionID": null,
+      "transferGroupID": null,
+      "transferSide": null,
+      "photoPath": null,
+      "createdAt": "2026-02-01T09:00:00Z",
+      "updatedAt": "2026-02-01T09:00:00Z",
+      "accountID": "33333333-3333-3333-3333-333333333333",
+      "categoryID": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2",
+      "tagIDs": []
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555552",
+      "amount": -50,
+      "currencyCode": "HKD",
+      "date": "2026-02-10T12:00:00Z",
+      "note": "Dinner split (自己份額)",
+      "type": "Expense",
+      "linkedTransactionID": null,
+      "transferGroupID": null,
+      "transferSide": null,
+      "photoPath": null,
+      "createdAt": "2026-02-10T12:00:00Z",
+      "updatedAt": "2026-02-10T12:00:00Z",
+      "accountID": "11111111-1111-1111-1111-111111111111",
+      "categoryID": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1",
+      "tagIDs": [
+        "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1"
+      ]
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555553",
+      "amount": -50,
+      "currencyCode": "HKD",
+      "date": "2026-02-10T12:00:00Z",
+      "note": "Dinner split (代墊給 Friend A)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555554",
+      "transferGroupID": "66666666-6666-6666-6666-666666666661",
+      "transferSide": "Outgoing",
+      "photoPath": null,
+      "createdAt": "2026-02-10T12:00:00Z",
+      "updatedAt": "2026-02-10T12:00:00Z",
+      "accountID": "11111111-1111-1111-1111-111111111111",
+      "categoryID": null,
+      "tagIDs": []
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555554",
+      "amount": 50,
+      "currencyCode": "HKD",
+      "date": "2026-02-10T12:00:00Z",
+      "note": "Dinner split (來自 Cash Wallet)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555553",
+      "transferGroupID": "66666666-6666-6666-6666-666666666661",
+      "transferSide": "Incoming",
+      "photoPath": null,
+      "createdAt": "2026-02-10T12:00:00Z",
+      "updatedAt": "2026-02-10T12:00:00Z",
+      "accountID": "22222222-2222-2222-2222-222222222221",
+      "categoryID": null,
+      "tagIDs": []
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555555",
+      "amount": -50,
+      "currencyCode": "HKD",
+      "date": "2026-02-10T12:00:00Z",
+      "note": "Dinner split (代墊給 Friend B)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555556",
+      "transferGroupID": "66666666-6666-6666-6666-666666666662",
+      "transferSide": "Outgoing",
+      "photoPath": null,
+      "createdAt": "2026-02-10T12:00:00Z",
+      "updatedAt": "2026-02-10T12:00:00Z",
+      "accountID": "11111111-1111-1111-1111-111111111111",
+      "categoryID": null,
+      "tagIDs": []
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555556",
+      "amount": 50,
+      "currencyCode": "HKD",
+      "date": "2026-02-10T12:00:00Z",
+      "note": "Dinner split (來自 Cash Wallet)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555555",
+      "transferGroupID": "66666666-6666-6666-6666-666666666662",
+      "transferSide": "Incoming",
+      "photoPath": null,
+      "createdAt": "2026-02-10T12:00:00Z",
+      "updatedAt": "2026-02-10T12:00:00Z",
+      "accountID": "22222222-2222-2222-2222-222222222222",
+      "categoryID": null,
+      "tagIDs": []
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555557",
+      "amount": -40,
+      "currencyCode": "HKD",
+      "date": "2026-02-15T08:30:00Z",
+      "note": "Taxi (代墊給我 Cash Wallet)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555558",
+      "transferGroupID": "66666666-6666-6666-6666-666666666663",
+      "transferSide": "Outgoing",
+      "photoPath": null,
+      "createdAt": "2026-02-15T08:30:00Z",
+      "updatedAt": "2026-02-15T08:30:00Z",
+      "accountID": "22222222-2222-2222-2222-222222222221",
+      "categoryID": null,
+      "tagIDs": []
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555558",
+      "amount": 40,
+      "currencyCode": "HKD",
+      "date": "2026-02-15T08:30:00Z",
+      "note": "Taxi (來自 Friend A)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555557",
+      "transferGroupID": "66666666-6666-6666-6666-666666666663",
+      "transferSide": "Incoming",
+      "photoPath": null,
+      "createdAt": "2026-02-15T08:30:00Z",
+      "updatedAt": "2026-02-15T08:30:00Z",
+      "accountID": "11111111-1111-1111-1111-111111111111",
+      "categoryID": null,
+      "tagIDs": []
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555559",
+      "amount": -20,
+      "currencyCode": "HKD",
+      "date": "2026-02-18T19:00:00Z",
+      "note": "Dinner split (還款至 Pocket Cash)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555560",
+      "transferGroupID": "66666666-6666-6666-6666-666666666664",
+      "transferSide": "Outgoing",
+      "photoPath": null,
+      "createdAt": "2026-02-18T19:00:00Z",
+      "updatedAt": "2026-02-18T19:00:00Z",
+      "accountID": "22222222-2222-2222-2222-222222222221",
+      "categoryID": null,
+      "tagIDs": []
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555560",
+      "amount": 20,
+      "currencyCode": "HKD",
+      "date": "2026-02-18T19:00:00Z",
+      "note": "Dinner split (來自 Friend A)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555559",
+      "transferGroupID": "66666666-6666-6666-6666-666666666664",
+      "transferSide": "Incoming",
+      "photoPath": null,
+      "createdAt": "2026-02-18T19:00:00Z",
+      "updatedAt": "2026-02-18T19:00:00Z",
+      "accountID": "44444444-4444-4444-4444-444444444444",
+      "categoryID": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1",
+      "tagIDs": [
+        "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb2"
+      ]
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555561",
+      "amount": -30,
+      "currencyCode": "HKD",
+      "date": "2026-02-20T10:00:00Z",
+      "note": "Dinner split (還款至 HSBC)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555562",
+      "transferGroupID": "66666666-6666-6666-6666-666666666665",
+      "transferSide": "Outgoing",
+      "photoPath": null,
+      "createdAt": "2026-02-20T10:00:00Z",
+      "updatedAt": "2026-02-20T10:00:00Z",
+      "accountID": "22222222-2222-2222-2222-222222222221",
+      "categoryID": null,
+      "tagIDs": []
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555562",
+      "amount": 30,
+      "currencyCode": "HKD",
+      "date": "2026-02-20T10:00:00Z",
+      "note": "Dinner split (來自 Friend A)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555561",
+      "transferGroupID": "66666666-6666-6666-6666-666666666665",
+      "transferSide": "Incoming",
+      "photoPath": null,
+      "createdAt": "2026-02-20T10:00:00Z",
+      "updatedAt": "2026-02-20T10:00:00Z",
+      "accountID": "33333333-3333-3333-3333-333333333333",
+      "categoryID": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1",
+      "tagIDs": [
+        "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb2"
+      ]
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555563",
+      "amount": -20,
+      "currencyCode": "HKD",
+      "date": "2026-02-22T21:00:00Z",
+      "note": "Taxi (還款給 Friend A)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555564",
+      "transferGroupID": "66666666-6666-6666-6666-666666666666",
+      "transferSide": "Outgoing",
+      "photoPath": null,
+      "createdAt": "2026-02-22T21:00:00Z",
+      "updatedAt": "2026-02-22T21:00:00Z",
+      "accountID": "44444444-4444-4444-4444-444444444444",
+      "categoryID": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1",
+      "tagIDs": [
+        "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb2"
+      ]
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555564",
+      "amount": 20,
+      "currencyCode": "HKD",
+      "date": "2026-02-22T21:00:00Z",
+      "note": "Taxi (來自 Pocket Cash)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555563",
+      "transferGroupID": "66666666-6666-6666-6666-666666666666",
+      "transferSide": "Incoming",
+      "photoPath": null,
+      "createdAt": "2026-02-22T21:00:00Z",
+      "updatedAt": "2026-02-22T21:00:00Z",
+      "accountID": "22222222-2222-2222-2222-222222222221",
+      "categoryID": null,
+      "tagIDs": []
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555565",
+      "amount": -20,
+      "currencyCode": "HKD",
+      "date": "2026-02-23T21:00:00Z",
+      "note": "Taxi (還款給 Friend A)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555566",
+      "transferGroupID": "66666666-6666-6666-6666-666666666667",
+      "transferSide": "Outgoing",
+      "photoPath": null,
+      "createdAt": "2026-02-23T21:00:00Z",
+      "updatedAt": "2026-02-23T21:00:00Z",
+      "accountID": "33333333-3333-3333-3333-333333333333",
+      "categoryID": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1",
+      "tagIDs": [
+        "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb2"
+      ]
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555566",
+      "amount": 20,
+      "currencyCode": "HKD",
+      "date": "2026-02-23T21:00:00Z",
+      "note": "Taxi (來自 HSBC)",
+      "type": "Transfer",
+      "linkedTransactionID": "55555555-5555-5555-5555-555555555565",
+      "transferGroupID": "66666666-6666-6666-6666-666666666667",
+      "transferSide": "Incoming",
+      "photoPath": null,
+      "createdAt": "2026-02-23T21:00:00Z",
+      "updatedAt": "2026-02-23T21:00:00Z",
+      "accountID": "22222222-2222-2222-2222-222222222221",
+      "categoryID": null,
+      "tagIDs": []
+    }
+  ],
+  "shortcuts": [],
+  "budgets": [
+    {
+      "id": "77777777-7777-7777-7777-777777777771",
+      "monthKey": "2026-02",
+      "amount": 800,
+      "currencyCode": "HKD",
+      "isEnabled": null,
+      "categoryID": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1",
+      "createdAt": "2026-02-01T00:00:00Z",
+      "updatedAt": "2026-02-01T00:00:00Z"
+    }
+  ],
+  "advanceCases": [
+    {
+      "id": "88888888-8888-8888-8888-888888888881",
+      "title": "Dinner split",
+      "date": "2026-02-10T12:00:00Z",
+      "currencyCode": "HKD",
+      "myShareAmount": 50,
+      "note": "Shared dinner",
+      "selfExpenseTransactionID": "55555555-5555-5555-5555-555555555552",
+      "payerAccountID": "11111111-1111-1111-1111-111111111111",
+      "expenseCategoryID": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1",
+      "createdAt": "2026-02-10T12:00:00Z",
+      "updatedAt": "2026-02-20T10:00:00Z"
+    },
+    {
+      "id": "88888888-8888-8888-8888-888888888882",
+      "title": "Taxi",
+      "date": "2026-02-15T08:30:00Z",
+      "currencyCode": "HKD",
+      "myShareAmount": null,
+      "note": "Friend paid first",
+      "selfExpenseTransactionID": null,
+      "payerAccountID": "11111111-1111-1111-1111-111111111111",
+      "expenseCategoryID": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1",
+      "createdAt": "2026-02-15T08:30:00Z",
+      "updatedAt": "2026-02-23T21:00:00Z"
+    }
+  ],
+  "advanceParticipants": [
+    {
+      "id": "99999999-9999-9999-9999-999999999991",
+      "name": "Friend A",
+      "owedAmount": 50,
+      "repaidAmount": 50,
+      "initialTransferGroupID": "66666666-6666-6666-6666-666666666661",
+      "advanceCaseID": "88888888-8888-8888-8888-888888888881",
+      "debtAccountID": "22222222-2222-2222-2222-222222222221",
+      "createdAt": "2026-02-10T12:00:00Z",
+      "updatedAt": "2026-02-20T10:00:00Z"
+    },
+    {
+      "id": "99999999-9999-9999-9999-999999999992",
+      "name": "Friend B",
+      "owedAmount": 50,
+      "repaidAmount": null,
+      "initialTransferGroupID": "66666666-6666-6666-6666-666666666662",
+      "advanceCaseID": "88888888-8888-8888-8888-888888888881",
+      "debtAccountID": "22222222-2222-2222-2222-222222222222",
+      "createdAt": "2026-02-10T12:00:00Z",
+      "updatedAt": "2026-02-10T12:00:00Z"
+    },
+    {
+      "id": "99999999-9999-9999-9999-999999999993",
+      "name": "Friend A",
+      "owedAmount": 40,
+      "repaidAmount": 40,
+      "initialTransferGroupID": "66666666-6666-6666-6666-666666666663",
+      "advanceCaseID": "88888888-8888-8888-8888-888888888882",
+      "debtAccountID": "22222222-2222-2222-2222-222222222221",
+      "createdAt": "2026-02-15T08:30:00Z",
+      "updatedAt": "2026-02-23T21:00:00Z"
+    }
+  ],
+  "advanceRepayments": [
+    {
+      "id": "10101010-1010-1010-1010-101010101011",
+      "amount": 20,
+      "currencyCode": "HKD",
+      "normalizedAmount": null,
+      "date": "2026-02-18T19:00:00Z",
+      "note": "Part 1",
+      "linkedTransferGroupID": "66666666-6666-6666-6666-666666666664",
+      "advanceCaseID": "88888888-8888-8888-8888-888888888881",
+      "participantID": "99999999-9999-9999-9999-999999999991",
+      "receivedAccountID": "44444444-4444-4444-4444-444444444444",
+      "createdAt": "2026-02-18T19:00:00Z"
+    },
+    {
+      "id": "10101010-1010-1010-1010-101010101012",
+      "amount": 30,
+      "currencyCode": "HKD",
+      "normalizedAmount": 30,
+      "date": "2026-02-20T10:00:00Z",
+      "note": "Part 2",
+      "linkedTransferGroupID": "66666666-6666-6666-6666-666666666665",
+      "advanceCaseID": "88888888-8888-8888-8888-888888888881",
+      "participantID": "99999999-9999-9999-9999-999999999991",
+      "receivedAccountID": "33333333-3333-3333-3333-333333333333",
+      "createdAt": "2026-02-20T10:00:00Z"
+    },
+    {
+      "id": "10101010-1010-1010-1010-101010101013",
+      "amount": 20,
+      "currencyCode": "HKD",
+      "normalizedAmount": 20,
+      "date": "2026-02-22T21:00:00Z",
+      "note": "Pocket leg",
+      "linkedTransferGroupID": "66666666-6666-6666-6666-666666666666",
+      "advanceCaseID": "88888888-8888-8888-8888-888888888882",
+      "participantID": "99999999-9999-9999-9999-999999999993",
+      "receivedAccountID": "44444444-4444-4444-4444-444444444444",
+      "createdAt": "2026-02-22T21:00:00Z"
+    },
+    {
+      "id": "10101010-1010-1010-1010-101010101014",
+      "amount": 20,
+      "currencyCode": "HKD",
+      "normalizedAmount": 20,
+      "date": "2026-02-23T21:00:00Z",
+      "note": "Bank leg",
+      "linkedTransferGroupID": "66666666-6666-6666-6666-666666666667",
+      "advanceCaseID": "88888888-8888-8888-8888-888888888882",
+      "participantID": "99999999-9999-9999-9999-999999999993",
+      "receivedAccountID": "33333333-3333-3333-3333-333333333333",
+      "createdAt": "2026-02-23T21:00:00Z"
+    }
+  ]
+}
