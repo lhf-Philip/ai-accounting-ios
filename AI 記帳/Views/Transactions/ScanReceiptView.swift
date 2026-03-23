@@ -1,8 +1,10 @@
 import SwiftUI
 import PhotosUI
+import SwiftData
 
 struct ScanReceiptView: View {
     @Environment(\.dismiss) private var dismiss
+    @Query(sort: \Category.name) private var categories: [Category]
     
     // 狀態
     @State private var selectedItem: PhotosPickerItem?
@@ -122,7 +124,12 @@ struct ScanReceiptView: View {
         
         Task {
             do {
-                let result = try await GeminiService.shared.analyzeReceipt(image: image, userNote: userNote)
+                let categoryNames = categories.map(\.name)
+                let result = try await GeminiService.shared.analyzeReceipt(
+                    image: image,
+                    userNote: userNote,
+                    categoryCandidates: categoryNames
+                )
                 DispatchQueue.main.async {
                     self.scannedInfo = result
                     self.isAnalyzing = false

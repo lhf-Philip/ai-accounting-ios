@@ -6,6 +6,7 @@ struct ReceiptInfo: Codable {
     let amount: Decimal
     let currency: String
     let date: String
+    let time: String?
     let merchant: String
     let categoryName: String
     let note: String
@@ -41,7 +42,11 @@ class GeminiService {
     
     private init() {}
     
-    func analyzeReceipt(image: UIImage, userNote: String) async throws -> ReceiptInfo {
+    func analyzeReceipt(
+        image: UIImage,
+        userNote: String,
+        categoryCandidates: [String]
+    ) async throws -> ReceiptInfo {
         // 1. 檢查 Key
         guard !apiKey.isEmpty else {
             throw NSError(domain: "Gemini", code: 401, userInfo: [NSLocalizedDescriptionKey: "未設定 API Key。"])
@@ -56,19 +61,25 @@ class GeminiService {
         }
         
         // 4. Prompt 設定
+        let categoryList = categoryCandidates.isEmpty ? "無可用分類，請回傳「未分類」" : categoryCandidates.joined(separator: ", ")
+
         let prompt = """
         You are an AI assistant for a personal finance app. 
         Analyze the attached receipt image and the user's specific instruction: "\(userNote)".
+        Available user categories (must prioritize from this list): \(categoryList)
         
         Task:
         1. Identify the Merchant Name. (Translate to Traditional Chinese 繁體中文 if possible).
         2. Identify the Date (Format: YYYY-MM-DD). If year is missing, assume current year.
-        3. Calculate the Total Amount relevant to the user. 
+        3. Identify the Time (Format: HH:mm, 24-hour). If missing, return null.
+        4. Calculate the Total Amount relevant to the user. 
            - IF the user note says "split bill" or specific items, ONLY sum up those items.
            - IF the user note is empty, take the receipt grand total.
-        4. Suggest a Category (e.g., 餐飲, 交通, 購物, 娛樂, 超市, 醫療, 薪水).
-        5. Currency: Try to detect currency code (HKD, USD, TWD, JPY, CNY), default to HKD if unknown.
-        6. Note: Summarize what was bought or the user's note.
+        5. Suggest a Category.
+           - MUST choose the closest one from the provided category list when possible.
+           - If none is suitable, return "未分類".
+        6. Currency: Try to detect currency code (HKD, USD, TWD, JPY, CNY), default to HKD if unknown.
+        7. Note: Summarize what was bought or the user's note.
         
         IMPORTANT LANGUAGE REQUIREMENT:
         - The fields 'merchant', 'categoryName', and 'note' MUST be in Traditional Chinese (繁體中文).
@@ -81,6 +92,7 @@ class GeminiService {
             "amount": 100.5,
             "currency": "HKD",
             "date": "2024-01-01",
+            "time": "13:45",
             "merchant": "麥當勞",
             "categoryName": "餐飲",
             "note": "午餐"

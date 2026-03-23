@@ -32,7 +32,7 @@ struct ScannedResultView: View {
                     TextField("金額", text: $amountString)
                         .keyboardType(.decimalPad)
                 }
-                DatePicker("日期", selection: $date)
+                DatePicker("日期時間", selection: $date, displayedComponents: [.date, .hourAndMinute])
                 TextField("商戶/備註", text: $note)
             }
             
@@ -75,15 +75,10 @@ struct ScannedResultView: View {
             amountString = "\(info.amount)"
             note = "\(info.merchant) - \(info.note)"
             
-            // 嘗試解析日期
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            if let dateObj = formatter.date(from: info.date) {
-                date = dateObj
-            }
+            date = parseDateTime(info: info) ?? Date()
             
             // 嘗試自動匹配分類
-            if let match = expenseCategories.first(where: { $0.name == info.categoryName }) {
+            if let match = matchCategory(named: info.categoryName) {
                 selectedCategory = match
             }
             
@@ -147,5 +142,68 @@ struct ScannedResultView: View {
     
     private var expenseCategories: [Category] {
         categories.filter { $0.kind.supports(.expense) }
+    }
+
+    private func parseDateTime(info: ReceiptInfo) -> Date? {
+        let rawDate = info.date.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawTime = info.time?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let dateTimeFormats = [
+            "yyyy-MM-dd HH:mm",
+            "yyyy/MM/dd HH:mm",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm"
+        ]
+        for format in dateTimeFormats {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = format
+            if let parsed = formatter.date(from: rawDate) {
+                return parsed
+            }
+        }
+
+        let dateFormats = ["yyyy-MM-dd", "yyyy/MM/dd"]
+        for format in dateFormats {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = format
+            if let parsedDate = formatter.date(from: rawDate) {
+                guard let rawTime, !rawTime.isEmpty else { return parsedDate }
+
+                let timeFormatter = DateFormatter()
+                timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+                timeFormatter.dateFormat = "HH:mm"
+                if let parsedTime = timeFormatter.date(from: rawTime) {
+                    let calendar = Calendar.current
+                    let dateComponents = calendar.dateComponents([.year, .month, .day], from: parsedDate)
+                    let timeComponents = calendar.dateComponents([.hour, .minute], from: parsedTime)
+                    return calendar.date(from: DateComponents(
+                        year: dateComponents.year,
+                        month: dateComponents.month,
+                        day: dateComponents.day,
+                        hour: timeComponents.hour,
+                        minute: timeComponents.minute
+                    ))
+                }
+                return parsedDate
+            }
+        }
+
+        return nil
+    }
+
+    private func matchCategory(named name: String) -> Category? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let exact = expenseCategories.first(where: { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return exact
+        }
+
+        return expenseCategories.first(where: { category in
+            category.name.localizedCaseInsensitiveContains(trimmed)
+                || trimmed.localizedCaseInsensitiveContains(category.name)
+        })
     }
 }

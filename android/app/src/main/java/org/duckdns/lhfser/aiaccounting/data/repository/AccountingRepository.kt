@@ -310,7 +310,8 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
         payerAccount: AccountEntity,
         expenseCategory: CategoryEntity?,
         tagIds: List<UUID>,
-        participants: List<AdvanceParticipantInput>
+        participants: List<AdvanceParticipantInput>,
+        isBorrowedByMe: Boolean = false
     ): UUID {
         val now = Instant.now()
         val caseId = UUID.randomUUID()
@@ -388,8 +389,43 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
                 )
             )
 
-            transferEntities.add(
-                TransactionEntity(
+            val outTx: TransactionEntity
+            val inTx: TransactionEntity
+            if (isBorrowedByMe) {
+                outTx = TransactionEntity(
+                    id = outId,
+                    amount = input.owedAmount.abs().negate(),
+                    currencyCode = currencyCode,
+                    date = date,
+                    note = "$transferMemo (代墊給我 ${payerAccount.name})",
+                    photoPath = null,
+                    type = TransactionType.Transfer,
+                    linkedTransactionId = inId,
+                    transferGroupId = transferGroupId,
+                    transferSide = TransferSide.Outgoing,
+                    createdAt = now,
+                    updatedAt = now,
+                    accountId = input.debtAccount.id,
+                    categoryId = null
+                )
+                inTx = TransactionEntity(
+                    id = inId,
+                    amount = input.owedAmount.abs(),
+                    currencyCode = currencyCode,
+                    date = date,
+                    note = "$transferMemo (來自 ${input.debtAccount.name})",
+                    photoPath = null,
+                    type = TransactionType.Transfer,
+                    linkedTransactionId = outId,
+                    transferGroupId = transferGroupId,
+                    transferSide = TransferSide.Incoming,
+                    createdAt = now,
+                    updatedAt = now,
+                    accountId = payerAccount.id,
+                    categoryId = null
+                )
+            } else {
+                outTx = TransactionEntity(
                     id = outId,
                     amount = input.owedAmount.abs().negate(),
                     currencyCode = currencyCode,
@@ -405,10 +441,7 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
                     accountId = payerAccount.id,
                     categoryId = null
                 )
-            )
-
-            transferEntities.add(
-                TransactionEntity(
+                inTx = TransactionEntity(
                     id = inId,
                     amount = input.owedAmount.abs(),
                     currencyCode = currencyCode,
@@ -424,7 +457,9 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
                     accountId = input.debtAccount.id,
                     categoryId = null
                 )
-            )
+            }
+            transferEntities.add(outTx)
+            transferEntities.add(inTx)
         }
 
         advanceDao.upsertParticipants(participantEntities)
@@ -442,7 +477,8 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
         note: String,
         receiveAccount: AccountEntity,
         category: CategoryEntity?,
-        tagIds: List<UUID>
+        tagIds: List<UUID>,
+        isBorrowedByMe: Boolean = false
     ) {
         val now = Instant.now()
         val normalized = normalizedAmount.abs()
@@ -452,44 +488,83 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
 
         val transferMemo = note.trim().ifBlank { advanceCase.title }
 
-        val outTx = TransactionEntity(
-            id = outId,
-            amount = amount.abs().negate(),
-            currencyCode = currencyCode,
-            date = date,
-            note = "$transferMemo (還款給 ${receiveAccount.name})",
-            photoPath = null,
-            type = TransactionType.Transfer,
-            linkedTransactionId = inId,
-            transferGroupId = transferGroupId,
-            transferSide = TransferSide.Outgoing,
-            createdAt = now,
-            updatedAt = now,
-            accountId = participant.debtAccountId,
-            categoryId = null
-        )
-
-        val inTx = TransactionEntity(
-            id = inId,
-            amount = amount.abs(),
-            currencyCode = currencyCode,
-            date = date,
-            note = "$transferMemo (來自 ${participant.name})",
-            photoPath = null,
-            type = TransactionType.Transfer,
-            linkedTransactionId = outId,
-            transferGroupId = transferGroupId,
-            transferSide = TransferSide.Incoming,
-            createdAt = now,
-            updatedAt = now,
-            accountId = receiveAccount.id,
-            categoryId = category?.id
-        )
+        val outTx: TransactionEntity
+        val inTx: TransactionEntity
+        val taggedTxId: UUID
+        if (isBorrowedByMe) {
+            outTx = TransactionEntity(
+                id = outId,
+                amount = amount.abs().negate(),
+                currencyCode = currencyCode,
+                date = date,
+                note = "$transferMemo (還款給 ${participant.name})",
+                photoPath = null,
+                type = TransactionType.Transfer,
+                linkedTransactionId = inId,
+                transferGroupId = transferGroupId,
+                transferSide = TransferSide.Outgoing,
+                createdAt = now,
+                updatedAt = now,
+                accountId = receiveAccount.id,
+                categoryId = category?.id
+            )
+            inTx = TransactionEntity(
+                id = inId,
+                amount = amount.abs(),
+                currencyCode = currencyCode,
+                date = date,
+                note = "$transferMemo (來自 ${receiveAccount.name})",
+                photoPath = null,
+                type = TransactionType.Transfer,
+                linkedTransactionId = outId,
+                transferGroupId = transferGroupId,
+                transferSide = TransferSide.Incoming,
+                createdAt = now,
+                updatedAt = now,
+                accountId = participant.debtAccountId,
+                categoryId = null
+            )
+            taggedTxId = outId
+        } else {
+            outTx = TransactionEntity(
+                id = outId,
+                amount = amount.abs().negate(),
+                currencyCode = currencyCode,
+                date = date,
+                note = "$transferMemo (還款至 ${receiveAccount.name})",
+                photoPath = null,
+                type = TransactionType.Transfer,
+                linkedTransactionId = inId,
+                transferGroupId = transferGroupId,
+                transferSide = TransferSide.Outgoing,
+                createdAt = now,
+                updatedAt = now,
+                accountId = participant.debtAccountId,
+                categoryId = null
+            )
+            inTx = TransactionEntity(
+                id = inId,
+                amount = amount.abs(),
+                currencyCode = currencyCode,
+                date = date,
+                note = "$transferMemo (來自 ${participant.name})",
+                photoPath = null,
+                type = TransactionType.Transfer,
+                linkedTransactionId = outId,
+                transferGroupId = transferGroupId,
+                transferSide = TransferSide.Incoming,
+                createdAt = now,
+                updatedAt = now,
+                accountId = receiveAccount.id,
+                categoryId = category?.id
+            )
+            taggedTxId = inId
+        }
 
         transactionDao.upsertAll(listOf(outTx, inTx))
         if (tagIds.isNotEmpty()) {
             transactionDao.insertTransactionTags(
-                tagIds.map { tagId -> TransactionTagCrossRef(inId, tagId) }
+                tagIds.map { tagId -> TransactionTagCrossRef(taggedTxId, tagId) }
             )
         }
 

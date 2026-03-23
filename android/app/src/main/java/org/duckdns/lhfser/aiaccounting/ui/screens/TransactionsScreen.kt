@@ -1,6 +1,7 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
 import android.app.DatePickerDialog
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.ExperimentalFoundationApi
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
@@ -394,7 +396,7 @@ private fun TransactionRow(
     val amountColor = when (item.transaction.type) {
         TransactionType.Income -> Color(0xFF2E7D32)
         TransactionType.Expense -> Color(0xFFC62828)
-        TransactionType.Transfer -> MaterialTheme.colorScheme.onSurface
+        TransactionType.Transfer -> transferTintForNote(item.transaction.note)
     }
     val amountText = item.transaction.amount.asCurrencyText(item.transaction.currencyCode)
     val categoryText = item.category?.name ?: "未分類"
@@ -466,7 +468,9 @@ private fun ShortcutsBar(
 @Composable
 private fun AddShortcutTile(onClick: () -> Unit) {
     PressableCard(
-        modifier = Modifier.size(68.dp),
+        modifier = Modifier
+            .width(72.dp)
+            .padding(vertical = 2.dp),
         onClick = onClick,
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
         pressedContainerColor = MaterialTheme.colorScheme.surface,
@@ -474,7 +478,9 @@ private fun AddShortcutTile(onClick: () -> Unit) {
         pressedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
     ) {
         Column(
-            modifier = Modifier.padding(8.dp),
+            modifier = Modifier
+                .padding(horizontal = 8.dp, vertical = 10.dp)
+                .fillMaxWidth(),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -525,11 +531,31 @@ private fun ShortcutTile(
                 onClick = onEdit,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .size(24.dp)
+                    .size(22.dp)
             ) {
-                Icon(Icons.Default.Edit, contentDescription = "編輯", modifier = Modifier.size(16.dp))
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = "編輯", modifier = Modifier.size(12.dp))
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun transferTintForNote(note: String): Color {
+    val compact = note.replace(" ", "")
+    return when {
+        compact.contains("(代墊給") || compact.contains("(代墊給我") -> Color(0xFFEF6C00)
+        compact.contains("(還款至") || compact.contains("(還款給") -> Color(0xFF00897B)
+        else -> MaterialTheme.colorScheme.onSurface
     }
 }
 

@@ -49,6 +49,11 @@ enum AdvanceServiceError: LocalizedError {
 }
 
 enum AdvanceService {
+    enum SettlementDirection {
+        case iAdvancedOthers
+        case othersAdvancedMe
+    }
+
     struct ParticipantInput {
         let debtAccount: Account
         let owedAmount: Decimal
@@ -97,6 +102,7 @@ enum AdvanceService {
         category: Category?,
         tags: [Tag],
         participants: [ParticipantInput],
+        isBorrowedByMe: Bool = false,
         modelContext: ModelContext
     ) throws -> AdvanceCase {
         guard payerAccount.type != .debt else {
@@ -175,32 +181,63 @@ enum AdvanceService {
                 debtAccount: input.debtAccount
             )
             modelContext.insert(participant)
-            
-            let outTx = FinancialTransaction(
-                id: outID,
-                amount: -abs(input.owedAmount),
-                currencyCode: currencyCode,
-                date: date,
-                note: "\(transferMemo) (代墊給 \(input.debtAccount.name))",
-                type: .transfer,
-                linkedTransactionID: inID,
-                transferGroupID: transferGroupID,
-                transferSide: .outgoing,
-                account: payerAccount
-            )
-            
-            let inTx = FinancialTransaction(
-                id: inID,
-                amount: abs(input.owedAmount),
-                currencyCode: currencyCode,
-                date: date,
-                note: "\(transferMemo) (來自 \(payerAccount.name))",
-                type: .transfer,
-                linkedTransactionID: outID,
-                transferGroupID: transferGroupID,
-                transferSide: .incoming,
-                account: input.debtAccount
-            )
+
+            let outTx: FinancialTransaction
+            let inTx: FinancialTransaction
+
+            if isBorrowedByMe {
+                outTx = FinancialTransaction(
+                    id: outID,
+                    amount: -abs(input.owedAmount),
+                    currencyCode: currencyCode,
+                    date: date,
+                    note: "\(transferMemo) (代墊給我 \(payerAccount.name))",
+                    type: .transfer,
+                    linkedTransactionID: inID,
+                    transferGroupID: transferGroupID,
+                    transferSide: .outgoing,
+                    account: input.debtAccount
+                )
+
+                inTx = FinancialTransaction(
+                    id: inID,
+                    amount: abs(input.owedAmount),
+                    currencyCode: currencyCode,
+                    date: date,
+                    note: "\(transferMemo) (來自 \(input.debtAccount.name))",
+                    type: .transfer,
+                    linkedTransactionID: outID,
+                    transferGroupID: transferGroupID,
+                    transferSide: .incoming,
+                    account: payerAccount
+                )
+            } else {
+                outTx = FinancialTransaction(
+                    id: outID,
+                    amount: -abs(input.owedAmount),
+                    currencyCode: currencyCode,
+                    date: date,
+                    note: "\(transferMemo) (代墊給 \(input.debtAccount.name))",
+                    type: .transfer,
+                    linkedTransactionID: inID,
+                    transferGroupID: transferGroupID,
+                    transferSide: .outgoing,
+                    account: payerAccount
+                )
+
+                inTx = FinancialTransaction(
+                    id: inID,
+                    amount: abs(input.owedAmount),
+                    currencyCode: currencyCode,
+                    date: date,
+                    note: "\(transferMemo) (來自 \(payerAccount.name))",
+                    type: .transfer,
+                    linkedTransactionID: outID,
+                    transferGroupID: transferGroupID,
+                    transferSide: .incoming,
+                    account: input.debtAccount
+                )
+            }
             
             modelContext.insert(outTx)
             modelContext.insert(inTx)
@@ -222,6 +259,7 @@ enum AdvanceService {
         category: Category?,
         tags: [Tag],
         currencyService: CurrencyService,
+        direction: SettlementDirection? = nil,
         autosave: Bool = true,
         modelContext: ModelContext
     ) throws -> AdvanceRepayment {
@@ -254,37 +292,72 @@ enum AdvanceService {
         let outID = UUID()
         let inID = UUID()
         let transferGroupID = UUID()
-        
-        let debtOutTx = FinancialTransaction(
-            id: outID,
-            amount: -abs(amount),
-            currencyCode: currencyCode,
-            date: date,
-            note: "\(memo) (還款至 \(receiveAccount.name))",
-            type: .transfer,
-            linkedTransactionID: inID,
-            transferGroupID: transferGroupID,
-            transferSide: .outgoing,
-            account: debtAccount
-        )
-        
-        let myInTx = FinancialTransaction(
-            id: inID,
-            amount: abs(amount),
-            currencyCode: currencyCode,
-            date: date,
-            note: "\(memo) (來自 \(debtAccount.name))",
-            type: .transfer,
-            linkedTransactionID: outID,
-            transferGroupID: transferGroupID,
-            transferSide: .incoming,
-            account: receiveAccount,
-            category: category,
-            tags: tags
-        )
-        
-        modelContext.insert(debtOutTx)
-        modelContext.insert(myInTx)
+
+        let settlementDirection = direction ?? inferSettlementDirection(for: participant, modelContext: modelContext)
+        let outTx: FinancialTransaction
+        let inTx: FinancialTransaction
+
+        switch settlementDirection {
+        case .iAdvancedOthers:
+            outTx = FinancialTransaction(
+                id: outID,
+                amount: -abs(amount),
+                currencyCode: currencyCode,
+                date: date,
+                note: "\(memo) (還款至 \(receiveAccount.name))",
+                type: .transfer,
+                linkedTransactionID: inID,
+                transferGroupID: transferGroupID,
+                transferSide: .outgoing,
+                account: debtAccount
+            )
+
+            inTx = FinancialTransaction(
+                id: inID,
+                amount: abs(amount),
+                currencyCode: currencyCode,
+                date: date,
+                note: "\(memo) (來自 \(debtAccount.name))",
+                type: .transfer,
+                linkedTransactionID: outID,
+                transferGroupID: transferGroupID,
+                transferSide: .incoming,
+                account: receiveAccount,
+                category: category,
+                tags: tags
+            )
+        case .othersAdvancedMe:
+            outTx = FinancialTransaction(
+                id: outID,
+                amount: -abs(amount),
+                currencyCode: currencyCode,
+                date: date,
+                note: "\(memo) (還款給 \(debtAccount.name))",
+                type: .transfer,
+                linkedTransactionID: inID,
+                transferGroupID: transferGroupID,
+                transferSide: .outgoing,
+                account: receiveAccount,
+                category: category,
+                tags: tags
+            )
+
+            inTx = FinancialTransaction(
+                id: inID,
+                amount: abs(amount),
+                currencyCode: currencyCode,
+                date: date,
+                note: "\(memo) (來自 \(receiveAccount.name))",
+                type: .transfer,
+                linkedTransactionID: outID,
+                transferGroupID: transferGroupID,
+                transferSide: .incoming,
+                account: debtAccount
+            )
+        }
+
+        modelContext.insert(outTx)
+        modelContext.insert(inTx)
         
         let repayment = AdvanceRepayment(
             amount: abs(amount),
@@ -314,6 +387,35 @@ enum AdvanceService {
             try modelContext.save()
         }
         return repayment
+    }
+
+    @MainActor
+    static func inferSettlementDirection(
+        for participant: AdvanceParticipant,
+        modelContext: ModelContext
+    ) -> SettlementDirection {
+        guard let groupID = participant.initialTransferGroupID else {
+            return .iAdvancedOthers
+        }
+
+        let descriptor = FetchDescriptor<FinancialTransaction>(
+            predicate: #Predicate { $0.transferGroupID == groupID }
+        )
+        let groupedTransfers = (try? modelContext.fetch(descriptor)) ?? []
+
+        guard let outgoing = groupedTransfers.first(where: { $0.transferSide == .outgoing || $0.amount < 0 }) else {
+            return .iAdvancedOthers
+        }
+
+        if let debtAccount = participant.debtAccount, outgoing.account?.id == debtAccount.id {
+            return .othersAdvancedMe
+        }
+
+        if outgoing.note.replacingOccurrences(of: " ", with: "").contains("(代墊給我") {
+            return .othersAdvancedMe
+        }
+
+        return .iAdvancedOthers
     }
     
     @MainActor

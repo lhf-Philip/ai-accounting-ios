@@ -330,7 +330,10 @@ struct TransactionsListView: View {
             return true
         }
         let compacted = tx.note.replacingOccurrences(of: " ", with: "")
-        return compacted.contains("(代墊給") || compacted.contains("(還款至")
+        return compacted.contains("(代墊給")
+            || compacted.contains("(代墊給我")
+            || compacted.contains("(還款至")
+            || compacted.contains("(還款給")
     }
     
     private func collapseTransferGroups(in items: [FinancialTransaction]) -> [FinancialTransaction] {
