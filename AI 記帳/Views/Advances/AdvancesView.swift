@@ -235,6 +235,7 @@ struct AdvanceCaseDetailView: View {
     @State private var showingRollbackAlert = false
     @State private var showingError = false
     @State private var errorMessage = ""
+    @State private var settlementDirection: AdvanceService.SettlementDirection = .iAdvancedOthers
     
     private var sortedParticipants: [AdvanceParticipant] {
         advanceCase.participants.sorted {
@@ -261,7 +262,7 @@ struct AdvanceCaseDetailView: View {
                     value: advanceCase.myShareAmount.formatted(.currency(code: advanceCase.currencyCode))
                 )
                 summaryRow(
-                    title: "待收總額",
+                    title: settlementDirection == .iAdvancedOthers ? "待收總額" : "待還總額",
                     value: AdvanceService.outstandingAmount(for: advanceCase).formatted(.currency(code: advanceCase.currencyCode))
                 )
                 summaryRow(
@@ -282,7 +283,7 @@ struct AdvanceCaseDetailView: View {
                 }
             }
             
-            Section("對象還款狀態") {
+            Section(settlementDirection == .iAdvancedOthers ? "對象還款狀態" : "對象欠款狀態") {
                 ForEach(sortedParticipants) { participant in
                     participantRow(participant)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -364,6 +365,16 @@ struct AdvanceCaseDetailView: View {
         } message: {
             Text(errorMessage)
         }
+        .task(id: advanceCase.updatedAt) {
+            if let participant = advanceCase.participants.first {
+                settlementDirection = AdvanceService.inferSettlementDirection(
+                    for: participant,
+                    modelContext: modelContext
+                )
+            } else {
+                settlementDirection = .iAdvancedOthers
+            }
+        }
     }
     
     private func summaryRow(title: String, value: String) -> some View {
@@ -391,11 +402,11 @@ struct AdvanceCaseDetailView: View {
             }
             
             HStack {
-                Text("欠款 \(owed.formatted(.currency(code: advanceCase.currencyCode)))")
+                Text((settlementDirection == .iAdvancedOthers ? "應還 " : "應付 ") + owed.formatted(.currency(code: advanceCase.currencyCode)))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text("已還 \(repaid.formatted(.currency(code: advanceCase.currencyCode)))")
+                Text((settlementDirection == .iAdvancedOthers ? "已還 " : "已付 ") + repaid.formatted(.currency(code: advanceCase.currencyCode)))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -405,7 +416,7 @@ struct AdvanceCaseDetailView: View {
                     Button {
                         selectedParticipantForRepayment = participant
                     } label: {
-                        Label("記錄還款", systemImage: "arrow.down.circle")
+                        Label(settlementDirection == .iAdvancedOthers ? "記錄還款" : "記錄付款", systemImage: "arrow.down.circle")
                             .font(.caption)
                     }
                     .buttonStyle(.bordered)
@@ -500,6 +511,13 @@ struct AdvanceCaseDetailView: View {
 }
 
 struct AddAdvanceCaseView: View {
+    private enum AdvanceDirection: String, CaseIterable, Identifiable {
+        case iAdvancedOthers = "我代墊他人"
+        case othersAdvancedMe = "他人代墊我"
+
+        var id: String { rawValue }
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Account.sortOrder) private var allAccounts: [Account]
@@ -515,6 +533,7 @@ struct AddAdvanceCaseView: View {
     @State private var title = ""
     @State private var date = Date()
     @State private var note = ""
+    @State private var direction: AdvanceDirection = .iAdvancedOthers
     @State private var myShareString = ""
     @State private var selectedCurrency = "HKD"
     @State private var selectedPayerAccount: Account?
@@ -523,6 +542,8 @@ struct AddAdvanceCaseView: View {
     @State private var participantDrafts: [ParticipantDraft] = [ParticipantDraft()]
     @State private var showingAddTag = false
     @State private var newTagName = ""
+    @State private var showingAddDebtAccount = false
+    @State private var newDebtAccountName = ""
     
     @State private var showingError = false
     @State private var errorMessage = ""
@@ -537,14 +558,26 @@ struct AddAdvanceCaseView: View {
         allAccounts.filter { !$0.isArchived && $0.type == .debt }
     }
     
-    private var expenseCategories: [Category] {
-        categories.filter { $0.kind.supports(.expense) }
+    private var flowCategories: [Category] {
+        switch direction {
+        case .iAdvancedOthers:
+            categories.filter { $0.kind.supports(.expense) }
+        case .othersAdvancedMe:
+            categories.filter { $0.kind.supports(.income) }
+        }
     }
     
     var body: some View {
         NavigationStack {
             Form {
                 Section("基本資訊") {
+                    Picker("方向", selection: $direction) {
+                        ForEach(AdvanceDirection.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
                     TextField("代墊名稱 (例如：聚餐 2026-03-01)", text: $title)
                     DatePicker("日期", selection: $date, displayedComponents: [.date, .hourAndMinute])
                     Picker("付款帳戶", selection: $selectedPayerAccount) {
@@ -577,9 +610,9 @@ struct AddAdvanceCaseView: View {
                     ))
                     .keyboardType(.decimalPad)
                     
-                    Picker("支出分類", selection: $selectedCategory) {
+                    Picker(direction == .iAdvancedOthers ? "支出分類" : "收入分類", selection: $selectedCategory) {
                         Text("不設定").tag(nil as Category?)
-                        ForEach(expenseCategories) { category in
+                        ForEach(flowCategories) { category in
                             Text(category.name).tag(category as Category?)
                         }
                     }
@@ -615,9 +648,9 @@ struct AddAdvanceCaseView: View {
                     }
                 }
                 
-                Section("代墊對象") {
+                Section(direction == .iAdvancedOthers ? "代墊對象" : "借款對象") {
                     if debtAccounts.isEmpty {
-                        Text("請先在「帳戶」新增類型為「借貸/債務」的對象帳戶。")
+                        Text("尚未建立借貸/債務帳戶，可在此直接新增。")
                             .font(.caption)
                             .foregroundStyle(.red)
                     } else {
@@ -653,6 +686,12 @@ struct AddAdvanceCaseView: View {
                             Label("新增對象", systemImage: "plus.circle")
                         }
                     }
+
+                    Button {
+                        showingAddDebtAccount = true
+                    } label: {
+                        Label("新增債務人物", systemImage: "person.badge.plus")
+                    }
                 }
                 
                 Section("備註") {
@@ -666,7 +705,7 @@ struct AddAdvanceCaseView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("儲存") { save() }
-                        .disabled(selectedPayerAccount == nil || debtAccounts.isEmpty)
+                        .disabled(selectedPayerAccount == nil)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -680,6 +719,15 @@ struct AddAdvanceCaseView: View {
                 Button("取消", role: .cancel) { newTagName = "" }
                 Button("新增") { createTag() }
             }
+            .alert("新增債務人物", isPresented: $showingAddDebtAccount) {
+                TextField("人物名稱", text: $newDebtAccountName)
+                Button("取消", role: .cancel) {
+                    newDebtAccountName = ""
+                }
+                Button("新增") { createDebtAccount() }
+            } message: {
+                Text("會建立一個「借貸/債務」帳戶並自動選擇。")
+            }
             .alert("無法儲存", isPresented: $showingError) {
                 Button("好", role: .cancel) {}
             } message: {
@@ -689,6 +737,11 @@ struct AddAdvanceCaseView: View {
                 if selectedPayerAccount == nil, let first = myAccounts.first {
                     selectedPayerAccount = first
                     selectedCurrency = first.currency
+                }
+            }
+            .onChange(of: direction) { _, _ in
+                if let selectedCategory, !flowCategories.contains(where: { $0.id == selectedCategory.id }) {
+                    self.selectedCategory = nil
                 }
             }
         }
@@ -739,6 +792,7 @@ struct AddAdvanceCaseView: View {
                 category: selectedCategory,
                 tags: Array(selectedTags),
                 participants: participantInputs,
+                isBorrowedByMe: direction == .othersAdvancedMe,
                 modelContext: modelContext
             )
             dismiss()
@@ -754,6 +808,43 @@ struct AddAdvanceCaseView: View {
         modelContext.insert(tag)
         selectedTags.insert(tag)
         newTagName = ""
+    }
+
+    private func createDebtAccount() {
+        let trimmed = newDebtAccountName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        if let existing = debtAccounts.first(where: { $0.name == trimmed }) {
+            autoSelectDebtAccount(existing)
+            newDebtAccountName = ""
+            return
+        }
+
+        let nextSortOrder = (allAccounts.map(\.sortOrder).max() ?? -1) + 1
+        let account = Account(
+            name: trimmed,
+            currency: selectedCurrency,
+            type: .debt,
+            baseBalance: 0,
+            sortOrder: nextSortOrder
+        )
+        modelContext.insert(account)
+        do {
+            try modelContext.save()
+        } catch {
+            showError("建立債務人物失敗：\(error.localizedDescription)")
+            return
+        }
+        autoSelectDebtAccount(account)
+        newDebtAccountName = ""
+    }
+
+    private func autoSelectDebtAccount(_ account: Account) {
+        if let index = participantDrafts.firstIndex(where: { $0.debtAccount == nil }) {
+            participantDrafts[index].debtAccount = account
+            return
+        }
+        participantDrafts.append(ParticipantDraft(debtAccount: account))
     }
     
     private func sanitizePositiveDecimalInput(_ value: String) -> String {
@@ -824,6 +915,7 @@ struct AddAdvanceRepaymentView: View {
     @State private var selectedCurrency = "HKD"
     @State private var selectedCategory: Category?
     @State private var selectedTags: Set<Tag> = []
+    @State private var settlementDirection: AdvanceService.SettlementDirection = .iAdvancedOthers
     @State private var splitLegs: [SplitLeg] = [SplitLeg()]
     @State private var mergeLegs: [MergeLeg] = [MergeLeg()]
     @State private var showingAddTag = false
@@ -843,8 +935,31 @@ struct AddAdvanceRepaymentView: View {
         participant.remainingAmount
     }
     
-    private var incomeCategories: [Category] {
-        categories.filter { $0.kind.supports(.income) }
+    private var directionalCategories: [Category] {
+        switch settlementDirection {
+        case .iAdvancedOthers:
+            return categories.filter { $0.kind.supports(.income) }
+        case .othersAdvancedMe:
+            return categories.filter { $0.kind.supports(.expense) }
+        }
+    }
+
+    private var accountLabel: String {
+        switch settlementDirection {
+        case .iAdvancedOthers:
+            return "入帳帳戶"
+        case .othersAdvancedMe:
+            return "付款帳戶"
+        }
+    }
+
+    private var categoryLabel: String {
+        switch settlementDirection {
+        case .iAdvancedOthers:
+            return "自己的入帳標記"
+        case .othersAdvancedMe:
+            return "自己的支出標記"
+        }
     }
     
     private var convertedPreview: Decimal? {
@@ -883,9 +998,9 @@ struct AddAdvanceRepaymentView: View {
                     summaryRow(title: "未還", value: remaining.formatted(.currency(code: advanceCase.currencyCode)))
                 }
                 
-                Section("入帳與金額") {
+                Section(settlementDirection == .iAdvancedOthers ? "入帳與金額" : "付款與金額") {
                     if entryMode != .split {
-                        Picker("入帳帳戶", selection: $selectedReceiveAccount) {
+                        Picker(accountLabel, selection: $selectedReceiveAccount) {
                             Text("選擇帳戶").tag(nil as Account?)
                             ForEach(receiveAccounts) { account in
                                 Text(account.name).tag(account as Account?)
@@ -923,7 +1038,7 @@ struct AddAdvanceRepaymentView: View {
                     case .split:
                         ForEach($splitLegs) { $leg in
                             VStack(spacing: 10) {
-                                Picker("入帳帳戶", selection: $leg.receiveAccount) {
+                                Picker(accountLabel, selection: $leg.receiveAccount) {
                                     Text("選擇帳戶").tag(nil as Account?)
                                     ForEach(receiveAccounts) { account in
                                         Text(account.name).tag(account as Account?)
@@ -964,7 +1079,7 @@ struct AddAdvanceRepaymentView: View {
                         Button {
                             splitLegs.append(SplitLeg(currency: selectedCurrency))
                         } label: {
-                            Label("新增分拆入帳帳戶", systemImage: "plus.circle")
+                            Label(settlementDirection == .iAdvancedOthers ? "新增分拆入帳帳戶" : "新增分拆付款帳戶", systemImage: "plus.circle")
                         }
                         
                     case .merge:
@@ -1001,10 +1116,10 @@ struct AddAdvanceRepaymentView: View {
                     }
                 }
                 
-                Section("自己的入帳標記") {
+                Section(categoryLabel) {
                     Picker("分類", selection: $selectedCategory) {
                         Text("不設定").tag(nil as Category?)
-                        ForEach(incomeCategories) { category in
+                        ForEach(directionalCategories) { category in
                             Text(category.name).tag(category as Category?)
                         }
                     }
@@ -1073,6 +1188,10 @@ struct AddAdvanceRepaymentView: View {
             }
             .onAppear {
                 Task { await currencyService.fetchRates() }
+                settlementDirection = AdvanceService.inferSettlementDirection(
+                    for: participant,
+                    modelContext: modelContext
+                )
                 if selectedReceiveAccount == nil, let first = receiveAccounts.first {
                     selectedReceiveAccount = first
                     selectedCurrency = first.currency
@@ -1090,7 +1209,7 @@ struct AddAdvanceRepaymentView: View {
             switch entryMode {
             case .normal:
                 guard let receiveAccount = selectedReceiveAccount else {
-                    showError("請選擇入帳帳戶。")
+                    showError("請選擇\(accountLabel)。")
                     return
                 }
                 guard let amount = positiveDecimal(from: amountString) else {
@@ -1135,7 +1254,7 @@ struct AddAdvanceRepaymentView: View {
                 
             case .merge:
                 guard let receiveAccount = selectedReceiveAccount else {
-                    showError("請選擇入帳帳戶。")
+                    showError("請選擇\(accountLabel)。")
                     return
                 }
                 
@@ -1236,6 +1355,7 @@ struct AddAdvanceRepaymentView: View {
             category: selectedCategory,
             tags: Array(selectedTags),
             currencyService: currencyService,
+            direction: settlementDirection,
             autosave: autosave,
             modelContext: modelContext
         )

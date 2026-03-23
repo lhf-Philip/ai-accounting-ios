@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -48,11 +49,14 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
     var type by remember { mutableStateOf(AccountType.Cash) }
     var baseBalance by remember { mutableStateOf("") }
     var isArchived by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var isEditing by remember { mutableStateOf(false) }
 
     LaunchedEffect(accountId, accounts) {
         val id = accountId?.let(UUID::fromString)
         val existing = accounts.firstOrNull { it.id == id }
         if (existing != null) {
+            isEditing = true
             name = existing.name
             currency = existing.currency
             type = existing.type
@@ -117,6 +121,40 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
         ) {
             Text("儲存")
         }
+
+        if (isEditing) {
+            TextButton(onClick = { showDeleteConfirm = true }) {
+                Text("刪除帳戶", color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("刪除帳戶？") },
+            text = { Text("刪除後無法復原。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val id = accountId?.let(UUID::fromString)
+                    val target = accounts.firstOrNull { it.id == id }
+                    showDeleteConfirm = false
+                    if (target != null) {
+                        scope.launch {
+                            repository.deleteAccount(target)
+                            onDone()
+                        }
+                    }
+                }) {
+                    Text("刪除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 

@@ -80,7 +80,6 @@ fun AdvanceDetailScreen(caseId: String?) {
     }
 
     val receiveAccounts = accounts.filter { it.type != AccountType.Debt && !it.isArchived }
-    val incomeCategories = categories.filter { it.kind.supports(TransactionType.Income) }
 
     var selectedParticipant by remember { mutableStateOf<AdvanceParticipantEntity?>(null) }
     var selectedReceiveAccount by remember { mutableStateOf<AccountEntity?>(null) }
@@ -90,6 +89,7 @@ fun AdvanceDetailScreen(caseId: String?) {
     var note by remember { mutableStateOf("") }
     var selectedCurrency by remember { mutableStateOf("HKD") }
     var mode by remember { mutableStateOf(RepaymentMode.Normal) }
+    var isBorrowedByMe by remember { mutableStateOf(false) }
     var splitLegs by remember { mutableStateOf(listOf(RepaymentSplitLeg())) }
     var mergeLegs by remember { mutableStateOf(listOf(RepaymentMergeLeg())) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -103,10 +103,33 @@ fun AdvanceDetailScreen(caseId: String?) {
 
     val caseData = advanceCase ?: return
     val caseCurrency = caseData.advanceCase.currencyCode
+    val directionalCategories = if (isBorrowedByMe) {
+        categories.filter { it.kind.supports(TransactionType.Expense) }
+    } else {
+        categories.filter { it.kind.supports(TransactionType.Income) }
+    }
+    val accountLabel = if (isBorrowedByMe) "付款帳戶" else "入帳帳戶"
 
     LaunchedEffect(caseData.participants) {
         if (selectedParticipant == null) {
             selectedParticipant = caseData.participants.firstOrNull()
+        }
+        val firstParticipant = caseData.participants.firstOrNull()
+        val groupId = firstParticipant?.initialTransferGroupId
+        if (groupId != null) {
+            val transfers = repository.getTransferGroup(groupId)
+            val outgoing = transfers.firstOrNull {
+                it.transaction.transferSide == org.duckdns.lhfser.aiaccounting.core.model.TransferSide.Outgoing ||
+                    it.transaction.amount < BigDecimal.ZERO
+            }?.transaction
+            isBorrowedByMe = when {
+                outgoing == null -> false
+                outgoing.accountId != null && outgoing.accountId == firstParticipant.debtAccountId -> true
+                outgoing.note.contains("(代墊給我") -> true
+                else -> false
+            }
+        } else {
+            isBorrowedByMe = false
         }
     }
 
@@ -125,8 +148,8 @@ fun AdvanceDetailScreen(caseId: String?) {
         }
     }
 
-    LaunchedEffect(incomeCategories) {
-        if (selectedCategory != null && incomeCategories.none { it.id == selectedCategory?.id }) {
+    LaunchedEffect(directionalCategories) {
+        if (selectedCategory != null && directionalCategories.none { it.id == selectedCategory?.id }) {
             selectedCategory = null
         }
     }
@@ -195,7 +218,7 @@ fun AdvanceDetailScreen(caseId: String?) {
 
                 if (mode != RepaymentMode.Split) {
                     AccountPicker(
-                        label = "入帳帳戶",
+                        label = accountLabel,
                         accounts = receiveAccounts,
                         selected = selectedReceiveAccount,
                         onSelect = { acc ->
@@ -220,6 +243,7 @@ fun AdvanceDetailScreen(caseId: String?) {
                             SplitLegEditor(
                                 leg = leg,
                                 accounts = receiveAccounts,
+                                accountLabel = accountLabel,
                                 onUpdate = { updated ->
                                     splitLegs = splitLegs.map { if (it.id == leg.id) updated else it }
                                 },
@@ -229,7 +253,7 @@ fun AdvanceDetailScreen(caseId: String?) {
                             )
                         }
                         TextButton(onClick = { splitLegs = splitLegs + RepaymentSplitLeg() }) {
-                            Text("新增分拆入帳帳戶")
+                            Text(if (isBorrowedByMe) "新增分拆付款帳戶" else "新增分拆入帳帳戶")
                         }
                     }
                     RepaymentMode.Merge -> {
@@ -250,7 +274,7 @@ fun AdvanceDetailScreen(caseId: String?) {
                     }
                 }
 
-                CategoryPicker(categories = incomeCategories, selected = selectedCategory) {
+                CategoryPicker(categories = directionalCategories, selected = selectedCategory) {
                     selectedCategory = it
                 }
                 TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
@@ -283,7 +307,8 @@ fun AdvanceDetailScreen(caseId: String?) {
                                         currency = selectedCurrency,
                                         note = note,
                                         category = selectedCategory,
-                                        tagIds = selectedTags.map { it.id }
+                                        tagIds = selectedTags.map { it.id },
+                                        isBorrowedByMe = isBorrowedByMe
                                     )
                                 }
                                 RepaymentMode.Split -> {
@@ -307,7 +332,8 @@ fun AdvanceDetailScreen(caseId: String?) {
                                             currency = leg.third,
                                             note = indexedNote(note, "分拆", index, legs.size),
                                             category = selectedCategory,
-                                            tagIds = selectedTags.map { it.id }
+                                            tagIds = selectedTags.map { it.id },
+                                            isBorrowedByMe = isBorrowedByMe
                                         )
                                     }
                                 }
@@ -332,7 +358,8 @@ fun AdvanceDetailScreen(caseId: String?) {
                                             currency = item.second,
                                             note = indexedNote(note, "合併", index, legs.size),
                                             category = selectedCategory,
-                                            tagIds = selectedTags.map { it.id }
+                                            tagIds = selectedTags.map { it.id },
+                                            isBorrowedByMe = isBorrowedByMe
                                         )
                                     }
                                 }
@@ -497,11 +524,12 @@ private fun TagPicker(
 private fun SplitLegEditor(
     leg: RepaymentSplitLeg,
     accounts: List<AccountEntity>,
+    accountLabel: String,
     onUpdate: (RepaymentSplitLeg) -> Unit,
     onRemove: (() -> Unit)?
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        AccountPicker(label = "入帳帳戶", accounts = accounts, selected = leg.account) { acc ->
+        AccountPicker(label = accountLabel, accounts = accounts, selected = leg.account) { acc ->
             onUpdate(leg.copy(account = acc, currency = acc?.currency ?: leg.currency))
         }
         AmountRow(
@@ -578,7 +606,8 @@ private suspend fun recordSingleRepayment(
     currency: String,
     note: String,
     category: CategoryEntity?,
-    tagIds: List<UUID>
+    tagIds: List<UUID>,
+    isBorrowedByMe: Boolean
 ) {
     val normalizedAmount = currencyService.convert(amount.abs(), currency, advanceCase.advanceCase.currencyCode)
     repository.recordAdvanceRepayment(
@@ -591,7 +620,8 @@ private suspend fun recordSingleRepayment(
         note = note.trim(),
         receiveAccount = receiveAccount,
         category = category,
-        tagIds = tagIds
+        tagIds = tagIds,
+        isBorrowedByMe = isBorrowedByMe
     )
 }
 
