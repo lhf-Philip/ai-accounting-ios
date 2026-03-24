@@ -244,91 +244,107 @@ class BackupManager: NSObject, ObservableObject {
         )
     }
     
-    @MainActor func restoreFromJSON(url: URL, modelContext: ModelContext) throws {
-        let data = try Data(contentsOf: url)
-        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        let backup = try decoder.decode(FullBackupData.self, from: data)
-        
-        let allAccounts = (try? modelContext.fetch(FetchDescriptor<Account>())) ?? []
-        let allCategories = (try? modelContext.fetch(FetchDescriptor<Category>())) ?? []
-        let allTags = (try? modelContext.fetch(FetchDescriptor<Tag>())) ?? []
-        
-        // 1. 還原帳戶
-        for accDTO in backup.accounts {
-            if !allAccounts.contains(where: { $0.id == accDTO.id }) {
-                // 🔥 兼容處理：如果 isArchived 為 nil，預設 false
-                let isArchived = accDTO.isArchived ?? false
-                modelContext.insert(Account(id: accDTO.id, name: accDTO.name, currency: accDTO.currency, type: AccountType(rawValue: accDTO.type) ?? .cash, baseBalance: accDTO.baseBalance, sortOrder: accDTO.sortOrder, isArchived: isArchived))
-            }
+    func restoreFromJSON(url: URL, modelContext: ModelContext) async throws {
+        let backup = try await Task.detached(priority: .userInitiated) {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(FullBackupData.self, from: data)
+        }.value
+
+        try await MainActor.run {
+            try restoreDecodedBackup(backup, modelContext: modelContext)
         }
-        for catDTO in backup.categories {
-            if !allCategories.contains(where: { $0.id == catDTO.id }) {
-                let kind = CategoryKind(rawValue: catDTO.kind ?? "") ?? .both
-                modelContext.insert(Category(id: catDTO.id, name: catDTO.name, icon: catDTO.icon, colorHex: catDTO.colorHex, kind: kind))
-            }
+    }
+
+    @MainActor
+    private func restoreDecodedBackup(_ backup: FullBackupData, modelContext: ModelContext) throws {
+        var accountByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<Account>())) ?? []).map { ($0.id, $0) })
+        var categoryByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<Category>())) ?? []).map { ($0.id, $0) })
+        var tagByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<Tag>())) ?? []).map { ($0.id, $0) })
+        var existingTransactionIDs = Set(((try? modelContext.fetch(FetchDescriptor<FinancialTransaction>())) ?? []).map(\.id))
+        var existingShortcutIDs = Set(((try? modelContext.fetch(FetchDescriptor<Shortcut>())) ?? []).map(\.id))
+        var existingBudgetIDs = Set(((try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []).map(\.id))
+        var advanceCaseByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []).map { ($0.id, $0) })
+        var participantByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []).map { ($0.id, $0) })
+        var existingRepaymentIDs = Set(((try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []).map(\.id))
+
+        for accDTO in backup.accounts where accountByID[accDTO.id] == nil {
+            let account = Account(
+                id: accDTO.id,
+                name: accDTO.name,
+                currency: accDTO.currency,
+                type: AccountType(rawValue: accDTO.type) ?? .cash,
+                baseBalance: accDTO.baseBalance,
+                sortOrder: accDTO.sortOrder,
+                isArchived: accDTO.isArchived ?? false
+            )
+            modelContext.insert(account)
+            accountByID[accDTO.id] = account
         }
-        for tagDTO in backup.tags {
-            if !allTags.contains(where: { $0.id == tagDTO.id }) {
-                modelContext.insert(Tag(id: tagDTO.id, name: tagDTO.name))
-            }
+
+        for catDTO in backup.categories where categoryByID[catDTO.id] == nil {
+            let category = Category(
+                id: catDTO.id,
+                name: catDTO.name,
+                icon: catDTO.icon,
+                colorHex: catDTO.colorHex,
+                kind: CategoryKind(rawValue: catDTO.kind ?? "") ?? .both
+            )
+            modelContext.insert(category)
+            categoryByID[catDTO.id] = category
         }
-        
-        let updatedAccounts = (try? modelContext.fetch(FetchDescriptor<Account>())) ?? []
-        let updatedCategories = (try? modelContext.fetch(FetchDescriptor<Category>())) ?? []
-        let updatedTags = (try? modelContext.fetch(FetchDescriptor<Tag>())) ?? []
-        
-        for txDTO in backup.transactions {
-            if (try? modelContext.fetch(FetchDescriptor<FinancialTransaction>(predicate: #Predicate { $0.id == txDTO.id })).first) == nil {
-                let account = updatedAccounts.first(where: { $0.id == txDTO.accountID })
-                let category = updatedCategories.first(where: { $0.id == txDTO.categoryID })
-                let tags = updatedTags.filter { txDTO.tagIDs.contains($0.id) }
-                let createdAt = txDTO.createdAt ?? txDTO.date
-                let updatedAt = txDTO.updatedAt ?? createdAt
-                let tx = FinancialTransaction(
-                    id: txDTO.id,
-                    amount: txDTO.amount,
-                    currencyCode: txDTO.currencyCode,
-                    date: txDTO.date,
-                    note: txDTO.note,
-                    photoPath: txDTO.photoPath,
-                    type: TransactionType(rawValue: txDTO.type) ?? .expense,
-                    linkedTransactionID: txDTO.linkedTransactionID,
-                    transferGroupID: txDTO.transferGroupID,
-                    transferSide: TransferSide(rawValue: txDTO.transferSide ?? ""),
-                    account: account,
-                    category: category,
-                    tags: tags,
-                    createdAt: createdAt,
-                    updatedAt: updatedAt
-                )
-                modelContext.insert(tx)
-            }
+
+        for tagDTO in backup.tags where tagByID[tagDTO.id] == nil {
+            let tag = Tag(id: tagDTO.id, name: tagDTO.name)
+            modelContext.insert(tag)
+            tagByID[tagDTO.id] = tag
         }
-        
-        // 5. 還原捷徑
-        for scDTO in backup.shortcuts {
-            if (try? modelContext.fetch(FetchDescriptor<Shortcut>(predicate: #Predicate { $0.id == scDTO.id })).first) == nil {
-                let account = updatedAccounts.first(where: { $0.id == scDTO.accountID })
-                let category = updatedCategories.first(where: { $0.id == scDTO.categoryID })
-                let tags = updatedTags.filter { scDTO.tagIDs.contains($0.id) }
-                
-                // 🔥 兼容處理：如果 currencyCode 為 nil (舊備份)，使用帳戶幣種或 HKD
-                let currency = scDTO.currencyCode ?? (account?.currency ?? "HKD")
-                
-                let sc = Shortcut(id: scDTO.id, name: scDTO.name, icon: scDTO.icon, amount: scDTO.amount, currencyCode: currency, type: TransactionType(rawValue: scDTO.type) ?? .expense, note: scDTO.note, account: account, category: category, tags: tags)
-                modelContext.insert(sc)
-            }
+
+        for txDTO in backup.transactions where !existingTransactionIDs.contains(txDTO.id) {
+            let tagIDs = Set(txDTO.tagIDs)
+            let transaction = FinancialTransaction(
+                id: txDTO.id,
+                amount: txDTO.amount,
+                currencyCode: txDTO.currencyCode,
+                date: txDTO.date,
+                note: txDTO.note,
+                photoPath: txDTO.photoPath,
+                type: TransactionType(rawValue: txDTO.type) ?? .expense,
+                linkedTransactionID: txDTO.linkedTransactionID,
+                transferGroupID: txDTO.transferGroupID,
+                transferSide: TransferSide(rawValue: txDTO.transferSide ?? ""),
+                account: txDTO.accountID.flatMap { accountByID[$0] },
+                category: txDTO.categoryID.flatMap { categoryByID[$0] },
+                tags: tagByID.values.filter { tagIDs.contains($0.id) },
+                createdAt: txDTO.createdAt ?? txDTO.date,
+                updatedAt: txDTO.updatedAt ?? (txDTO.createdAt ?? txDTO.date)
+            )
+            modelContext.insert(transaction)
+            existingTransactionIDs.insert(txDTO.id)
         }
-        
-        // 6. 還原預算 (向下兼容：舊 JSON 可能沒有 budgets)
+
+        for scDTO in backup.shortcuts where !existingShortcutIDs.contains(scDTO.id) {
+            let account = scDTO.accountID.flatMap { accountByID[$0] }
+            let tagIDs = Set(scDTO.tagIDs)
+            let shortcut = Shortcut(
+                id: scDTO.id,
+                name: scDTO.name,
+                icon: scDTO.icon,
+                amount: scDTO.amount,
+                currencyCode: scDTO.currencyCode ?? (account?.currency ?? "HKD"),
+                type: TransactionType(rawValue: scDTO.type) ?? .expense,
+                note: scDTO.note,
+                account: account,
+                category: scDTO.categoryID.flatMap { categoryByID[$0] },
+                tags: tagByID.values.filter { tagIDs.contains($0.id) }
+            )
+            modelContext.insert(shortcut)
+            existingShortcutIDs.insert(scDTO.id)
+        }
+
         if let budgetDTOs = backup.budgets {
-            let existingBudgets = (try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []
-            for budgetDTO in budgetDTOs {
-                if existingBudgets.contains(where: { $0.id == budgetDTO.id }) {
-                    continue
-                }
-                
-                let category = updatedCategories.first(where: { $0.id == budgetDTO.categoryID })
+            for budgetDTO in budgetDTOs where !existingBudgetIDs.contains(budgetDTO.id) {
                 let budget = CategoryMonthlyBudget(
                     id: budgetDTO.id,
                     monthKey: budgetDTO.monthKey,
@@ -337,23 +353,15 @@ class BackupManager: NSObject, ObservableObject {
                     isEnabled: budgetDTO.isEnabled ?? true,
                     createdAt: budgetDTO.createdAt ?? Date(),
                     updatedAt: budgetDTO.updatedAt ?? (budgetDTO.createdAt ?? Date()),
-                    category: category
+                    category: budgetDTO.categoryID.flatMap { categoryByID[$0] }
                 )
                 modelContext.insert(budget)
+                existingBudgetIDs.insert(budgetDTO.id)
             }
         }
-        
-        // 7. 還原代墊主檔
+
         if let advanceCaseDTOs = backup.advanceCases {
-            let existingCases = (try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []
-            for caseDTO in advanceCaseDTOs {
-                if existingCases.contains(where: { $0.id == caseDTO.id }) {
-                    continue
-                }
-                
-                let payerAccount = updatedAccounts.first(where: { $0.id == caseDTO.payerAccountID })
-                let expenseCategory = updatedCategories.first(where: { $0.id == caseDTO.expenseCategoryID })
-                
+            for caseDTO in advanceCaseDTOs where advanceCaseByID[caseDTO.id] == nil {
                 let advanceCase = AdvanceCase(
                     id: caseDTO.id,
                     title: caseDTO.title,
@@ -364,26 +372,16 @@ class BackupManager: NSObject, ObservableObject {
                     selfExpenseTransactionID: caseDTO.selfExpenseTransactionID,
                     createdAt: caseDTO.createdAt ?? caseDTO.date,
                     updatedAt: caseDTO.updatedAt ?? (caseDTO.createdAt ?? caseDTO.date),
-                    payerAccount: payerAccount,
-                    expenseCategory: expenseCategory
+                    payerAccount: caseDTO.payerAccountID.flatMap { accountByID[$0] },
+                    expenseCategory: caseDTO.expenseCategoryID.flatMap { categoryByID[$0] }
                 )
                 modelContext.insert(advanceCase)
+                advanceCaseByID[caseDTO.id] = advanceCase
             }
         }
-        
-        // 8. 還原代墊對象
+
         if let participantDTOs = backup.advanceParticipants {
-            let restoredCases = (try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []
-            let existingParticipants = (try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []
-            
-            for participantDTO in participantDTOs {
-                if existingParticipants.contains(where: { $0.id == participantDTO.id }) {
-                    continue
-                }
-                
-                let advanceCase = restoredCases.first(where: { $0.id == participantDTO.advanceCaseID })
-                let debtAccount = updatedAccounts.first(where: { $0.id == participantDTO.debtAccountID })
-                
+            for participantDTO in participantDTOs where participantByID[participantDTO.id] == nil {
                 let participant = AdvanceParticipant(
                     id: participantDTO.id,
                     name: participantDTO.name,
@@ -392,46 +390,34 @@ class BackupManager: NSObject, ObservableObject {
                     initialTransferGroupID: participantDTO.initialTransferGroupID,
                     createdAt: participantDTO.createdAt ?? Date(),
                     updatedAt: participantDTO.updatedAt ?? (participantDTO.createdAt ?? Date()),
-                    advanceCase: advanceCase,
-                    debtAccount: debtAccount
+                    advanceCase: participantDTO.advanceCaseID.flatMap { advanceCaseByID[$0] },
+                    debtAccount: participantDTO.debtAccountID.flatMap { accountByID[$0] }
                 )
                 modelContext.insert(participant)
+                participantByID[participantDTO.id] = participant
             }
         }
-        
-        // 9. 還原代墊還款紀錄
+
         if let repaymentDTOs = backup.advanceRepayments {
-            let restoredCases = (try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []
-            let restoredParticipants = (try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []
-            let existingRepayments = (try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []
-            
-            for repaymentDTO in repaymentDTOs {
-                if existingRepayments.contains(where: { $0.id == repaymentDTO.id }) {
-                    continue
-                }
-                
-                let advanceCase = restoredCases.first(where: { $0.id == repaymentDTO.advanceCaseID })
-                let participant = restoredParticipants.first(where: { $0.id == repaymentDTO.participantID })
-                let receiveAccount = updatedAccounts.first(where: { $0.id == repaymentDTO.receivedAccountID })
-                
-                let normalized = repaymentDTO.normalizedAmount ?? repaymentDTO.amount
+            for repaymentDTO in repaymentDTOs where !existingRepaymentIDs.contains(repaymentDTO.id) {
                 let repayment = AdvanceRepayment(
                     id: repaymentDTO.id,
                     amount: repaymentDTO.amount,
                     currencyCode: repaymentDTO.currencyCode,
-                    normalizedAmount: normalized,
+                    normalizedAmount: repaymentDTO.normalizedAmount ?? repaymentDTO.amount,
                     date: repaymentDTO.date,
                     note: repaymentDTO.note ?? "",
                     linkedTransferGroupID: repaymentDTO.linkedTransferGroupID,
                     createdAt: repaymentDTO.createdAt ?? repaymentDTO.date,
-                    advanceCase: advanceCase,
-                    participant: participant,
-                    receivedAccount: receiveAccount
+                    advanceCase: repaymentDTO.advanceCaseID.flatMap { advanceCaseByID[$0] },
+                    participant: repaymentDTO.participantID.flatMap { participantByID[$0] },
+                    receivedAccount: repaymentDTO.receivedAccountID.flatMap { accountByID[$0] }
                 )
                 modelContext.insert(repayment)
+                existingRepaymentIDs.insert(repaymentDTO.id)
             }
         }
-        
+
         try modelContext.save()
     }
     

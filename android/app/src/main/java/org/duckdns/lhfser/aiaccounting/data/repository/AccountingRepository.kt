@@ -1,5 +1,6 @@
 package org.duckdns.lhfser.aiaccounting.data.repository
 
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import org.duckdns.lhfser.aiaccounting.core.backup.BackupAccountInput
 import org.duckdns.lhfser.aiaccounting.core.backup.BackupAdvanceCaseInput
@@ -35,6 +36,26 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
 
+data class AccountDeletionCounts(
+    val transactionCount: Int,
+    val advanceCaseCount: Int,
+    val participantCount: Int,
+    val repaymentCount: Int,
+    val shortcutDetachCount: Int
+) {
+    val hasBookkeeping: Boolean
+        get() = transactionCount > 0 || advanceCaseCount > 0 || participantCount > 0 || repaymentCount > 0
+}
+
+data class AccountDeletionImpact(
+    val accountId: UUID,
+    val accountName: String,
+    val counts: AccountDeletionCounts
+) {
+    val isEmptyAccount: Boolean
+        get() = !counts.hasBookkeeping
+}
+
 class AccountingRepository(private val database: AIAccountingDatabase) {
     private val accountDao = database.accountDao()
     private val categoryDao = database.categoryDao()
@@ -51,6 +72,15 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
     val shortcuts: Flow<List<ShortcutWithDetails>> = shortcutDao.observeShortcuts()
     val budgets: Flow<List<CategoryMonthlyBudgetEntity>> = budgetDao.observeBudgets()
     val advanceCases: Flow<List<AdvanceCaseWithDetails>> = advanceDao.observeAdvanceCases()
+
+    private data class AccountDeletionTargets(
+        val impact: AccountDeletionImpact,
+        val account: AccountEntity,
+        val advanceCasesToDelete: List<AdvanceCaseWithDetails>,
+        val repaymentsToRollback: List<AdvanceRepaymentEntity>,
+        val directTransactionsToDelete: List<TransactionEntity>,
+        val shortcutsToDetach: List<ShortcutEntity>
+    )
 
     suspend fun getTransaction(transactionId: UUID): TransactionWithDetails? {
         return transactionDao.getTransaction(transactionId)
@@ -85,8 +115,41 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
         accountDao.upsert(account)
     }
 
+    suspend fun previewAccountDeletion(accountId: UUID): AccountDeletionImpact? {
+        return buildAccountDeletionTargets(accountId)?.impact
+    }
+
+    suspend fun archiveAccount(accountId: UUID) {
+        val account = accountDao.getAccount(accountId) ?: return
+        accountDao.upsert(account.copy(isArchived = true))
+    }
+
+    suspend fun deleteAccount(accountId: UUID, deleteRelatedBookkeeping: Boolean = true) {
+        database.withTransaction {
+            val targets = buildAccountDeletionTargets(accountId) ?: return@withTransaction
+            if (!deleteRelatedBookkeeping && targets.impact.counts.hasBookkeeping) {
+                return@withTransaction
+            }
+
+            if (targets.shortcutsToDetach.isNotEmpty()) {
+                shortcutDao.upsertAll(targets.shortcutsToDetach.map { it.copy(accountId = null) })
+            }
+
+            if (targets.repaymentsToRollback.isNotEmpty()) {
+                rollbackRepayments(targets.repaymentsToRollback)
+            }
+
+            if (targets.advanceCasesToDelete.isNotEmpty()) {
+                deleteAdvanceCases(targets.advanceCasesToDelete)
+            }
+
+            deleteTransactions(targets.directTransactionsToDelete)
+            accountDao.delete(targets.account)
+        }
+    }
+
     suspend fun deleteAccount(account: AccountEntity) {
-        accountDao.delete(account)
+        deleteAccount(account.id)
     }
 
     suspend fun upsertCategory(category: CategoryEntity) {
@@ -116,8 +179,20 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
         }
     }
 
-    suspend fun upsertTransactions(transactions: List<TransactionEntity>) {
-        transactionDao.upsertAll(transactions)
+    suspend fun upsertTransactions(transactions: List<TransactionEntity>, tagIds: List<UUID> = emptyList()) {
+        database.withTransaction {
+            transactionDao.upsertAll(transactions)
+            transactions.forEach { transaction ->
+                transactionDao.clearTransactionTags(transaction.id)
+            }
+            if (tagIds.isNotEmpty()) {
+                transactionDao.insertTransactionTags(
+                    transactions.flatMap { transaction ->
+                        tagIds.map { tagId -> TransactionTagCrossRef(transaction.id, tagId) }
+                    }
+                )
+            }
+        }
     }
 
     suspend fun deleteTransaction(transaction: TransactionEntity) {
@@ -329,158 +404,160 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
         participants: List<AdvanceParticipantInput>,
         isBorrowedByMe: Boolean = false
     ): UUID {
-        val now = Instant.now()
-        val caseId = UUID.randomUUID()
-        val finalTitle = title.trim().ifBlank { "代墊" }
-        val finalNote = note.trim()
+        return database.withTransaction {
+            val now = Instant.now()
+            val caseId = UUID.randomUUID()
+            val finalTitle = title.trim().ifBlank { "代墊" }
+            val finalNote = note.trim()
 
-        var selfExpenseTransactionId: UUID? = null
-        if (myShareAmount > BigDecimal.ZERO) {
-            val expenseNote = if (finalNote.isBlank()) {
-                "$finalTitle (自己份額)"
-            } else {
-                "$finalNote (自己份額)"
+            var selfExpenseTransactionId: UUID? = null
+            if (myShareAmount > BigDecimal.ZERO) {
+                val expenseNote = if (finalNote.isBlank()) {
+                    "$finalTitle (自己份額)"
+                } else {
+                    "$finalNote (自己份額)"
+                }
+                val txId = UUID.randomUUID()
+                val expenseTx = TransactionEntity(
+                    id = txId,
+                    amount = myShareAmount.abs().negate(),
+                    currencyCode = currencyCode,
+                    date = date,
+                    note = expenseNote,
+                    photoPath = null,
+                    type = TransactionType.Expense,
+                    linkedTransactionId = null,
+                    transferGroupId = null,
+                    transferSide = null,
+                    createdAt = now,
+                    updatedAt = now,
+                    accountId = payerAccount.id,
+                    categoryId = expenseCategory?.id
+                )
+                transactionDao.upsert(expenseTx)
+                if (tagIds.isNotEmpty()) {
+                    transactionDao.insertTransactionTags(
+                        tagIds.map { tagId -> TransactionTagCrossRef(txId, tagId) }
+                    )
+                }
+                selfExpenseTransactionId = txId
             }
-            val txId = UUID.randomUUID()
-            val expenseTx = TransactionEntity(
-                id = txId,
-                amount = myShareAmount.abs().negate(),
-                currencyCode = currencyCode,
+
+            val advanceCase = AdvanceCaseEntity(
+                id = caseId,
+                title = finalTitle,
                 date = date,
-                note = expenseNote,
-                photoPath = null,
-                type = TransactionType.Expense,
-                linkedTransactionId = null,
-                transferGroupId = null,
-                transferSide = null,
+                currencyCode = currencyCode,
+                myShareAmount = myShareAmount,
+                note = finalNote,
+                selfExpenseTransactionId = selfExpenseTransactionId,
                 createdAt = now,
                 updatedAt = now,
-                accountId = payerAccount.id,
-                categoryId = expenseCategory?.id
+                payerAccountId = payerAccount.id,
+                expenseCategoryId = expenseCategory?.id
             )
-            transactionDao.upsert(expenseTx)
-            if (tagIds.isNotEmpty()) {
-                transactionDao.insertTransactionTags(
-                    tagIds.map { tagId -> TransactionTagCrossRef(txId, tagId) }
+            advanceDao.upsertCase(advanceCase)
+
+            val transferMemo = if (finalNote.isBlank()) finalTitle else finalNote
+            val participantEntities = mutableListOf<AdvanceParticipantEntity>()
+            val transferEntities = mutableListOf<TransactionEntity>()
+
+            participants.forEach { input ->
+                val transferGroupId = UUID.randomUUID()
+                val outId = UUID.randomUUID()
+                val inId = UUID.randomUUID()
+
+                participantEntities.add(
+                    AdvanceParticipantEntity(
+                        id = UUID.randomUUID(),
+                        name = input.debtAccount.name,
+                        owedAmount = input.owedAmount.abs(),
+                        repaidAmount = BigDecimal.ZERO,
+                        initialTransferGroupId = transferGroupId,
+                        createdAt = now,
+                        updatedAt = now,
+                        advanceCaseId = caseId,
+                        debtAccountId = input.debtAccount.id
+                    )
                 )
+
+                val outTx: TransactionEntity
+                val inTx: TransactionEntity
+                if (isBorrowedByMe) {
+                    outTx = TransactionEntity(
+                        id = outId,
+                        amount = input.owedAmount.abs().negate(),
+                        currencyCode = currencyCode,
+                        date = date,
+                        note = "$transferMemo (代墊給我 ${payerAccount.name})",
+                        photoPath = null,
+                        type = TransactionType.Transfer,
+                        linkedTransactionId = inId,
+                        transferGroupId = transferGroupId,
+                        transferSide = TransferSide.Outgoing,
+                        createdAt = now,
+                        updatedAt = now,
+                        accountId = input.debtAccount.id,
+                        categoryId = null
+                    )
+                    inTx = TransactionEntity(
+                        id = inId,
+                        amount = input.owedAmount.abs(),
+                        currencyCode = currencyCode,
+                        date = date,
+                        note = "$transferMemo (來自 ${input.debtAccount.name})",
+                        photoPath = null,
+                        type = TransactionType.Transfer,
+                        linkedTransactionId = outId,
+                        transferGroupId = transferGroupId,
+                        transferSide = TransferSide.Incoming,
+                        createdAt = now,
+                        updatedAt = now,
+                        accountId = payerAccount.id,
+                        categoryId = null
+                    )
+                } else {
+                    outTx = TransactionEntity(
+                        id = outId,
+                        amount = input.owedAmount.abs().negate(),
+                        currencyCode = currencyCode,
+                        date = date,
+                        note = "$transferMemo (代墊給 ${input.debtAccount.name})",
+                        photoPath = null,
+                        type = TransactionType.Transfer,
+                        linkedTransactionId = inId,
+                        transferGroupId = transferGroupId,
+                        transferSide = TransferSide.Outgoing,
+                        createdAt = now,
+                        updatedAt = now,
+                        accountId = payerAccount.id,
+                        categoryId = null
+                    )
+                    inTx = TransactionEntity(
+                        id = inId,
+                        amount = input.owedAmount.abs(),
+                        currencyCode = currencyCode,
+                        date = date,
+                        note = "$transferMemo (來自 ${payerAccount.name})",
+                        photoPath = null,
+                        type = TransactionType.Transfer,
+                        linkedTransactionId = outId,
+                        transferGroupId = transferGroupId,
+                        transferSide = TransferSide.Incoming,
+                        createdAt = now,
+                        updatedAt = now,
+                        accountId = input.debtAccount.id,
+                        categoryId = null
+                    )
+                }
+                transferEntities.add(outTx)
+                transferEntities.add(inTx)
             }
-            selfExpenseTransactionId = txId
+
+            advanceDao.upsertParticipants(participantEntities)
+            transactionDao.upsertAll(transferEntities)
+            caseId
         }
-
-        val advanceCase = AdvanceCaseEntity(
-            id = caseId,
-            title = finalTitle,
-            date = date,
-            currencyCode = currencyCode,
-            myShareAmount = myShareAmount,
-            note = finalNote,
-            selfExpenseTransactionId = selfExpenseTransactionId,
-            createdAt = now,
-            updatedAt = now,
-            payerAccountId = payerAccount.id,
-            expenseCategoryId = expenseCategory?.id
-        )
-        advanceDao.upsertCase(advanceCase)
-
-        val transferMemo = if (finalNote.isBlank()) finalTitle else finalNote
-        val participantEntities = mutableListOf<AdvanceParticipantEntity>()
-        val transferEntities = mutableListOf<TransactionEntity>()
-
-        participants.forEach { input ->
-            val transferGroupId = UUID.randomUUID()
-            val outId = UUID.randomUUID()
-            val inId = UUID.randomUUID()
-
-            participantEntities.add(
-                AdvanceParticipantEntity(
-                    id = UUID.randomUUID(),
-                    name = input.debtAccount.name,
-                    owedAmount = input.owedAmount.abs(),
-                    repaidAmount = BigDecimal.ZERO,
-                    initialTransferGroupId = transferGroupId,
-                    createdAt = now,
-                    updatedAt = now,
-                    advanceCaseId = caseId,
-                    debtAccountId = input.debtAccount.id
-                )
-            )
-
-            val outTx: TransactionEntity
-            val inTx: TransactionEntity
-            if (isBorrowedByMe) {
-                outTx = TransactionEntity(
-                    id = outId,
-                    amount = input.owedAmount.abs().negate(),
-                    currencyCode = currencyCode,
-                    date = date,
-                    note = "$transferMemo (代墊給我 ${payerAccount.name})",
-                    photoPath = null,
-                    type = TransactionType.Transfer,
-                    linkedTransactionId = inId,
-                    transferGroupId = transferGroupId,
-                    transferSide = TransferSide.Outgoing,
-                    createdAt = now,
-                    updatedAt = now,
-                    accountId = input.debtAccount.id,
-                    categoryId = null
-                )
-                inTx = TransactionEntity(
-                    id = inId,
-                    amount = input.owedAmount.abs(),
-                    currencyCode = currencyCode,
-                    date = date,
-                    note = "$transferMemo (來自 ${input.debtAccount.name})",
-                    photoPath = null,
-                    type = TransactionType.Transfer,
-                    linkedTransactionId = outId,
-                    transferGroupId = transferGroupId,
-                    transferSide = TransferSide.Incoming,
-                    createdAt = now,
-                    updatedAt = now,
-                    accountId = payerAccount.id,
-                    categoryId = null
-                )
-            } else {
-                outTx = TransactionEntity(
-                    id = outId,
-                    amount = input.owedAmount.abs().negate(),
-                    currencyCode = currencyCode,
-                    date = date,
-                    note = "$transferMemo (代墊給 ${input.debtAccount.name})",
-                    photoPath = null,
-                    type = TransactionType.Transfer,
-                    linkedTransactionId = inId,
-                    transferGroupId = transferGroupId,
-                    transferSide = TransferSide.Outgoing,
-                    createdAt = now,
-                    updatedAt = now,
-                    accountId = payerAccount.id,
-                    categoryId = null
-                )
-                inTx = TransactionEntity(
-                    id = inId,
-                    amount = input.owedAmount.abs(),
-                    currencyCode = currencyCode,
-                    date = date,
-                    note = "$transferMemo (來自 ${payerAccount.name})",
-                    photoPath = null,
-                    type = TransactionType.Transfer,
-                    linkedTransactionId = outId,
-                    transferGroupId = transferGroupId,
-                    transferSide = TransferSide.Incoming,
-                    createdAt = now,
-                    updatedAt = now,
-                    accountId = input.debtAccount.id,
-                    categoryId = null
-                )
-            }
-            transferEntities.add(outTx)
-            transferEntities.add(inTx)
-        }
-
-        advanceDao.upsertParticipants(participantEntities)
-        transactionDao.upsertAll(transferEntities)
-        return caseId
     }
 
     suspend fun recordAdvanceRepayment(
@@ -496,114 +573,117 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
         tagIds: List<UUID>,
         isBorrowedByMe: Boolean = false
     ) {
-        val now = Instant.now()
-        val normalized = normalizedAmount.abs()
-        val transferGroupId = UUID.randomUUID()
-        val outId = UUID.randomUUID()
-        val inId = UUID.randomUUID()
+        database.withTransaction {
+            val now = Instant.now()
+            val normalized = normalizedAmount.abs()
+            val transferGroupId = UUID.randomUUID()
+            val outId = UUID.randomUUID()
+            val inId = UUID.randomUUID()
 
-        val transferMemo = note.trim().ifBlank { advanceCase.title }
+            val transferMemo = note.trim().ifBlank { advanceCase.title }
 
-        val outTx: TransactionEntity
-        val inTx: TransactionEntity
-        val taggedTxId: UUID
-        if (isBorrowedByMe) {
-            outTx = TransactionEntity(
-                id = outId,
-                amount = amount.abs().negate(),
-                currencyCode = currencyCode,
-                date = date,
-                note = "$transferMemo (還款給 ${participant.name})",
-                photoPath = null,
-                type = TransactionType.Transfer,
-                linkedTransactionId = inId,
-                transferGroupId = transferGroupId,
-                transferSide = TransferSide.Outgoing,
-                createdAt = now,
-                updatedAt = now,
-                accountId = receiveAccount.id,
-                categoryId = category?.id
+            val outTx: TransactionEntity
+            val inTx: TransactionEntity
+            val taggedTxId: UUID
+            if (isBorrowedByMe) {
+                outTx = TransactionEntity(
+                    id = outId,
+                    amount = amount.abs().negate(),
+                    currencyCode = currencyCode,
+                    date = date,
+                    note = "$transferMemo (還款給 ${participant.name})",
+                    photoPath = null,
+                    type = TransactionType.Transfer,
+                    linkedTransactionId = inId,
+                    transferGroupId = transferGroupId,
+                    transferSide = TransferSide.Outgoing,
+                    createdAt = now,
+                    updatedAt = now,
+                    accountId = receiveAccount.id,
+                    categoryId = category?.id
+                )
+                inTx = TransactionEntity(
+                    id = inId,
+                    amount = amount.abs(),
+                    currencyCode = currencyCode,
+                    date = date,
+                    note = "$transferMemo (來自 ${receiveAccount.name})",
+                    photoPath = null,
+                    type = TransactionType.Transfer,
+                    linkedTransactionId = outId,
+                    transferGroupId = transferGroupId,
+                    transferSide = TransferSide.Incoming,
+                    createdAt = now,
+                    updatedAt = now,
+                    accountId = participant.debtAccountId,
+                    categoryId = null
+                )
+                taggedTxId = outId
+            } else {
+                outTx = TransactionEntity(
+                    id = outId,
+                    amount = amount.abs().negate(),
+                    currencyCode = currencyCode,
+                    date = date,
+                    note = "$transferMemo (還款至 ${receiveAccount.name})",
+                    photoPath = null,
+                    type = TransactionType.Transfer,
+                    linkedTransactionId = inId,
+                    transferGroupId = transferGroupId,
+                    transferSide = TransferSide.Outgoing,
+                    createdAt = now,
+                    updatedAt = now,
+                    accountId = participant.debtAccountId,
+                    categoryId = null
+                )
+                inTx = TransactionEntity(
+                    id = inId,
+                    amount = amount.abs(),
+                    currencyCode = currencyCode,
+                    date = date,
+                    note = "$transferMemo (來自 ${participant.name})",
+                    photoPath = null,
+                    type = TransactionType.Transfer,
+                    linkedTransactionId = outId,
+                    transferGroupId = transferGroupId,
+                    transferSide = TransferSide.Incoming,
+                    createdAt = now,
+                    updatedAt = now,
+                    accountId = receiveAccount.id,
+                    categoryId = category?.id
+                )
+                taggedTxId = inId
+            }
+
+            transactionDao.upsertAll(listOf(outTx, inTx))
+            if (tagIds.isNotEmpty()) {
+                transactionDao.insertTransactionTags(
+                    tagIds.map { tagId -> TransactionTagCrossRef(taggedTxId, tagId) }
+                )
+            }
+
+            val updatedParticipant = participant.copy(
+                repaidAmount = participant.repaidAmount + normalized,
+                updatedAt = now
             )
-            inTx = TransactionEntity(
-                id = inId,
+            advanceDao.upsertParticipants(listOf(updatedParticipant))
+            advanceDao.upsertCase(advanceCase.copy(updatedAt = now))
+
+            val repayment = AdvanceRepaymentEntity(
+                id = UUID.randomUUID(),
                 amount = amount.abs(),
                 currencyCode = currencyCode,
+                normalizedAmount = normalized,
                 date = date,
-                note = "$transferMemo (來自 ${receiveAccount.name})",
-                photoPath = null,
-                type = TransactionType.Transfer,
-                linkedTransactionId = outId,
-                transferGroupId = transferGroupId,
-                transferSide = TransferSide.Incoming,
+                note = note.trim(),
+                linkedTransferGroupId = transferGroupId,
                 createdAt = now,
-                updatedAt = now,
-                accountId = participant.debtAccountId,
-                categoryId = null
+                advanceCaseId = advanceCase.id,
+                participantId = participant.id,
+                receivedAccountId = receiveAccount.id
             )
-            taggedTxId = outId
-        } else {
-            outTx = TransactionEntity(
-                id = outId,
-                amount = amount.abs().negate(),
-                currencyCode = currencyCode,
-                date = date,
-                note = "$transferMemo (還款至 ${receiveAccount.name})",
-                photoPath = null,
-                type = TransactionType.Transfer,
-                linkedTransactionId = inId,
-                transferGroupId = transferGroupId,
-                transferSide = TransferSide.Outgoing,
-                createdAt = now,
-                updatedAt = now,
-                accountId = participant.debtAccountId,
-                categoryId = null
-            )
-            inTx = TransactionEntity(
-                id = inId,
-                amount = amount.abs(),
-                currencyCode = currencyCode,
-                date = date,
-                note = "$transferMemo (來自 ${participant.name})",
-                photoPath = null,
-                type = TransactionType.Transfer,
-                linkedTransactionId = outId,
-                transferGroupId = transferGroupId,
-                transferSide = TransferSide.Incoming,
-                createdAt = now,
-                updatedAt = now,
-                accountId = receiveAccount.id,
-                categoryId = category?.id
-            )
-            taggedTxId = inId
+            advanceDao.upsertRepayment(repayment)
         }
-
-        transactionDao.upsertAll(listOf(outTx, inTx))
-        if (tagIds.isNotEmpty()) {
-            transactionDao.insertTransactionTags(
-                tagIds.map { tagId -> TransactionTagCrossRef(taggedTxId, tagId) }
-            )
-        }
-
-        val updatedParticipant = participant.copy(
-            repaidAmount = participant.repaidAmount + normalized,
-            updatedAt = now
-        )
-        advanceDao.upsertParticipants(listOf(updatedParticipant))
-
-        val repayment = AdvanceRepaymentEntity(
-            id = UUID.randomUUID(),
-            amount = amount.abs(),
-            currencyCode = currencyCode,
-            normalizedAmount = normalized,
-            date = date,
-            note = note.trim(),
-            linkedTransferGroupId = transferGroupId,
-            createdAt = now,
-            advanceCaseId = advanceCase.id,
-            participantId = participant.id,
-            receivedAccountId = receiveAccount.id
-        )
-        advanceDao.upsertRepayment(repayment)
     }
 
     suspend fun exportBackup(): FullBackupData {
@@ -744,9 +824,6 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
 
     suspend fun importBackupJson(json: String, replaceExisting: Boolean = true) {
         val data = BackupJsonAdapter.gson.fromJson(json, FullBackupData::class.java)
-        if (replaceExisting) {
-            database.clearAllTables()
-        }
 
         val accountEntities = data.accounts.map {
             AccountEntity(
@@ -761,7 +838,6 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
                 isArchived = BackupDefaults.accountIsArchived(BackupAccountInput(it.isArchived))
             )
         }
-        accountDao.upsertAll(accountEntities)
 
         val categoryEntities = data.categories.map {
             CategoryEntity(
@@ -772,10 +848,8 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
                 kind = BackupDefaults.categoryKind(BackupCategoryInput(it.kind))
             )
         }
-        categoryDao.upsertAll(categoryEntities)
 
         val tagEntities = data.tags.map { TagEntity(id = it.id, name = it.name) }
-        tagDao.upsertAll(tagEntities)
 
         val transactionEntities = data.transactions.map { tx ->
             TransactionEntity(
@@ -799,12 +873,8 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
                 categoryId = tx.categoryID
             )
         }
-        transactionDao.upsertAll(transactionEntities)
         val transactionTags = data.transactions.flatMap { tx ->
             tx.tagIDs.map { tagId -> TransactionTagCrossRef(tx.id, tagId) }
-        }
-        if (transactionTags.isNotEmpty()) {
-            transactionDao.insertTransactionTags(transactionTags)
         }
 
         val shortcutEntities = data.shortcuts.map { shortcut ->
@@ -825,85 +895,268 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
                 categoryId = shortcut.categoryID
             )
         }
-        shortcutDao.upsertAll(shortcutEntities)
         val shortcutTags = data.shortcuts.flatMap { shortcut ->
             shortcut.tagIDs.map { tagId -> ShortcutTagCrossRef(shortcut.id, tagId) }
         }
-        if (shortcutTags.isNotEmpty()) {
-            shortcutDao.insertShortcutTags(shortcutTags)
-        }
 
-        data.budgets?.let { budgets ->
-            val budgetEntities = budgets.map { budget ->
-                CategoryMonthlyBudgetEntity(
-                    id = budget.id,
-                    monthKey = budget.monthKey,
-                    amount = budget.amount,
-                    currencyCode = budget.currencyCode,
-                    isEnabled = BackupDefaults.budgetIsEnabled(BackupBudgetInput(budget.isEnabled)),
-                    createdAt = budget.createdAt ?: Instant.now(),
-                    updatedAt = budget.updatedAt ?: Instant.now(),
-                    categoryId = budget.categoryID
-                )
+        val budgetEntities = data.budgets?.map { budget ->
+            CategoryMonthlyBudgetEntity(
+                id = budget.id,
+                monthKey = budget.monthKey,
+                amount = budget.amount,
+                currencyCode = budget.currencyCode,
+                isEnabled = BackupDefaults.budgetIsEnabled(BackupBudgetInput(budget.isEnabled)),
+                createdAt = budget.createdAt ?: Instant.now(),
+                updatedAt = budget.updatedAt ?: Instant.now(),
+                categoryId = budget.categoryID
+            )
+        }.orEmpty()
+
+        val caseEntities = data.advanceCases?.map { case ->
+            AdvanceCaseEntity(
+                id = case.id,
+                title = case.title,
+                date = case.date,
+                currencyCode = case.currencyCode,
+                myShareAmount = BackupDefaults.myShareAmount(BackupAdvanceCaseInput(case.myShareAmount)),
+                note = case.note ?: "",
+                selfExpenseTransactionId = case.selfExpenseTransactionID,
+                createdAt = case.createdAt ?: Instant.now(),
+                updatedAt = case.updatedAt ?: Instant.now(),
+                payerAccountId = case.payerAccountID,
+                expenseCategoryId = case.expenseCategoryID
+            )
+        }.orEmpty()
+
+        val participantEntities = data.advanceParticipants?.map { participant ->
+            AdvanceParticipantEntity(
+                id = participant.id,
+                name = participant.name,
+                owedAmount = participant.owedAmount,
+                repaidAmount = participant.repaidAmount ?: BigDecimal.ZERO,
+                initialTransferGroupId = participant.initialTransferGroupID,
+                createdAt = participant.createdAt ?: Instant.now(),
+                updatedAt = participant.updatedAt ?: Instant.now(),
+                advanceCaseId = participant.advanceCaseID,
+                debtAccountId = participant.debtAccountID
+            )
+        }.orEmpty()
+
+        val repaymentEntities = data.advanceRepayments?.map { repayment ->
+            AdvanceRepaymentEntity(
+                id = repayment.id,
+                amount = repayment.amount,
+                currencyCode = repayment.currencyCode,
+                normalizedAmount = BackupDefaults.normalizedAmount(
+                    BackupAdvanceRepaymentInput(repayment.amount, repayment.normalizedAmount ?: repayment.amount)
+                ),
+                date = repayment.date,
+                note = repayment.note ?: "",
+                linkedTransferGroupId = repayment.linkedTransferGroupID,
+                createdAt = repayment.createdAt ?: Instant.now(),
+                advanceCaseId = repayment.advanceCaseID,
+                participantId = repayment.participantID,
+                receivedAccountId = repayment.receivedAccountID
+            )
+        }.orEmpty()
+
+        database.withTransaction {
+            if (replaceExisting) {
+                clearAllData()
             }
-            budgetDao.upsertAll(budgetEntities)
-        }
 
-        data.advanceCases?.let { cases ->
-            val caseEntities = cases.map { case ->
-                AdvanceCaseEntity(
-                    id = case.id,
-                    title = case.title,
-                    date = case.date,
-                    currencyCode = case.currencyCode,
-                    myShareAmount = BackupDefaults.myShareAmount(BackupAdvanceCaseInput(case.myShareAmount)),
-                    note = case.note ?: "",
-                    selfExpenseTransactionId = case.selfExpenseTransactionID,
-                    createdAt = case.createdAt ?: Instant.now(),
-                    updatedAt = case.updatedAt ?: Instant.now(),
-                    payerAccountId = case.payerAccountID,
-                    expenseCategoryId = case.expenseCategoryID
-                )
+            accountDao.upsertAll(accountEntities)
+            categoryDao.upsertAll(categoryEntities)
+            tagDao.upsertAll(tagEntities)
+            transactionDao.upsertAll(transactionEntities)
+            if (transactionTags.isNotEmpty()) {
+                transactionDao.insertTransactionTags(transactionTags)
+            }
+            shortcutDao.upsertAll(shortcutEntities)
+            if (shortcutTags.isNotEmpty()) {
+                shortcutDao.insertShortcutTags(shortcutTags)
+            }
+            if (budgetEntities.isNotEmpty()) {
+                budgetDao.upsertAll(budgetEntities)
             }
             caseEntities.forEach { advanceDao.upsertCase(it) }
-        }
-
-        data.advanceParticipants?.let { participants ->
-            val participantEntities = participants.map { participant ->
-                AdvanceParticipantEntity(
-                    id = participant.id,
-                    name = participant.name,
-                    owedAmount = participant.owedAmount,
-                    repaidAmount = participant.repaidAmount ?: BigDecimal.ZERO,
-                    initialTransferGroupId = participant.initialTransferGroupID,
-                    createdAt = participant.createdAt ?: Instant.now(),
-                    updatedAt = participant.updatedAt ?: Instant.now(),
-                    advanceCaseId = participant.advanceCaseID,
-                    debtAccountId = participant.debtAccountID
-                )
-            }
-            advanceDao.upsertParticipants(participantEntities)
-        }
-
-        data.advanceRepayments?.let { repayments ->
-            val repaymentEntities = repayments.map { repayment ->
-                AdvanceRepaymentEntity(
-                    id = repayment.id,
-                    amount = repayment.amount,
-                    currencyCode = repayment.currencyCode,
-                    normalizedAmount = BackupDefaults.normalizedAmount(
-                        BackupAdvanceRepaymentInput(repayment.amount, repayment.normalizedAmount ?: repayment.amount)
-                    ),
-                    date = repayment.date,
-                    note = repayment.note ?: "",
-                    linkedTransferGroupId = repayment.linkedTransferGroupID,
-                    createdAt = repayment.createdAt ?: Instant.now(),
-                    advanceCaseId = repayment.advanceCaseID,
-                    participantId = repayment.participantID,
-                    receivedAccountId = repayment.receivedAccountID
-                )
+            if (participantEntities.isNotEmpty()) {
+                advanceDao.upsertParticipants(participantEntities)
             }
             repaymentEntities.forEach { advanceDao.upsertRepayment(it) }
+        }
+    }
+
+    private suspend fun clearAllData() {
+        transactionDao.deleteAllTransactionTags()
+        shortcutDao.deleteAllShortcutTags()
+        advanceDao.deleteAllRepayments()
+        advanceDao.deleteAllParticipants()
+        advanceDao.deleteAllCases()
+        budgetDao.deleteAll()
+        shortcutDao.deleteAllShortcuts()
+        transactionDao.deleteAllTransactions()
+        tagDao.deleteAll()
+        categoryDao.deleteAll()
+        accountDao.deleteAll()
+    }
+
+    private suspend fun buildAccountDeletionTargets(accountId: UUID): AccountDeletionTargets? {
+        val account = accountDao.getAccount(accountId) ?: return null
+        val allTransactions = transactionDao.getAll()
+        val allShortcuts = shortcutDao.getAll()
+        val allCases = advanceDao.getAllCasesWithDetails()
+
+        val advanceCasesToDelete = allCases.filter { advanceCase ->
+            advanceCase.payerAccount?.id == accountId
+                || advanceCase.participants.any { it.debtAccountId == accountId }
+        }
+        val advanceCaseIds = advanceCasesToDelete.map { it.advanceCase.id }.toSet()
+
+        val repaymentsToRollback = allCases
+            .flatMap { it.repayments }
+            .filter { repayment ->
+                repayment.receivedAccountId == accountId && repayment.advanceCaseId !in advanceCaseIds
+            }
+
+        val protectedGroupIds = (
+            advanceCasesToDelete.flatMap { advanceCase ->
+                advanceCase.participants.mapNotNull { it.initialTransferGroupId } +
+                    advanceCase.repayments.mapNotNull { it.linkedTransferGroupId }
+            } + repaymentsToRollback.mapNotNull { it.linkedTransferGroupId }
+        ).toSet()
+
+        val protectedTransactionIds = buildSet {
+            addAll(advanceCasesToDelete.mapNotNull { it.advanceCase.selfExpenseTransactionId })
+            addAll(
+                allTransactions.filter { transaction ->
+                    transaction.transferGroupId != null && transaction.transferGroupId in protectedGroupIds
+                }.map { it.id }
+            )
+        }
+
+        val accountTransactions = allTransactions.filter { it.accountId == accountId }
+        val directGroupIds = accountTransactions
+            .mapNotNull { it.transferGroupId }
+            .filterNot { protectedGroupIds.contains(it) }
+            .toSet()
+        val linkedTransactionIds = accountTransactions
+            .filter { it.linkedTransactionId != null && it.transferGroupId == null }
+            .mapNotNull { it.linkedTransactionId }
+            .toSet()
+
+        val directTransactionsToDelete = allTransactions.filter { transaction ->
+            if (transaction.id in protectedTransactionIds) {
+                return@filter false
+            }
+            when {
+                transaction.transferGroupId != null -> transaction.transferGroupId in directGroupIds
+                transaction.accountId == accountId -> true
+                transaction.id in linkedTransactionIds -> true
+                else -> false
+            }
+        }
+
+        val shortcutsToDetach = allShortcuts.filter { it.accountId == accountId }
+        val counts = AccountDeletionCounts(
+            transactionCount = directTransactionsToDelete.size,
+            advanceCaseCount = advanceCasesToDelete.size,
+            participantCount = advanceCasesToDelete.sumOf { it.participants.size },
+            repaymentCount = advanceCasesToDelete.sumOf { it.repayments.size } + repaymentsToRollback.size,
+            shortcutDetachCount = shortcutsToDetach.size
+        )
+
+        return AccountDeletionTargets(
+            impact = AccountDeletionImpact(
+                accountId = account.id,
+                accountName = account.name,
+                counts = counts
+            ),
+            account = account,
+            advanceCasesToDelete = advanceCasesToDelete,
+            repaymentsToRollback = repaymentsToRollback,
+            directTransactionsToDelete = directTransactionsToDelete,
+            shortcutsToDetach = shortcutsToDetach
+        )
+    }
+
+    private suspend fun rollbackRepayments(repayments: List<AdvanceRepaymentEntity>) {
+        if (repayments.isEmpty()) return
+
+        val participantById = advanceDao.getAllParticipants().associateBy { it.id }
+        val caseById = advanceDao.getAllCases().associateBy { it.id }
+        val transactionByGroupId = transactionDao.getAll()
+            .filter { it.transferGroupId != null }
+            .groupBy { it.transferGroupId }
+
+        val now = Instant.now()
+        repayments.forEach { repayment ->
+            repayment.linkedTransferGroupId?.let { groupId ->
+                deleteTransactions(transactionByGroupId[groupId].orEmpty())
+            }
+
+            repayment.participantId?.let { participantId ->
+                participantById[participantId]?.let { participant ->
+                    advanceDao.upsertParticipants(
+                        listOf(
+                            participant.copy(
+                                repaidAmount = (participant.repaidAmount - repayment.normalizedAmount).max(BigDecimal.ZERO),
+                                updatedAt = now
+                            )
+                        )
+                    )
+                }
+            }
+
+            repayment.advanceCaseId?.let { caseId ->
+                caseById[caseId]?.let { advanceCase ->
+                    advanceDao.upsertCase(advanceCase.copy(updatedAt = now))
+                }
+            }
+
+            advanceDao.deleteRepayment(repayment)
+        }
+    }
+
+    private suspend fun deleteAdvanceCases(cases: List<AdvanceCaseWithDetails>) {
+        if (cases.isEmpty()) return
+
+        val transactionsByGroupId = transactionDao.getAll()
+            .filter { it.transferGroupId != null }
+            .groupBy { it.transferGroupId }
+        val transactionsById = transactionDao.getAll().associateBy { it.id }
+
+        cases.forEach { advanceCase ->
+            advanceCase.participants.forEach { participant ->
+                participant.initialTransferGroupId?.let { groupId ->
+                    deleteTransactions(transactionsByGroupId[groupId].orEmpty())
+                }
+            }
+
+            advanceCase.repayments.forEach { repayment ->
+                repayment.linkedTransferGroupId?.let { groupId ->
+                    deleteTransactions(transactionsByGroupId[groupId].orEmpty())
+                }
+                advanceDao.deleteRepayment(repayment)
+            }
+
+            advanceCase.advanceCase.selfExpenseTransactionId?.let { transactionId ->
+                transactionsById[transactionId]?.let { transaction ->
+                    deleteTransactions(listOf(transaction))
+                }
+            }
+
+            advanceCase.participants.forEach { participant ->
+                advanceDao.deleteParticipant(participant)
+            }
+            advanceDao.deleteCase(advanceCase.advanceCase)
+        }
+    }
+
+    private suspend fun deleteTransactions(transactions: List<TransactionEntity>) {
+        transactions.forEach { transaction ->
+            transactionDao.delete(transaction)
+            transactionDao.clearTransactionTags(transaction.id)
         }
     }
 }

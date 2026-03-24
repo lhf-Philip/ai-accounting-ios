@@ -99,6 +99,11 @@ fun TransactionEditorScreen(
     val categories by repository.categories.collectAsState(initial = emptyList())
     val tags by repository.tags.collectAsState(initial = emptyList())
     val scrollState = rememberScrollState()
+    val selectableAccountIds = buildSet {
+        selectedAccount?.id?.let(::add)
+        splitLegs.mapNotNullTo(this) { it.account?.id }
+    }
+    val selectableAccounts = accounts.filter { !it.isArchived || it.id in selectableAccountIds }
 
     LaunchedEffect(transactionId, accounts, categories, tags) {
         if (transactionId == null) return@LaunchedEffect
@@ -150,7 +155,7 @@ fun TransactionEditorScreen(
                     )
                     AccountPicker(
                         label = "帳戶",
-                        accounts = accounts,
+                        accounts = selectableAccounts,
                         selected = selectedAccount,
                         onSelect = { acc ->
                             selectedAccount = acc
@@ -165,7 +170,7 @@ fun TransactionEditorScreen(
                         SplitLegEditor(
                             index = index,
                             leg = leg,
-                            accounts = accounts,
+                            accounts = selectableAccounts,
                             onUpdate = { updated ->
                                 splitLegs = splitLegs.toMutableList().also { it[index] = updated }
                             },
@@ -200,7 +205,7 @@ fun TransactionEditorScreen(
                     }
                     AccountPicker(
                         label = "合併入帳戶",
-                        accounts = accounts,
+                        accounts = selectableAccounts,
                         selected = selectedAccount,
                         onSelect = { acc ->
                             selectedAccount = acc
@@ -629,7 +634,7 @@ private suspend fun saveTransaction(
                     categoryId = selectedCategory?.id
                 )
             }
-            repository.upsertTransactions(transactions)
+            repository.upsertTransactions(transactions, selectedTags.map { it.id })
         }
         EntryMode.Merge -> {
             if (transactionId != null) {
@@ -659,7 +664,7 @@ private suspend fun saveTransaction(
                     categoryId = selectedCategory?.id
                 )
             }
-            repository.upsertTransactions(transactions)
+            repository.upsertTransactions(transactions, selectedTags.map { it.id })
         }
     }
 }

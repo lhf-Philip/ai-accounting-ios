@@ -62,8 +62,8 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
     val categories by repository.categories.collectAsState(initial = emptyList())
     val tags by repository.tags.collectAsState(initial = emptyList())
 
-    val payerAccounts = accounts.filter { it.type != AccountType.Debt }
-    val debtAccounts = accounts.filter { it.type == AccountType.Debt }
+    val payerAccounts = accounts.filter { !it.isArchived && it.type != AccountType.Debt }
+    val debtAccounts = accounts.filter { !it.isArchived && it.type == AccountType.Debt }
     val scrollState = rememberScrollState()
 
     var title by remember { mutableStateOf("") }

@@ -5,6 +5,7 @@ struct TransactionsListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \Shortcut.name) private var shortcuts: [Shortcut] // 查詢捷徑
+    @Query(sort: \AdvanceCase.date, order: .reverse) private var advanceCases: [AdvanceCase]
     @Query private var advanceParticipants: [AdvanceParticipant]
     @Query private var advanceRepayments: [AdvanceRepayment]
     
@@ -21,6 +22,29 @@ struct TransactionsListView: View {
     @State private var showingShortcutConfirm = false
     @State private var shortcutToDelete: Shortcut?
     @State private var showingShortcutDeleteConfirm = false
+
+    enum LedgerItem: Identifiable {
+        case transaction(FinancialTransaction)
+        case advanceCaseSummary(AdvanceCase)
+
+        var id: String {
+            switch self {
+            case .transaction(let transaction):
+                return "transaction-\(transaction.id.uuidString)"
+            case .advanceCaseSummary(let advanceCase):
+                return "advance-\(advanceCase.id.uuidString)"
+            }
+        }
+
+        var date: Date {
+            switch self {
+            case .transaction(let transaction):
+                return transaction.date
+            case .advanceCaseSummary(let advanceCase):
+                return advanceCase.date
+            }
+        }
+    }
     
     var body: some View {
         NavigationStack {
@@ -83,20 +107,27 @@ struct TransactionsListView: View {
                     // 交易分組
                     ForEach(groupedTransactions, id: \.title) { group in
                         Section(header: Text(group.title)) {
-                            ForEach(group.transactions) { transaction in
-                                TransactionRow(
-                                    transaction: transaction,
-                                    transferCounterpart: transferCounterpartByID[transaction.id]
-                                )
-                                    .onTapGesture {
-                                        transactionToEdit = transaction
-                                    }
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                        Button(role: .destructive) { deleteTransaction(transaction) } label: { Label("刪除", systemImage: "trash") }
-                                        Button {
+                            ForEach(group.items) { item in
+                                switch item {
+                                case .transaction(let transaction):
+                                    TransactionRow(
+                                        transaction: transaction,
+                                        transferCounterpart: transferCounterpartByID[transaction.id]
+                                    )
+                                        .onTapGesture {
                                             transactionToEdit = transaction
-                                        } label: { Label("編輯", systemImage: "pencil") }.tint(.blue)
+                                        }
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                            Button(role: .destructive) { deleteTransaction(transaction) } label: { Label("刪除", systemImage: "trash") }
+                                            Button {
+                                                transactionToEdit = transaction
+                                            } label: { Label("編輯", systemImage: "pencil") }.tint(.blue)
+                                        }
+                                case .advanceCaseSummary(let advanceCase):
+                                    NavigationLink(destination: AdvanceCaseDetailView(advanceCase: advanceCase)) {
+                                        AdvanceCaseSummaryRow(advanceCase: advanceCase)
                                     }
+                                }
                             }
                         }
                     }
@@ -123,7 +154,7 @@ struct TransactionsListView: View {
                 }
             }
             .overlay {
-                if filteredTransactions.isEmpty {
+                if filteredLedgerItems.isEmpty {
                     ContentUnavailableView("無交易紀錄", systemImage: "list.bullet.clipboard", description: Text("該區間或搜尋條件下無資料"))
                 }
             }
@@ -236,6 +267,9 @@ struct TransactionsListView: View {
                isAssetAdjustment(note: tx.note) {
                 return false
             }
+            if let groupID = tx.transferGroupID, initialAdvanceGroupIDs.contains(groupID) {
+                return false
+            }
             switch filterType {
             case .all: return true
             case .year: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .year)
@@ -251,9 +285,42 @@ struct TransactionsListView: View {
         }
         return collapseTransferGroups(in: searched)
     }
-    
-    struct TransactionGroup { let title: String; let transactions: [FinancialTransaction] }
-    
+
+    var filteredAdvanceCases: [AdvanceCase] {
+        let calendar = Calendar.current
+        let timeFiltered = advanceCases.filter { advanceCase in
+            switch filterType {
+            case .all: return true
+            case .year: return calendar.isDate(advanceCase.date, equalTo: selectedDate, toGranularity: .year)
+            case .month: return calendar.isDate(advanceCase.date, equalTo: selectedDate, toGranularity: .month)
+            case .day: return calendar.isDate(advanceCase.date, equalTo: selectedDate, toGranularity: .day)
+            }
+        }
+
+        guard !searchText.isEmpty else {
+            return timeFiltered
+        }
+
+        return timeFiltered.filter { advanceCase in
+            advanceCase.title.localizedCaseInsensitiveContains(searchText)
+                || advanceCase.note.localizedCaseInsensitiveContains(searchText)
+                || (advanceCase.payerAccount?.name.localizedCaseInsensitiveContains(searchText) ?? false)
+                || advanceCase.participants.contains { $0.name.localizedCaseInsensitiveContains(searchText) }
+        }
+    }
+
+    var filteredLedgerItems: [LedgerItem] {
+        (filteredTransactions.map(LedgerItem.transaction) + filteredAdvanceCases.map(LedgerItem.advanceCaseSummary))
+            .sorted { lhs, rhs in
+                if lhs.date == rhs.date {
+                    return lhs.id > rhs.id
+                }
+                return lhs.date > rhs.date
+            }
+    }
+
+    struct TransactionGroup { let title: String; let items: [LedgerItem] }
+
     var groupedTransactions: [TransactionGroup] {
         let formatter = DateFormatter()
         let grouping: (Date) -> String = { date in
@@ -264,12 +331,12 @@ struct TransactionsListView: View {
             case .day: return "明細"
             }
         }
-        let groupedDict = Dictionary(grouping: filteredTransactions) { tx in grouping(tx.date) }
+        let groupedDict = Dictionary(grouping: filteredLedgerItems) { item in grouping(item.date) }
         let sortedKeys = groupedDict.keys.sorted { title1, title2 in
-            guard let tx1 = groupedDict[title1]?.first, let tx2 = groupedDict[title2]?.first else { return title1 > title2 }
-            return tx1.date > tx2.date
+            guard let item1 = groupedDict[title1]?.first, let item2 = groupedDict[title2]?.first else { return title1 > title2 }
+            return item1.date > item2.date
         }
-        return sortedKeys.map { TransactionGroup(title: $0, transactions: groupedDict[$0] ?? []) }
+        return sortedKeys.map { TransactionGroup(title: $0, items: groupedDict[$0] ?? []) }
     }
     
     func calculateTotalEstimate() -> String {
@@ -324,6 +391,10 @@ struct TransactionsListView: View {
         return ids
     }
 
+    private var initialAdvanceGroupIDs: Set<UUID> {
+        Set(advanceParticipants.compactMap(\.initialTransferGroupID))
+    }
+
     private func isAdvanceTransfer(_ tx: FinancialTransaction) -> Bool {
         guard tx.type == .transfer else { return false }
         if let groupID = tx.transferGroupID, advanceGroupIDs.contains(groupID) {
@@ -368,5 +439,50 @@ struct TransactionsListView: View {
     
     private func isAssetAdjustment(note: String) -> Bool {
         note.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("[資產調整]")
+    }
+}
+
+private struct AdvanceCaseSummaryRow: View {
+    let advanceCase: AdvanceCase
+
+    private var totalAmount: Decimal {
+        AdvanceService.totalAdvanced(for: advanceCase)
+    }
+
+    private var outstandingAmount: Decimal {
+        AdvanceService.outstandingAmount(for: advanceCase)
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(advanceCase.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(summaryLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(advanceCase.date.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(totalAmount.formatted(.currency(code: advanceCase.currencyCode)))
+                    .font(.headline)
+                    .foregroundStyle(.orange)
+                Text("未清 \(outstandingAmount.formatted(.currency(code: advanceCase.currencyCode)))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var summaryLine: String {
+        let payer = advanceCase.payerAccount?.name ?? "未指定付款帳戶"
+        return "\(advanceCase.participants.count) 人 · \(payer)"
     }
 }

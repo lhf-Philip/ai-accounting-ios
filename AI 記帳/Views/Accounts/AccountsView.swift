@@ -11,6 +11,11 @@ struct AccountsView: View {
     @State private var showingAddAccount = false
     @State private var accountToEdit: Account?
     @State private var editMode: EditMode = .inactive
+    @State private var pendingDeletionImpact: AccountDeletionImpact?
+    @State private var showingEmptyDeleteConfirm = false
+    @State private var showingArchiveRecommendation = false
+    @State private var showingHardDeleteConfirm = false
+    @State private var deletionErrorMessage: String?
     
     // 🔥 新增：控制是否顯示已歸檔帳戶
     @State private var showArchived = false
@@ -25,79 +30,145 @@ struct AccountsView: View {
     
     var body: some View {
         NavigationStack {
-            List {
-                // 統計區塊 (只在不顯示歸檔時顯示，避免混淆，或者您可以選擇都顯示)
-                if !showArchived {
-                    totalAssetsSection
-                    currencyBreakdownSection
-                } else {
-                    Section {
-                        Text("目前顯示已歸檔的帳戶")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    }
-                    .listRowBackground(Color.clear)
-                }
-                
-                if !assetAccounts.isEmpty {
-                    Section("一般帳戶") {
-                        ForEach(assetAccounts) { account in
-                            AccountRowLink(account: account, showArchived: showArchived) {
-                                toggleArchive(account)
-                            } deleteAction: {
-                                deleteAccount(account)
-                            } editAction: {
-                                accountToEdit = account
-                            }
-                        }
-                        .onMove { indices, newOffset in moveAccounts(in: assetAccounts, from: indices, to: newOffset) }
-                    }
-                }
-                
-                if !debtAccounts.isEmpty {
-                    Section("借貸管理") {
-                        ForEach(debtAccounts) { account in
-                            AccountRowLink(account: account, showArchived: showArchived) {
-                                toggleArchive(account)
-                            } deleteAction: {
-                                deleteAccount(account)
-                            } editAction: {
-                                accountToEdit = account
-                            }
-                        }
-                        .onMove { indices, newOffset in moveAccounts(in: debtAccounts, from: indices, to: newOffset) }
-                    }
-                }
-            }
+            accountsList
             .prominentInlineTitle(showArchived ? "已歸檔帳戶" : "帳戶")
             .environment(\.editMode, $editMode)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(editMode == .active ? "完成" : "排序") { withAnimation { editMode = (editMode == .active) ? .inactive : .active } }
-                }
-                
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack {
-                        // 🔥 新增：歸檔切換選單
-                        Menu {
-                            Button(action: { showArchived.toggle() }) {
-                                Label(showArchived ? "顯示活動帳戶" : "顯示已歸檔帳戶", systemImage: "archivebox")
-                            }
-                        } label: {
-                            Image(systemName: showArchived ? "archivebox.fill" : "archivebox")
-                        }
-                        
-                        Button(action: { showingAddAccount = true }) { Image(systemName: "plus") }
-                    }
-                }
-            }
+            .toolbar { toolbarContent }
             .sheet(isPresented: $showingAddAccount) { AddAccountView() }
             .sheet(item: $accountToEdit) { account in EditAccountView(account: account) }
+            .alert("刪除空帳戶？", isPresented: $showingEmptyDeleteConfirm, presenting: pendingDeletionImpact) { impact in
+                Button("刪除", role: .destructive) {
+                    performDeletion(impact)
+                }
+                Button("取消", role: .cancel) {
+                    clearDeletionState()
+                }
+            } message: { impact in
+                Text(emptyDeleteMessage(for: impact))
+            }
+            .confirmationDialog(
+                "此帳戶已有歷史記錄，建議改用歸檔",
+                isPresented: $showingArchiveRecommendation,
+                titleVisibility: .visible,
+                presenting: pendingDeletionImpact
+            ) { impact in
+                Button("歸檔帳戶") {
+                    archiveAccount(impact.account)
+                }
+                Button("繼續刪除", role: .destructive) {
+                    showingHardDeleteConfirm = true
+                }
+                Button("取消", role: .cancel) {
+                    clearDeletionState()
+                }
+            } message: { impact in
+                Text(archiveRecommendationMessage(for: impact))
+            }
+            .alert("刪除所有相關記賬？", isPresented: $showingHardDeleteConfirm, presenting: pendingDeletionImpact) { impact in
+                Button("刪除", role: .destructive) {
+                    performDeletion(impact)
+                }
+                Button("取消", role: .cancel) {
+                    clearDeletionState()
+                }
+            } message: { impact in
+                Text(hardDeleteMessage(for: impact))
+            }
+            .alert("操作失敗", isPresented: Binding(
+                get: { deletionErrorMessage != nil },
+                set: { if !$0 { deletionErrorMessage = nil } }
+            )) {
+                Button("了解", role: .cancel) {
+                    deletionErrorMessage = nil
+                }
+            } message: {
+                Text(deletionErrorMessage ?? "")
+            }
             .task {
                 await currencyService.fetchRates()
                 normalizeSortOrdersIfNeeded()
             }
+        }
+    }
+
+    private var accountsList: some View {
+        List {
+            headerSection
+
+            if !assetAccounts.isEmpty {
+                Section("一般帳戶") {
+                    ForEach(assetAccounts) { account in
+                        accountRow(account)
+                    }
+                    .onMove { indices, newOffset in
+                        moveAccounts(in: assetAccounts, from: indices, to: newOffset)
+                    }
+                }
+            }
+
+            if !debtAccounts.isEmpty {
+                Section("借貸管理") {
+                    ForEach(debtAccounts) { account in
+                        accountRow(account)
+                    }
+                    .onMove { indices, newOffset in
+                        moveAccounts(in: debtAccounts, from: indices, to: newOffset)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var headerSection: some View {
+        if !showArchived {
+            totalAssetsSection
+            currencyBreakdownSection
+        } else {
+            Section {
+                Text("目前顯示已歸檔的帳戶")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .listRowBackground(Color.clear)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button(editMode == .active ? "完成" : "排序") {
+                withAnimation {
+                    editMode = (editMode == .active) ? .inactive : .active
+                }
+            }
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+            HStack {
+                Menu {
+                    Button(action: { showArchived.toggle() }) {
+                        Label(showArchived ? "顯示活動帳戶" : "顯示已歸檔帳戶", systemImage: "archivebox")
+                    }
+                } label: {
+                    Image(systemName: showArchived ? "archivebox.fill" : "archivebox")
+                }
+
+                Button(action: { showingAddAccount = true }) {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+    }
+
+    private func accountRow(_ account: Account) -> some View {
+        AccountRowLink(account: account, showArchived: showArchived) {
+            toggleArchive(account)
+        } deleteAction: {
+            deleteAccount(account)
+        } editAction: {
+            accountToEdit = account
         }
     }
     
@@ -143,33 +214,69 @@ struct AccountsView: View {
     }
     
     private func deleteAccount(_ account: Account) {
-        let transfers = account.transactions.filter { $0.type == .transfer }
-        var handledGroupIDs = Set<UUID>()
-        
-        for tx in transfers {
-            if let groupID = tx.transferGroupID {
-                if handledGroupIDs.contains(groupID) {
-                    continue
-                }
-                handledGroupIDs.insert(groupID)
-                
-                let descriptor = FetchDescriptor<FinancialTransaction>(
-                    predicate: #Predicate { $0.transferGroupID == groupID }
-                )
-                if let groupedTransfers = try? modelContext.fetch(descriptor) {
-                    for transfer in groupedTransfers {
-                        modelContext.delete(transfer)
-                    }
-                }
-                continue
+        do {
+            let impact = try AccountDeletionCoordinator.preview(account: account, modelContext: modelContext)
+            pendingDeletionImpact = impact
+            if impact.isEmptyAccount {
+                showingEmptyDeleteConfirm = true
+            } else {
+                showingArchiveRecommendation = true
             }
-            
-            if let linkedID = tx.linkedTransactionID {
-                let descriptor = FetchDescriptor<FinancialTransaction>(predicate: #Predicate { $0.id == linkedID })
-                if let linkedTx = try? modelContext.fetch(descriptor).first { modelContext.delete(linkedTx) }
-            }
+        } catch {
+            deletionErrorMessage = error.localizedDescription
         }
-        modelContext.delete(account)
+    }
+
+    private func archiveAccount(_ account: Account) {
+        do {
+            try AccountDeletionCoordinator.archive(account: account, modelContext: modelContext)
+            clearDeletionState()
+        } catch {
+            deletionErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func performDeletion(_ impact: AccountDeletionImpact) {
+        do {
+            try AccountDeletionCoordinator.deleteAccount(using: impact, modelContext: modelContext)
+            clearDeletionState()
+        } catch {
+            deletionErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func clearDeletionState() {
+        pendingDeletionImpact = nil
+        showingEmptyDeleteConfirm = false
+        showingArchiveRecommendation = false
+        showingHardDeleteConfirm = false
+    }
+
+    private func emptyDeleteMessage(for impact: AccountDeletionImpact) -> String {
+        if impact.counts.shortcutDetachCount > 0 {
+            return "這個帳戶沒有任何歷史記賬，但有 \(impact.counts.shortcutDetachCount) 個捷徑會解除帳戶綁定。刪除後無法復原。"
+        }
+        return "這個帳戶沒有任何歷史記賬。刪除後無法復原。"
+    }
+
+    private func archiveRecommendationMessage(for impact: AccountDeletionImpact) -> String {
+        let counts = impact.counts
+        return "\(impact.account.name) 已連結 \(counts.transactionCount) 筆交易、\(counts.advanceCaseCount) 個代墊案件、\(counts.repaymentCount) 筆還款紀錄。建議改用歸檔，保留歷史資料與報表。"
+    }
+
+    private func hardDeleteMessage(for impact: AccountDeletionImpact) -> String {
+        let counts = impact.counts
+        var parts = ["\(counts.transactionCount) 筆交易"]
+        if counts.advanceCaseCount > 0 {
+            parts.append("\(counts.advanceCaseCount) 個代墊案件")
+        }
+        if counts.repaymentCount > 0 {
+            parts.append("\(counts.repaymentCount) 筆還款")
+        }
+        if counts.shortcutDetachCount > 0 {
+            parts.append("\(counts.shortcutDetachCount) 個捷徑會解除帳戶綁定")
+        }
+        return "將刪除 \(parts.joined(separator: "、"))。這個操作無法復原。"
     }
     
     private func moveAccounts(in subset: [Account], from source: IndexSet, to destination: Int) {

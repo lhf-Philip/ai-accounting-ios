@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import org.duckdns.lhfser.aiaccounting.data.repository.AccountDeletionImpact
 import org.duckdns.lhfser.aiaccounting.core.model.AccountType
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
@@ -50,7 +51,10 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
     var baseBalance by remember { mutableStateOf("") }
     var isArchived by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showArchiveRecommendation by remember { mutableStateOf(false) }
+    var deleteImpact by remember { mutableStateOf<AccountDeletionImpact?>(null) }
     var isEditing by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(accountId, accounts) {
         val id = accountId?.let(UUID::fromString)
@@ -123,26 +127,121 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
         }
 
         if (isEditing) {
-            TextButton(onClick = { showDeleteConfirm = true }) {
+            TextButton(onClick = {
+                val id = accountId?.let(UUID::fromString) ?: return@TextButton
+                scope.launch {
+                    runCatching {
+                        repository.previewAccountDeletion(id)
+                    }.onSuccess { impact ->
+                        val resolved = impact ?: return@onSuccess
+                        deleteImpact = resolved
+                        if (resolved.isEmptyAccount) {
+                            showDeleteConfirm = true
+                        } else {
+                            showArchiveRecommendation = true
+                        }
+                    }.onFailure {
+                        errorMessage = it.localizedMessage ?: "無法分析帳戶影響範圍"
+                    }
+                }
+            }) {
                 Text("刪除帳戶", color = MaterialTheme.colorScheme.error)
             }
         }
     }
 
-    if (showDeleteConfirm) {
+    if (showArchiveRecommendation && deleteImpact != null) {
+        val impact = deleteImpact ?: return
         AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("刪除帳戶？") },
-            text = { Text("刪除後無法復原。") },
+            onDismissRequest = {
+                showArchiveRecommendation = false
+                deleteImpact = null
+            },
+            title = { Text("建議改用歸檔") },
+            text = {
+                Text(
+                    "${impact.accountName} 已連結 ${impact.counts.transactionCount} 筆交易、" +
+                        "${impact.counts.advanceCaseCount} 個代墊案件、${impact.counts.repaymentCount} 筆還款。"
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    val id = accountId?.let(UUID::fromString)
-                    val target = accounts.firstOrNull { it.id == id }
-                    showDeleteConfirm = false
-                    if (target != null) {
-                        scope.launch {
-                            repository.deleteAccount(target)
+                    showArchiveRecommendation = false
+                    scope.launch {
+                        runCatching {
+                            repository.archiveAccount(impact.accountId)
+                        }.onSuccess {
                             onDone()
+                        }.onFailure {
+                            errorMessage = it.localizedMessage ?: "歸檔失敗"
+                        }
+                    }
+                }) {
+                    Text("歸檔帳戶")
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = {
+                        showArchiveRecommendation = false
+                        showDeleteConfirm = true
+                    }) {
+                        Text("繼續刪除", color = MaterialTheme.colorScheme.error)
+                    }
+                    TextButton(onClick = {
+                        showArchiveRecommendation = false
+                        deleteImpact = null
+                    }) {
+                        Text("取消")
+                    }
+                }
+            }
+        )
+    }
+
+    if (showDeleteConfirm && deleteImpact != null) {
+        val impact = deleteImpact ?: return
+        AlertDialog(
+            onDismissRequest = {
+                showDeleteConfirm = false
+                deleteImpact = null
+            },
+            title = { Text(if (impact.isEmptyAccount) "刪除空帳戶？" else "刪除所有相關記賬？") },
+            text = {
+                Text(
+                    if (impact.isEmptyAccount) {
+                        if (impact.counts.shortcutDetachCount > 0) {
+                            "這個帳戶沒有歷史記賬，但有 ${impact.counts.shortcutDetachCount} 個捷徑會解除帳戶綁定。"
+                        } else {
+                            "這個帳戶沒有任何歷史記賬。"
+                        }
+                    } else {
+                        buildString {
+                            append("將刪除 ${impact.counts.transactionCount} 筆交易")
+                            if (impact.counts.advanceCaseCount > 0) {
+                                append("、${impact.counts.advanceCaseCount} 個代墊案件")
+                            }
+                            if (impact.counts.repaymentCount > 0) {
+                                append("、${impact.counts.repaymentCount} 筆還款")
+                            }
+                            if (impact.counts.shortcutDetachCount > 0) {
+                                append("；${impact.counts.shortcutDetachCount} 個捷徑會解除帳戶綁定")
+                            }
+                            append("。")
+                        }
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    scope.launch {
+                        runCatching {
+                            repository.deleteAccount(impact.accountId, deleteRelatedBookkeeping = true)
+                        }.onSuccess {
+                            onDone()
+                        }.onFailure {
+                            errorMessage = it.localizedMessage ?: "刪除失敗"
                         }
                     }
                 }) {
@@ -150,8 +249,24 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    deleteImpact = null
+                }) {
                     Text("取消")
+                }
+            }
+        )
+    }
+
+    if (errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { errorMessage = null },
+            title = { Text("操作失敗") },
+            text = { Text(errorMessage ?: "") },
+            confirmButton = {
+                TextButton(onClick = { errorMessage = null }) {
+                    Text("了解")
                 }
             }
         )

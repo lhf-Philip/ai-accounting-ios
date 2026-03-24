@@ -16,6 +16,7 @@ struct SettingsView: View {
     @State private var isExportingJSON = false
     @State private var isImportingJSON = false
     @State private var isExportingCSV = false
+    @State private var isProcessingImport = false
     @State private var jsonDocument: JSONDocument?
     @State private var csvDocument: CSVDocument?
 
@@ -160,8 +161,13 @@ struct SettingsView: View {
                     Button {
                         isImportingJSON = true
                     } label: {
-                        Label("匯入 JSON 備份", systemImage: "arrow.down.doc")
+                        if isProcessingImport {
+                            Label("匯入中...", systemImage: "hourglass")
+                        } else {
+                            Label("匯入 JSON 備份", systemImage: "arrow.down.doc")
+                        }
                     }
+                    .disabled(isProcessingImport)
                     .fileImporter(isPresented: $isImportingJSON, allowedContentTypes: [.json]) { res in
                         handleImport(result: res)
                     }
@@ -305,18 +311,25 @@ struct SettingsView: View {
     private func handleImport(result: Result<URL, Error>) {
         switch result {
         case .success(let url):
+            guard !isProcessingImport else { return }
             guard url.startAccessingSecurityScopedResource() else {
                 alertMessage = "無法獲取檔案權限"
                 showingAlert = true
                 return
             }
-            defer { url.stopAccessingSecurityScopedResource() }
-            do {
-                try BackupManager.shared.restoreFromJSON(url: url, modelContext: modelContext)
-                showingImportRepairPrompt = true
-            } catch {
-                alertMessage = "失敗：\(error.localizedDescription)"
-                showingAlert = true
+            isProcessingImport = true
+            Task {
+                defer {
+                    url.stopAccessingSecurityScopedResource()
+                    isProcessingImport = false
+                }
+                do {
+                    try await BackupManager.shared.restoreFromJSON(url: url, modelContext: modelContext)
+                    showingImportRepairPrompt = true
+                } catch {
+                    alertMessage = "失敗：\(error.localizedDescription)"
+                    showingAlert = true
+                }
             }
         case .failure(let error):
             alertMessage = error.localizedDescription
