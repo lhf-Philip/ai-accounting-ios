@@ -67,6 +67,8 @@ cd android
 ./gradlew :app:testDebugUnitTest
 ```
 
+Detailed APK build guide: [`docs/ANDROID_APK_BUILD.md`](./docs/ANDROID_APK_BUILD.md)
+
 ## CI
 
 GitHub Actions on `push` / `pull_request` to `main`:
@@ -93,6 +95,7 @@ GitHub Actions on `push` / `pull_request` to `main`:
 - Pull request template: [`.github/pull_request_template.md`](./.github/pull_request_template.md)
 - CI checklist: [`docs/CI_CHECKLIST.md`](./docs/CI_CHECKLIST.md)
 - Deployment guide: [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
+- Android APK build guide: [`docs/ANDROID_APK_BUILD.md`](./docs/ANDROID_APK_BUILD.md)
 
 ## Disclaimer
 
