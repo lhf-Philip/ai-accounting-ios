@@ -89,7 +89,7 @@ private sealed class AppDestination(
     data object Budgets : AppDestination("budgets", "預算與提醒")
     data object DataHealth : AppDestination("data-health", "資料健康檢查")
     data object AccountEdit : AppDestination("accounts/edit/{accountId}", "編輯帳戶")
-    data object ShortcutEdit : AppDestination("shortcuts/edit/{shortcutId}", "編輯捷徑")
+    data object ShortcutEdit : AppDestination("shortcuts/edit/{shortcutId}", "捷徑")
 }
 
 private val topLevelDestinations = listOf(
@@ -236,8 +236,7 @@ fun AIAccountingRoot(
                     onEdit = { id -> navController.navigate("transaction/edit/$id") },
                     onEditTransfer = { groupId -> navController.navigate("transfer/edit/$groupId") },
                     onOpenAdvanceCase = { caseId -> navController.navigate("advance/$caseId") },
-                    onAddShortcut = { navController.navigate("shortcuts/edit/${UUID.randomUUID()}") },
-                    onEditShortcut = { id -> navController.navigate("shortcuts/edit/$id") }
+                    onAddShortcut = { navController.navigate("shortcuts/edit/${UUID.randomUUID()}") }
                 )
             }
             composable(AppDestination.Reports.route) { ReportsScreen() }
@@ -412,7 +411,7 @@ private fun resolveTitle(backStackEntry: NavBackStackEntry?): String {
         route == AppDestination.Budgets.route -> "預算與提醒"
         route == AppDestination.DataHealth.route -> "資料健康檢查"
         route.startsWith("accounts/edit") -> "編輯帳戶"
-        route.startsWith("shortcuts/edit") -> "編輯捷徑"
+        route.startsWith("shortcuts/edit") -> "捷徑"
         else -> "AI 記帳"
     }
 }

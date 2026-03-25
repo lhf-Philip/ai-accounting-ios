@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,7 +20,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.ExperimentalFoundationApi
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
@@ -95,8 +94,7 @@ fun TransactionsScreen(
     onEdit: (String) -> Unit,
     onEditTransfer: (String) -> Unit,
     onOpenAdvanceCase: (String) -> Unit,
-    onAddShortcut: () -> Unit,
-    onEditShortcut: (String) -> Unit
+    onAddShortcut: () -> Unit
 ) {
     val repository = LocalRepository.current
     val scope = rememberCoroutineScope()
@@ -180,8 +178,7 @@ fun TransactionsScreen(
             onShortcutLongPress = {
                 shortcutToDelete = it
                 showShortcutDeleteConfirm = true
-            },
-            onShortcutEdit = { onEditShortcut(it.shortcut.id.toString()) }
+            }
         )
 
         HorizontalDivider()
@@ -533,8 +530,7 @@ private fun ShortcutsBar(
     shortcuts: List<ShortcutWithDetails>,
     onAddShortcut: () -> Unit,
     onShortcutTap: (ShortcutWithDetails) -> Unit,
-    onShortcutLongPress: (ShortcutWithDetails) -> Unit,
-    onShortcutEdit: (ShortcutWithDetails) -> Unit
+    onShortcutLongPress: (ShortcutWithDetails) -> Unit
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -551,19 +547,22 @@ private fun ShortcutsBar(
                 ShortcutTile(
                     shortcut = shortcut,
                     onClick = { onShortcutTap(shortcut) },
-                    onLongClick = { onShortcutLongPress(shortcut) },
-                    onEdit = { onShortcutEdit(shortcut) }
+                    onLongClick = { onShortcutLongPress(shortcut) }
                 )
             }
         }
     }
 }
 
+private val ShortcutTileWidth = 76.dp
+private val ShortcutTileHeight = 82.dp
+
 @Composable
 private fun AddShortcutTile(onClick: () -> Unit) {
     PressableCard(
         modifier = Modifier
-            .width(72.dp)
+            .width(ShortcutTileWidth)
+            .height(ShortcutTileHeight)
             .padding(vertical = 2.dp),
         onClick = onClick,
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -575,7 +574,7 @@ private fun AddShortcutTile(onClick: () -> Unit) {
             modifier = Modifier
                 .padding(horizontal = 8.dp, vertical = 10.dp)
                 .fillMaxWidth(),
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text("+", fontSize = 20.sp, fontWeight = FontWeight.Medium)
@@ -589,12 +588,12 @@ private fun AddShortcutTile(onClick: () -> Unit) {
 private fun ShortcutTile(
     shortcut: ShortcutWithDetails,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    onEdit: () -> Unit
+    onLongClick: () -> Unit
 ) {
     PressableCard(
         modifier = Modifier
-            .width(72.dp)
+            .width(ShortcutTileWidth)
+            .height(ShortcutTileHeight)
             .padding(vertical = 2.dp),
         onClick = onClick,
         onLongClick = onLongClick,
@@ -603,42 +602,24 @@ private fun ShortcutTile(
         borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
         pressedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
     ) {
-        Box(modifier = Modifier.padding(6.dp)) {
-            Column(
-                modifier = Modifier.align(Alignment.Center),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    shortcut.shortcut.icon.ifBlank { "⚡" },
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    shortcut.shortcut.name,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1
-                )
-            }
-            IconButton(
-                onClick = onEdit,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .size(22.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                            shape = CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.Edit, contentDescription = "編輯", modifier = Modifier.size(12.dp))
-                }
-            }
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 8.dp, vertical = 10.dp)
+                .fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                shortcut.shortcut.icon.ifBlank { "⚡" },
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                shortcut.shortcut.name,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
         }
     }
 }

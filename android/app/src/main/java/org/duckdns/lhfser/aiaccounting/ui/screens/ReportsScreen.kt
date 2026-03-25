@@ -3,6 +3,7 @@ package org.duckdns.lhfser.aiaccounting.ui.screens
 import android.app.DatePickerDialog
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,12 +23,12 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -47,9 +48,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
@@ -170,30 +173,30 @@ fun ReportsScreen() {
                 Spacer(modifier = Modifier.weight(1f))
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
-                ReportFlowMode.values().forEach { mode ->
-                    FilterChip(
-                        selected = flowMode == mode,
-                        onClick = {
-                            flowMode = mode
-                            selectedTag = null
-                        },
-                        label = { Text(mode.label) }
-                    )
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
-                ReportChartMode.values().forEach { mode ->
-                    FilterChip(
-                        selected = chartMode == mode,
-                        onClick = {
-                            chartMode = mode
-                            selectedTag = null
-                        },
-                        label = { Text(mode.label) }
-                    )
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.inline)
+            ) {
+                SegmentedOptionGroup(
+                    modifier = Modifier.weight(1f),
+                    options = ReportFlowMode.values().toList(),
+                    selected = flowMode,
+                    label = { it.label },
+                    onSelect = {
+                        flowMode = it
+                        selectedTag = null
+                    }
+                )
+                SegmentedOptionGroup(
+                    modifier = Modifier.weight(1f),
+                    options = ReportChartMode.values().toList(),
+                    selected = chartMode,
+                    label = { it.label },
+                    onSelect = {
+                        chartMode = it
+                        selectedTag = null
+                    }
+                )
             }
         }
 
@@ -309,6 +312,57 @@ fun ReportsScreen() {
 }
 
 @Composable
+private fun <T> SegmentedOptionGroup(
+    modifier: Modifier = Modifier,
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.24f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            options.forEach { option ->
+                val isSelected = option == selected
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    onClick = { onSelect(option) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        Color.Transparent
+                    }
+                ) {
+                    Text(
+                        text = label(option),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ReportRow(
     item: ReportSlice,
     total: BigDecimal,
@@ -353,9 +407,13 @@ private fun ReportRow(
 @Composable
 private fun DonutChart(data: List<ReportSlice>, baseCurrency: String, title: String) {
     val total = totalAmount(data)
-    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.inline),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(top = 4.dp)
+    ) {
         Box(contentAlignment = Alignment.Center) {
-            Canvas(modifier = Modifier.size(200.dp)) {
+            Canvas(modifier = Modifier.size(212.dp)) {
                 val stroke = Stroke(width = 22.dp.toPx(), cap = StrokeCap.Butt)
                 val diameter = minOf(size.width, size.height)
                 val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
@@ -378,10 +436,10 @@ private fun DonutChart(data: List<ReportSlice>, baseCurrency: String, title: Str
                 }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                     total.asCurrencyText(baseCurrency),
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
