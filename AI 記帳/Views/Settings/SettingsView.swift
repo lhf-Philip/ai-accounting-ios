@@ -47,12 +47,39 @@ struct SettingsView: View {
         let isCritical: Bool
     }
 
-    private func calculateTimeLeft(currentDate: Date) -> TimeLeftInfo {
+    struct BuildDebugInfo {
+        let version: String
+        let build: String
+        let executableTimestamp: Date?
+        let bundleTimestamp: Date?
+        let installEstimate: Date?
+    }
+
+    private var buildDebugInfo: BuildDebugInfo {
         let url = Bundle.main.executableURL ?? Bundle.main.bundleURL
         let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
         let creation = attributes?[.creationDate] as? Date ?? Date.distantPast
         let modification = attributes?[.modificationDate] as? Date ?? Date.distantPast
+        let bundleAttributes = try? FileManager.default.attributesOfItem(atPath: Bundle.main.bundleURL.path)
+        let bundleCreation = bundleAttributes?[.creationDate] as? Date
+        let bundleModification = bundleAttributes?[.modificationDate] as? Date
         let installDate = creation > modification ? creation : modification
+
+        return BuildDebugInfo(
+            version: (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "未知",
+            build: (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "未知",
+            executableTimestamp: installDate == Date.distantPast ? nil : installDate,
+            bundleTimestamp: max(bundleCreation ?? .distantPast, bundleModification ?? .distantPast) == .distantPast
+                ? nil
+                : max(bundleCreation ?? .distantPast, bundleModification ?? .distantPast),
+            installEstimate: installDate == Date.distantPast ? nil : installDate
+        )
+    }
+
+    private func calculateTimeLeft(currentDate: Date, installDate: Date?) -> TimeLeftInfo {
+        guard let installDate else {
+            return TimeLeftInfo(text: "無法計算", percentage: 0, isCritical: false)
+        }
 
         guard let expireDate = Calendar.current.date(byAdding: .day, value: 7, to: installDate) else {
             return TimeLeftInfo(text: "無法計算", percentage: 0, isCritical: false)
@@ -219,9 +246,13 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("測試版資訊") {
+                Section("偵錯與測試版資訊") {
                     TimelineView(.periodic(from: .now, by: 1.0)) { context in
-                        let info = calculateTimeLeft(currentDate: context.date)
+                        let debugInfo = buildDebugInfo
+                        let info = calculateTimeLeft(
+                            currentDate: context.date,
+                            installDate: debugInfo.installEstimate
+                        )
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Text("目前版本有效期")
@@ -235,7 +266,15 @@ struct SettingsView: View {
                                 .tint(info.isCritical ? .red : .blue)
                         }
                     }
-                    Text("重新安裝並 Clean Build 後，測試版有效期會更新。")
+                    LabeledContent("版本", value: buildDebugInfo.version)
+                    LabeledContent("Build", value: buildDebugInfo.build)
+                    if let installEstimate = buildDebugInfo.installEstimate {
+                        LabeledContent("包體時間估算", value: installEstimate.formatted(date: .abbreviated, time: .shortened))
+                    }
+                    if let bundleTimestamp = buildDebugInfo.bundleTimestamp {
+                        LabeledContent("Bundle 時間", value: bundleTimestamp.formatted(date: .abbreviated, time: .shortened))
+                    }
+                    Text("倒數是依包體檔案時間估算，只供參考。Personal Team 是否真的延長，以這次安裝使用的 provisioning profile 為準；單純 Cmd + R 不一定會刷新 7 天有效期。")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
