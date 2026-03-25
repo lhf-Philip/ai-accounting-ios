@@ -27,6 +27,8 @@ cd android
 ./gradlew :app:testDebugUnitTest
 ```
 
+Detailed APK build guide: [`../docs/ANDROID_APK_BUILD.md`](../docs/ANDROID_APK_BUILD.md)
+
 ## Release Signing
 
 To create a Play-uploadable release bundle, add a local `android/keystore.properties`

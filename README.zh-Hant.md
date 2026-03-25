@@ -64,6 +64,8 @@ gradle -p android :app:assembleDebug
 gradle -p android :app:testDebugUnitTest
 ```
 
+APK 建置流程：[`docs/ANDROID_APK_BUILD.md`](./docs/ANDROID_APK_BUILD.md)
+
 ## CI
 
 GitHub Actions 會在 `push` / `pull_request` 到 `main` 時執行：
@@ -89,6 +91,7 @@ GitHub Actions 會在 `push` / `pull_request` 到 `main` 時執行：
 - 貢獻指南： [English](./CONTRIBUTING.md) | [繁體中文](./CONTRIBUTING.zh-Hant.md) | [简体中文](./CONTRIBUTING.zh-Hans.md)
 - Pull Request 模板： [`.github/pull_request_template.md`](./.github/pull_request_template.md)
 - CI 檢查清單： [`docs/CI_CHECKLIST.md`](./docs/CI_CHECKLIST.md)
+- Android APK 建置流程： [`docs/ANDROID_APK_BUILD.md`](./docs/ANDROID_APK_BUILD.md)
 
 ## 免責聲明
 
