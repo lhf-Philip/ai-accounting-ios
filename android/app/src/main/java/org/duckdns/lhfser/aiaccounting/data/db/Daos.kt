@@ -29,6 +29,9 @@ interface AccountDao {
 
     @Delete
     suspend fun delete(account: AccountEntity)
+
+    @Query("DELETE FROM accounts")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -47,6 +50,9 @@ interface CategoryDao {
 
     @Delete
     suspend fun delete(category: CategoryEntity)
+
+    @Query("DELETE FROM categories")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -65,6 +71,9 @@ interface TagDao {
 
     @Delete
     suspend fun delete(tag: TagEntity)
+
+    @Query("DELETE FROM tags")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -105,6 +114,12 @@ interface TransactionDao {
 
     @Query("SELECT * FROM transaction_tag_cross_ref")
     suspend fun getTransactionTags(): List<TransactionTagCrossRef>
+
+    @Query("DELETE FROM transactions")
+    suspend fun deleteAllTransactions()
+
+    @Query("DELETE FROM transaction_tag_cross_ref")
+    suspend fun deleteAllTransactionTags()
 }
 
 @Dao
@@ -133,6 +148,12 @@ interface ShortcutDao {
 
     @Query("SELECT * FROM shortcut_tag_cross_ref")
     suspend fun getShortcutTags(): List<ShortcutTagCrossRef>
+
+    @Query("DELETE FROM shortcuts")
+    suspend fun deleteAllShortcuts()
+
+    @Query("DELETE FROM shortcut_tag_cross_ref")
+    suspend fun deleteAllShortcutTags()
 }
 
 @Dao
@@ -151,6 +172,9 @@ interface BudgetDao {
 
     @Delete
     suspend fun delete(budget: CategoryMonthlyBudgetEntity)
+
+    @Query("DELETE FROM category_monthly_budgets")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -193,4 +217,13 @@ interface AdvanceDao {
 
     @Delete
     suspend fun deleteRepayment(repayment: AdvanceRepaymentEntity)
+
+    @Query("DELETE FROM advance_repayments")
+    suspend fun deleteAllRepayments()
+
+    @Query("DELETE FROM advance_participants")
+    suspend fun deleteAllParticipants()
+
+    @Query("DELETE FROM advance_cases")
+    suspend fun deleteAllCases()
 }

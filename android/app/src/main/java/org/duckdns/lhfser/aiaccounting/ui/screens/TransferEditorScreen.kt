@@ -88,6 +88,15 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
     var note by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(Instant.now()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    val selectableAccountIds = buildSet {
+        fromAccount?.id?.let(::add)
+        toAccount?.id?.let(::add)
+        sourceAccount?.id?.let(::add)
+        destinationAccount?.id?.let(::add)
+        destinationLegs.mapNotNullTo(this) { it.account?.id }
+        sourceLegs.mapNotNullTo(this) { it.account?.id }
+    }
+    val selectableAccounts = accounts.filter { !it.isArchived || it.id in selectableAccountIds }
 
     LaunchedEffect(groupId, accounts) {
         val id = groupId?.let(UUID::fromString) ?: return@LaunchedEffect
@@ -166,7 +175,7 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
         SectionCard {
             when (mode) {
                 TransferEditMode.OneToOne -> {
-                    AccountPicker(label = "轉出帳戶", accounts = accounts, selected = fromAccount) { acc ->
+                    AccountPicker(label = "轉出帳戶", accounts = selectableAccounts, selected = fromAccount) { acc ->
                         fromAccount = acc
                         if (acc != null) currencyOut = acc.currency
                     }
@@ -180,7 +189,7 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                         currency = currencyOut,
                         onCurrencyChange = { currencyOut = it }
                     )
-                    AccountPicker(label = "轉入帳戶", accounts = accounts, selected = toAccount) { acc ->
+                    AccountPicker(label = "轉入帳戶", accounts = selectableAccounts, selected = toAccount) { acc ->
                         toAccount = acc
                         if (acc != null) currencyIn = acc.currency
                     }
@@ -193,7 +202,7 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                     )
                 }
                 TransferEditMode.OneToMany -> {
-                    AccountPicker(label = "轉出帳戶", accounts = accounts, selected = sourceAccount) { acc ->
+                    AccountPicker(label = "轉出帳戶", accounts = selectableAccounts, selected = sourceAccount) { acc ->
                         sourceAccount = acc
                         if (acc != null) sourceCurrency = acc.currency
                     }
@@ -208,7 +217,7 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                         TransferLegEditor(
                             title = "轉入帳戶 ${index + 1}",
                             leg = leg,
-                            accounts = accounts.filter { it.id != sourceAccount?.id },
+                            accounts = selectableAccounts.filter { it.id != sourceAccount?.id },
                             onUpdate = { updated ->
                                 destinationLegs = destinationLegs.toMutableList().also { it[index] = updated }
                             },
@@ -222,7 +231,7 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                     }
                 }
                 TransferEditMode.ManyToOne -> {
-                    AccountPicker(label = "轉入帳戶", accounts = accounts, selected = destinationAccount) { acc ->
+                    AccountPicker(label = "轉入帳戶", accounts = selectableAccounts, selected = destinationAccount) { acc ->
                         destinationAccount = acc
                         if (acc != null) destinationCurrency = acc.currency
                     }
@@ -237,7 +246,7 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                         TransferLegEditor(
                             title = "轉出帳戶 ${index + 1}",
                             leg = leg,
-                            accounts = accounts.filter { it.id != destinationAccount?.id },
+                            accounts = selectableAccounts.filter { it.id != destinationAccount?.id },
                             onUpdate = { updated ->
                                 sourceLegs = sourceLegs.toMutableList().also { it[index] = updated }
                             },

@@ -449,6 +449,7 @@ enum AdvanceService {
     static func rollbackRepayment(
         advanceCase: AdvanceCase,
         repayment: AdvanceRepayment,
+        autosave: Bool = true,
         modelContext: ModelContext
     ) throws {
         guard repayment.advanceCase?.id == advanceCase.id else {
@@ -474,13 +475,16 @@ enum AdvanceService {
         advanceCase.updatedAt = Date()
         
         modelContext.delete(repayment)
-        try modelContext.save()
+        if autosave {
+            try modelContext.save()
+        }
     }
     
     @MainActor
     static func deleteAdvanceCase(
         _ advanceCase: AdvanceCase,
         deleteLinkedTransactions: Bool,
+        autosave: Bool = true,
         modelContext: ModelContext
     ) throws -> DeleteAdvanceResult {
         var deletedTransactionCount = 0
@@ -530,7 +534,9 @@ enum AdvanceService {
         }
         
         modelContext.delete(advanceCase)
-        try modelContext.save()
+        if autosave {
+            try modelContext.save()
+        }
         
         return DeleteAdvanceResult(
             deletedTransactionCount: deletedTransactionCount,

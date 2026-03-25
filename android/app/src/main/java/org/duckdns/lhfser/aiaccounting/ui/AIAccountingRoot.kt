@@ -235,6 +235,7 @@ fun AIAccountingRoot(
                 TransactionsScreen(
                     onEdit = { id -> navController.navigate("transaction/edit/$id") },
                     onEditTransfer = { groupId -> navController.navigate("transfer/edit/$groupId") },
+                    onOpenAdvanceCase = { caseId -> navController.navigate("advance/$caseId") },
                     onAddShortcut = { navController.navigate("shortcuts/edit/${UUID.randomUUID()}") },
                     onEditShortcut = { id -> navController.navigate("shortcuts/edit/$id") }
                 )

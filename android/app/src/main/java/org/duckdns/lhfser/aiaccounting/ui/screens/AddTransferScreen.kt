@@ -55,6 +55,7 @@ fun AddTransferScreen(onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     val accounts by repository.accounts.collectAsState(initial = emptyList())
     val scrollState = rememberScrollState()
+    val activeAccounts = accounts.filter { !it.isArchived }
 
     var mode by remember { mutableStateOf(AddTransferMode.OneToOne) }
 
@@ -101,7 +102,7 @@ fun AddTransferScreen(onDone: () -> Unit) {
         SectionCard {
             when (mode) {
                 AddTransferMode.OneToOne -> {
-                    AccountPicker(label = "轉出帳戶", accounts = accounts, selected = fromAccount) { acc ->
+                    AccountPicker(label = "轉出帳戶", accounts = activeAccounts, selected = fromAccount) { acc ->
                         fromAccount = acc
                         if (acc != null) currencyOut = acc.currency
                     }
@@ -115,7 +116,7 @@ fun AddTransferScreen(onDone: () -> Unit) {
                         currency = currencyOut,
                         onCurrencyChange = { currencyOut = it }
                     )
-                    AccountPicker(label = "轉入帳戶", accounts = accounts, selected = toAccount) { acc ->
+                    AccountPicker(label = "轉入帳戶", accounts = activeAccounts, selected = toAccount) { acc ->
                         toAccount = acc
                         if (acc != null) currencyIn = acc.currency
                     }
@@ -128,7 +129,7 @@ fun AddTransferScreen(onDone: () -> Unit) {
                     )
                 }
                 AddTransferMode.OneToMany -> {
-                    AccountPicker(label = "轉出帳戶", accounts = accounts, selected = sourceAccount) { acc ->
+                    AccountPicker(label = "轉出帳戶", accounts = activeAccounts, selected = sourceAccount) { acc ->
                         sourceAccount = acc
                         if (acc != null) sourceCurrency = acc.currency
                     }
@@ -143,7 +144,7 @@ fun AddTransferScreen(onDone: () -> Unit) {
                         TransferLegEditor(
                             title = "轉入帳戶 ${index + 1}",
                             leg = leg,
-                            accounts = accounts.filter { it.id != sourceAccount?.id },
+                            accounts = activeAccounts.filter { it.id != sourceAccount?.id },
                             onUpdate = { updated ->
                                 destinationLegs = destinationLegs.toMutableList().also { it[index] = updated }
                             },
@@ -157,7 +158,7 @@ fun AddTransferScreen(onDone: () -> Unit) {
                     }
                 }
                 AddTransferMode.ManyToOne -> {
-                    AccountPicker(label = "轉入帳戶", accounts = accounts, selected = destinationAccount) { acc ->
+                    AccountPicker(label = "轉入帳戶", accounts = activeAccounts, selected = destinationAccount) { acc ->
                         destinationAccount = acc
                         if (acc != null) destinationCurrency = acc.currency
                     }
@@ -172,7 +173,7 @@ fun AddTransferScreen(onDone: () -> Unit) {
                         TransferLegEditor(
                             title = "轉出帳戶 ${index + 1}",
                             leg = leg,
-                            accounts = accounts.filter { it.id != destinationAccount?.id },
+                            accounts = activeAccounts.filter { it.id != destinationAccount?.id },
                             onUpdate = { updated ->
                                 sourceLegs = sourceLegs.toMutableList().also { it[index] = updated }
                             },

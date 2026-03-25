@@ -49,6 +49,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.ExperimentalFoundationApi
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
+import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
@@ -57,6 +58,7 @@ import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
+import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -70,13 +72,29 @@ private enum class DateFilterType(val label: String) {
     Custom("自訂區間")
 }
 
-private data class DailySection(val date: LocalDate, val items: List<TransactionWithDetails>)
+private sealed interface LedgerItem {
+    val stableId: String
+    val date: Instant
+
+    data class TransactionEntry(val item: TransactionWithDetails) : LedgerItem {
+        override val stableId: String = "tx-${item.transaction.id}"
+        override val date: Instant = item.transaction.date
+    }
+
+    data class AdvanceSummary(val item: AdvanceCaseWithDetails) : LedgerItem {
+        override val stableId: String = "advance-${item.advanceCase.id}"
+        override val date: Instant = item.advanceCase.date
+    }
+}
+
+private data class DailySection(val date: LocalDate, val items: List<LedgerItem>)
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 fun TransactionsScreen(
     onEdit: (String) -> Unit,
     onEditTransfer: (String) -> Unit,
+    onOpenAdvanceCase: (String) -> Unit,
     onAddShortcut: () -> Unit,
     onEditShortcut: (String) -> Unit
 ) {
@@ -85,6 +103,7 @@ fun TransactionsScreen(
     val context = LocalContext.current
     val transactions by repository.transactions.collectAsState(initial = emptyList())
     val shortcuts by repository.shortcuts.collectAsState(initial = emptyList())
+    val advanceCases by repository.advanceCases.collectAsState(initial = emptyList())
 
     var pendingShortcut by remember { mutableStateOf<ShortcutWithDetails?>(null) }
     var showShortcutConfirm by remember { mutableStateOf(false) }
@@ -104,13 +123,22 @@ fun TransactionsScreen(
     val (rangeStart, rangeEnd) = remember(filterType, selectedDate, customStartDate, customEndDate) {
         resolveDateRange(filterType, selectedDate, customStartDate, customEndDate)
     }
-    val filteredTransactions = remember(transactions, rangeStart, rangeEnd, searchText) {
-        filterTransactions(transactions, rangeStart, rangeEnd, searchText)
+    val initialAdvanceGroupIds = remember(advanceCases) {
+        advanceCases.flatMap { it.participants.mapNotNull { participant -> participant.initialTransferGroupId } }.toSet()
     }
-    val dailySections = remember(filteredTransactions) {
+    val filteredTransactions = remember(transactions, rangeStart, rangeEnd, searchText, initialAdvanceGroupIds) {
+        filterTransactions(transactions, rangeStart, rangeEnd, searchText, initialAdvanceGroupIds)
+    }
+    val filteredAdvanceCases = remember(advanceCases, rangeStart, rangeEnd, searchText) {
+        filterAdvanceCases(advanceCases, rangeStart, rangeEnd, searchText)
+    }
+    val ledgerItems = remember(filteredTransactions, filteredAdvanceCases) {
+        buildLedgerItems(filteredTransactions, filteredAdvanceCases)
+    }
+    val dailySections = remember(ledgerItems) {
         val zone = ZoneId.systemDefault()
-        filteredTransactions
-            .groupBy { it.transaction.date.atZone(zone).toLocalDate() }
+        ledgerItems
+            .groupBy { it.date.atZone(zone).toLocalDate() }
             .map { (date, items) -> DailySection(date, items) }
             .sortedByDescending { it.date }
     }
@@ -184,7 +212,7 @@ fun TransactionsScreen(
                 )
             }
 
-            if (filteredTransactions.isEmpty()) {
+            if (ledgerItems.isEmpty()) {
                 item {
                     Column(
                         modifier = Modifier
@@ -213,23 +241,33 @@ fun TransactionsScreen(
                             )
                         }
                     }
-                    items(section.items, key = { it.transaction.id }) { item ->
-                        val groupId = item.transaction.transferGroupId?.toString()
-                        val isTransfer = item.transaction.type == TransactionType.Transfer && groupId != null
-                        TransactionRow(
-                            item = item,
-                            onClick = {
-                                if (isTransfer) {
-                                    onEditTransfer(groupId!!)
-                                } else {
-                                    onEdit(item.transaction.id.toString())
-                                }
-                            },
-                            onLongClick = {
-                                transactionToDelete = item
-                                showDeleteConfirm = true
+                    items(section.items, key = { it.stableId }) { item ->
+                        when (item) {
+                            is LedgerItem.TransactionEntry -> {
+                                val groupId = item.item.transaction.transferGroupId?.toString()
+                                val isTransfer = item.item.transaction.type == TransactionType.Transfer && groupId != null
+                                TransactionRow(
+                                    item = item.item,
+                                    onClick = {
+                                        if (isTransfer) {
+                                            onEditTransfer(groupId!!)
+                                        } else {
+                                            onEdit(item.item.transaction.id.toString())
+                                        }
+                                    },
+                                    onLongClick = {
+                                        transactionToDelete = item.item
+                                        showDeleteConfirm = true
+                                    }
+                                )
                             }
-                        )
+                            is LedgerItem.AdvanceSummary -> {
+                                AdvanceSummaryRow(
+                                    item = item.item,
+                                    onClick = { onOpenAdvanceCase(item.item.advanceCase.id.toString()) }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -434,6 +472,62 @@ private fun TransactionRow(
 }
 
 @Composable
+private fun AdvanceSummaryRow(
+    item: AdvanceCaseWithDetails,
+    onClick: () -> Unit
+) {
+    val totalAdvanced = item.advanceCase.myShareAmount + item.participants.fold(BigDecimal.ZERO) { acc, participant ->
+        acc + participant.owedAmount
+    }
+    val outstanding = item.participants.fold(BigDecimal.ZERO) { acc, participant ->
+        acc + (participant.owedAmount - participant.repaidAmount).max(BigDecimal.ZERO)
+    }
+    val payerText = item.payerAccount?.name ?: "未指定付款帳戶"
+
+    PressableCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.inline),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    item.advanceCase.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "${item.participants.size} 人 · $payerText",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    item.advanceCase.date.toDateText(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    totalAdvanced.asCurrencyText(item.advanceCase.currencyCode),
+                    color = Color(0xFFEF6C00),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "未清 ${outstanding.asCurrencyText(item.advanceCase.currencyCode)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ShortcutsBar(
     modifier: Modifier = Modifier,
     shortcuts: List<ShortcutWithDetails>,
@@ -608,7 +702,8 @@ private fun filterTransactions(
     transactions: List<TransactionWithDetails>,
     rangeStart: Instant?,
     rangeEnd: Instant?,
-    query: String
+    query: String,
+    excludedAdvanceGroupIds: Set<UUID>
 ): List<TransactionWithDetails> {
     val normalized = query.trim().lowercase()
     return transactions.filter { tx ->
@@ -616,6 +711,7 @@ private fun filterTransactions(
             tx.transaction.date >= rangeStart && tx.transaction.date < rangeEnd
         } else true
         if (!dateOk) return@filter false
+        if (tx.transaction.transferGroupId in excludedAdvanceGroupIds) return@filter false
         if (normalized.isBlank()) return@filter true
         val note = tx.transaction.note.lowercase()
         val category = tx.category?.name?.lowercase().orEmpty()
@@ -625,6 +721,36 @@ private fun filterTransactions(
         val currency = tx.transaction.currencyCode.lowercase()
         listOf(note, category, account, tags, amount, currency).any { it.contains(normalized) }
     }
+}
+
+private fun filterAdvanceCases(
+    advanceCases: List<AdvanceCaseWithDetails>,
+    rangeStart: Instant?,
+    rangeEnd: Instant?,
+    query: String
+): List<AdvanceCaseWithDetails> {
+    val normalized = query.trim().lowercase()
+    return advanceCases.filter { advanceCase ->
+        val dateOk = if (rangeStart != null && rangeEnd != null) {
+            advanceCase.advanceCase.date >= rangeStart && advanceCase.advanceCase.date < rangeEnd
+        } else true
+        if (!dateOk) return@filter false
+        if (normalized.isBlank()) return@filter true
+
+        val title = advanceCase.advanceCase.title.lowercase()
+        val note = advanceCase.advanceCase.note.lowercase()
+        val payer = advanceCase.payerAccount?.name?.lowercase().orEmpty()
+        val participants = advanceCase.participants.joinToString(" ") { it.name.lowercase() }
+        listOf(title, note, payer, participants).any { it.contains(normalized) }
+    }
+}
+
+private fun buildLedgerItems(
+    transactions: List<TransactionWithDetails>,
+    advanceCases: List<AdvanceCaseWithDetails>
+): List<LedgerItem> {
+    return (transactions.map { LedgerItem.TransactionEntry(it) } + advanceCases.map { LedgerItem.AdvanceSummary(it) })
+        .sortedByDescending { it.date }
 }
 
 private fun showDatePicker(
