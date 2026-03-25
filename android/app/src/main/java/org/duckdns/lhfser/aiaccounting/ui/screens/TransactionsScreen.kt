@@ -2,6 +2,7 @@ package org.duckdns.lhfser.aiaccounting.ui.screens
 
 import android.app.DatePickerDialog
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,7 +21,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -46,7 +47,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.ExperimentalFoundationApi
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
@@ -88,6 +88,10 @@ private sealed interface LedgerItem {
 }
 
 private data class DailySection(val date: LocalDate, val items: List<LedgerItem>)
+private val LedgerFilterShape = RoundedCornerShape(18.dp)
+private val ShortcutTileWidth = 76.dp
+private val ShortcutTileHeight = 88.dp
+private val ShortcutIconContainerSize = 46.dp
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
@@ -95,8 +99,7 @@ fun TransactionsScreen(
     onEdit: (String) -> Unit,
     onEditTransfer: (String) -> Unit,
     onOpenAdvanceCase: (String) -> Unit,
-    onAddShortcut: () -> Unit,
-    onEditShortcut: (String) -> Unit
+    onAddShortcut: () -> Unit
 ) {
     val repository = LocalRepository.current
     val scope = rememberCoroutineScope()
@@ -147,22 +150,28 @@ fun TransactionsScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = AppSpacing.inline),
+                .padding(horizontal = AppSpacing.screenHorizontal, vertical = 10.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
                 modifier = Modifier.clickable { showFilterDialog = true },
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                shape = LedgerFilterShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.tight),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(Icons.Default.DateRange, contentDescription = null)
-                    Text(filterLabel(filterType, selectedDate, customStartDate, customEndDate))
+                    Icon(Icons.Default.DateRange, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Text(
+                        filterLabel(filterType, selectedDate, customStartDate, customEndDate),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         }
@@ -180,8 +189,7 @@ fun TransactionsScreen(
             onShortcutLongPress = {
                 shortcutToDelete = it
                 showShortcutDeleteConfirm = true
-            },
-            onShortcutEdit = { onEditShortcut(it.shortcut.id.toString()) }
+            }
         )
 
         HorizontalDivider()
@@ -232,10 +240,11 @@ fun TransactionsScreen(
                         ) {
                             Text(
                                 text = formatHeaderDate(section.date),
-                                style = MaterialTheme.typography.titleSmall,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Medium,
                                 modifier = Modifier.padding(
                                     horizontal = AppSpacing.screenHorizontal,
-                                    vertical = AppSpacing.inline
+                                    vertical = 10.dp
                                 ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -450,22 +459,39 @@ private fun TransactionRow(
         onLongClick = onLongClick
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.inline),
+            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     item.transaction.note.ifBlank { categoryText },
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
-                Text(metaText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(item.transaction.date.toDateText(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    metaText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    item.transaction.date.toDateText(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(amountText, color = amountColor, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                Text(item.transaction.currencyCode, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    amountText,
+                    color = amountColor,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    item.transaction.currencyCode,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -489,19 +515,19 @@ private fun AdvanceSummaryRow(
         onClick = onClick
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.inline),
+            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     item.advanceCase.title,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
                     "${item.participants.size} 人 · $payerText",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
@@ -514,7 +540,7 @@ private fun AdvanceSummaryRow(
                 Text(
                     totalAdvanced.asCurrencyText(item.advanceCase.currencyCode),
                     color = Color(0xFFEF6C00),
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
@@ -533,16 +559,15 @@ private fun ShortcutsBar(
     shortcuts: List<ShortcutWithDetails>,
     onAddShortcut: () -> Unit,
     onShortcutTap: (ShortcutWithDetails) -> Unit,
-    onShortcutLongPress: (ShortcutWithDetails) -> Unit,
-    onShortcutEdit: (ShortcutWithDetails) -> Unit
+    onShortcutLongPress: (ShortcutWithDetails) -> Unit
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.tight)
     ) {
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(vertical = AppSpacing.inline)
+            contentPadding = PaddingValues(vertical = 10.dp)
         ) {
             item {
                 AddShortcutTile(onClick = onAddShortcut)
@@ -551,8 +576,7 @@ private fun ShortcutsBar(
                 ShortcutTile(
                     shortcut = shortcut,
                     onClick = { onShortcutTap(shortcut) },
-                    onLongClick = { onShortcutLongPress(shortcut) },
-                    onEdit = { onShortcutEdit(shortcut) }
+                    onLongClick = { onShortcutLongPress(shortcut) }
                 )
             }
         }
@@ -563,7 +587,8 @@ private fun ShortcutsBar(
 private fun AddShortcutTile(onClick: () -> Unit) {
     PressableCard(
         modifier = Modifier
-            .width(72.dp)
+            .width(ShortcutTileWidth)
+            .height(ShortcutTileHeight)
             .padding(vertical = 2.dp),
         onClick = onClick,
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -575,11 +600,29 @@ private fun AddShortcutTile(onClick: () -> Unit) {
             modifier = Modifier
                 .padding(horizontal = 8.dp, vertical = 10.dp)
                 .fillMaxWidth(),
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("+", fontSize = 20.sp, fontWeight = FontWeight.Medium)
-            Text("捷徑", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
+            Surface(
+                modifier = Modifier.size(ShortcutIconContainerSize),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        "+",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            Text(
+                "捷徑",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -589,12 +632,12 @@ private fun AddShortcutTile(onClick: () -> Unit) {
 private fun ShortcutTile(
     shortcut: ShortcutWithDetails,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    onEdit: () -> Unit
+    onLongClick: () -> Unit
 ) {
     PressableCard(
         modifier = Modifier
-            .width(72.dp)
+            .width(ShortcutTileWidth)
+            .height(ShortcutTileHeight)
             .padding(vertical = 2.dp),
         onClick = onClick,
         onLongClick = onLongClick,
@@ -603,42 +646,33 @@ private fun ShortcutTile(
         borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
         pressedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
     ) {
-        Box(modifier = Modifier.padding(6.dp)) {
-            Column(
-                modifier = Modifier.align(Alignment.Center),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 8.dp, vertical = 10.dp)
+                .fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Surface(
+                modifier = Modifier.size(ShortcutIconContainerSize),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surface
             ) {
-                Text(
-                    shortcut.shortcut.icon.ifBlank { "⚡" },
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    shortcut.shortcut.name,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1
-                )
-            }
-            IconButton(
-                onClick = onEdit,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .size(22.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                            shape = CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.Edit, contentDescription = "編輯", modifier = Modifier.size(12.dp))
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        shortcut.shortcut.icon.ifBlank { "⚡" },
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
+            Text(
+                shortcut.shortcut.name,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                color = MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }

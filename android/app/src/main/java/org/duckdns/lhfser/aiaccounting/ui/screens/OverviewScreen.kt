@@ -1,15 +1,19 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
 import android.app.DatePickerDialog
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
@@ -23,8 +27,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -58,6 +62,8 @@ private enum class OverviewFilterType(val label: String) {
     Month("本月"),
     Day("今日")
 }
+
+private val OverviewFilterShape = RoundedCornerShape(18.dp)
 
 @Composable
 fun OverviewScreen(
@@ -122,9 +128,25 @@ fun OverviewScreen(
             )
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
-            TextButton(onClick = { showFilterDialog = true }) {
-                Text(filterDisplayString(filterType, selectedDate), style = MaterialTheme.typography.bodyMedium)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(
+                modifier = Modifier.clickable { showFilterDialog = true },
+                shape = OverviewFilterShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        filterDisplayString(filterType, selectedDate),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OverviewFilterType.values().forEach { type ->
@@ -149,7 +171,9 @@ fun OverviewScreen(
                     Button(
                         onClick = onQuickAdd,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
@@ -158,7 +182,9 @@ fun OverviewScreen(
                     Button(
                         onClick = onOpenGuide,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
                     ) {
                         Icon(Icons.Default.Book, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
@@ -234,11 +260,11 @@ private fun SummaryTile(label: String, value: String, tint: Color, modifier: Mod
         Column(modifier = Modifier.padding(AppSpacing.card), verticalArrangement = Arrangement.spacedBy(AppSpacing.tight)) {
             Text(
                 label,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = tint)
+            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = tint)
         }
     }
 }
@@ -257,19 +283,19 @@ private fun EntryButton(
         pressedContainerColor = MaterialTheme.colorScheme.surface
     ) {
         Row(
-            modifier = Modifier.padding(AppSpacing.card),
+            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Icon(
                 icon,
                 contentDescription = null,
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(22.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }

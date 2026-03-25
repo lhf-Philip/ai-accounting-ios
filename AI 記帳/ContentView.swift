@@ -31,84 +31,68 @@ struct ContentView: View {
     @State private var initialGuideChecked = false
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            TabView(selection: $selectedTab) {
-                HomeDashboardView(
-                    onQuickAdd: {
-                        showingAddOptions = true
-                    },
-                    onOpenGuide: {
-                        showingUserGuide = true
-                    },
-                    onOpenLedger: {
-                        selectedTab = .ledger
-                    },
-                    onOpenReports: {
-                        selectedTab = .reports
-                    },
-                    onOpenAccounts: {
-                        selectedTab = .accounts
+        GeometryReader { proxy in
+            ZStack(alignment: .bottomTrailing) {
+                TabView(selection: $selectedTab) {
+                    HomeDashboardView(
+                        onQuickAdd: {
+                            showingAddOptions = true
+                        },
+                        onOpenGuide: {
+                            showingUserGuide = true
+                        },
+                        onOpenLedger: {
+                            selectedTab = .ledger
+                        },
+                        onOpenReports: {
+                            selectedTab = .reports
+                        },
+                        onOpenAccounts: {
+                            selectedTab = .accounts
+                        }
+                    )
+                    .tabItem {
+                        Label("總覽", systemImage: "house")
                     }
-                )
-                .tabItem {
-                    Label("總覽", systemImage: "house")
+                    .tag(RootTab.home)
+
+                    TransactionsListView()
+                        .tabItem {
+                            Label("帳目", systemImage: "list.bullet")
+                        }
+                        .tag(RootTab.ledger)
+
+                    ChartsView()
+                        .tabItem {
+                            Label("報表", systemImage: "chart.pie")
+                        }
+                        .tag(RootTab.reports)
+
+                    AccountsView()
+                        .tabItem {
+                            Label("帳戶", systemImage: "creditcard")
+                        }
+                        .tag(RootTab.accounts)
+
+                    SettingsView()
+                        .tabItem {
+                            Label("設定", systemImage: "gearshape")
+                        }
+                        .tag(RootTab.settings)
                 }
-                .tag(RootTab.home)
-
-                TransactionsListView()
-                    .tabItem {
-                        Label("帳目", systemImage: "list.bullet")
-                    }
-                    .tag(RootTab.ledger)
-
-                ChartsView()
-                    .tabItem {
-                        Label("報表", systemImage: "chart.pie")
-                    }
-                    .tag(RootTab.reports)
-
-                AccountsView()
-                    .tabItem {
-                        Label("帳戶", systemImage: "creditcard")
-                    }
-                    .tag(RootTab.accounts)
-
-                SettingsView()
-                    .tabItem {
-                        Label("設定", systemImage: "gearshape")
-                    }
-                    .tag(RootTab.settings)
+                
+                floatingAddButton
+                    .padding(.trailing, 18)
+                    .padding(.bottom, floatingButtonBottomPadding(safeAreaBottom: proxy.safeAreaInsets.bottom))
             }
-
-            Button(action: { showingAddOptions = true }) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.blue, Color.cyan],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 60, height: 60)
-                        .shadow(color: .blue.opacity(0.25), radius: 10, x: 0, y: 5)
-
-                    Image(systemName: "plus")
-                        .font(.system(size: 30, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-            }
-            .padding(.trailing, 18)
-            .padding(.bottom, 26)
-            .accessibilityLabel("新增記錄")
-            .confirmationDialog("新增內容", isPresented: $showingAddOptions, titleVisibility: .visible) {
-                Button("記一筆（收入/支出）") { showingAddTransaction = true }
-                Button("掃描收據（AI）") { showingScanReceipt = true }
-                Button("轉帳") { showingAddTransfer = true }
-                Button("借貸（借入/還款）") { showingAddDebt = true }
-                Button("新增代墊單（多人分帳）") { showingAddAdvanceCase = true }
-                Button("取消", role: .cancel) {}
-            }
+        }
+        .confirmationDialog("新增內容", isPresented: $showingAddOptions, titleVisibility: .visible) {
+            Button("記一筆（收入/支出）") { showingAddTransaction = true }
+            Button("掃描收據（AI）") { showingScanReceipt = true }
+            Button("轉帳") { showingAddTransfer = true }
+            Button("借貸（借入/還款）") { showingAddDebt = true }
+            Button("新增代墊單（多人分帳）") { showingAddAdvanceCase = true }
+            Button("取消", role: .cancel) {}
         }
         .sheet(isPresented: $showingAddTransaction) { AddTransactionView() }
         .sheet(isPresented: $showingAddTransfer) { AddTransferView() }
@@ -146,6 +130,33 @@ struct ContentView: View {
                 showingUserGuide = true
             }
         }
+    }
+
+    private var floatingAddButton: some View {
+        Button(action: { showingAddOptions = true }) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.blue, Color.cyan],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 60, height: 60)
+                    .shadow(color: .blue.opacity(0.25), radius: 10, x: 0, y: 5)
+
+                Image(systemName: "plus")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .accessibilityLabel("新增記錄")
+    }
+
+    private func floatingButtonBottomPadding(safeAreaBottom: CGFloat) -> CGFloat {
+        let tabBarClearance: CGFloat = safeAreaBottom > 0 ? 58 : 68
+        return safeAreaBottom + tabBarClearance
     }
 
     private func scheduleIdleAutoBackup() {
