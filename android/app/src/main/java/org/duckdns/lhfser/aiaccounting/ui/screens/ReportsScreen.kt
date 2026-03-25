@@ -4,6 +4,7 @@ import android.app.DatePickerDialog
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -106,6 +107,8 @@ private data class BudgetAlert(
     val categoryName: String
 )
 
+private val ReportFilterShape = RoundedCornerShape(18.dp)
+
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 fun ReportsScreen() {
@@ -162,13 +165,28 @@ fun ReportsScreen() {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { showFilterDialog = true }) {
-                    Icon(Icons.Default.DateRange, contentDescription = null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(filterLabel(filterType, selectedDate))
+                Surface(
+                    modifier = Modifier.clickable { showFilterDialog = true },
+                    shape = ReportFilterShape,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Default.DateRange, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Text(
+                            filterLabel(filterType, selectedDate),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.weight(1f))
             }
@@ -378,23 +396,23 @@ private fun ReportRow(
         onClick = onClick
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.inline),
+            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.tight)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ColorDot(color = item.color)
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(item.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                    Text(item.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Text(
                         item.amount.asCurrencyText(baseCurrency),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
                 Text(
                     trailingLabel,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.primary
                 )

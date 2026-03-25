@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
@@ -31,6 +32,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -100,16 +102,16 @@ fun SettingsScreen(
             .fillMaxWidth()
             .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
             .verticalScroll(scrollState),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
     ) {
-        Text("偏好設定", style = MaterialTheme.typography.titleMedium)
+        Text("偏好設定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         SectionCard {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("主要貨幣", style = MaterialTheme.typography.titleSmall)
                     Text("報表與總覽以此幣別顯示", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Button(onClick = { currencyMenuExpanded = true }) {
+                Button(onClick = { currencyMenuExpanded = true }, modifier = Modifier.height(42.dp)) {
                     Text(mainCurrency)
                 }
                 DropdownMenu(expanded = currencyMenuExpanded, onDismissRequest = { currencyMenuExpanded = false }) {
@@ -128,7 +130,7 @@ fun SettingsScreen(
             }
         }
 
-        Text("資料與工具", style = MaterialTheme.typography.titleMedium)
+        Text("資料與工具", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         SectionCard {
             SettingRow(title = "分類管理", subtitle = "支援收入/支出/兩者", onClick = onOpenCategories)
             SettingRow(title = "標籤管理", subtitle = "用於快速篩選與統計", onClick = onOpenTags)
@@ -137,7 +139,7 @@ fun SettingsScreen(
             SettingRow(title = "資料健康檢查", subtitle = "檢查缺失分類/帳戶", onClick = onOpenHealth)
         }
 
-        Text("備份與匯入", style = MaterialTheme.typography.titleMedium)
+        Text("備份與匯入", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         SectionCard {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -147,10 +149,20 @@ fun SettingsScreen(
                 Switch(checked = replaceExisting, onCheckedChange = { replaceExisting = it })
             }
             Spacer(modifier = Modifier.padding(top = 4.dp))
-            Button(onClick = { exportLauncher.launch("Backup.json") }, modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { exportLauncher.launch("Backup.json") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+            ) {
                 Text("匯出 JSON 備份")
             }
-            Button(onClick = { importLauncher.launch(arrayOf("application/json")) }, modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { importLauncher.launch(arrayOf("application/json")) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+            ) {
                 Text("匯入 JSON 備份")
             }
             if (message != null) {
@@ -172,13 +184,13 @@ private fun SettingRow(title: String, subtitle: String, onClick: () -> Unit) {
         Row(
             modifier = Modifier.padding(
                 horizontal = AppSpacing.card,
-                vertical = AppSpacing.inline
+                vertical = 12.dp
             ),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
         }

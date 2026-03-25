@@ -69,12 +69,13 @@ fun AccountsScreen(onEdit: (String) -> Unit) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             "總資產估算 ($mainCurrency)",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             totalEstimatedAssets.asCurrencyText(mainCurrency),
-                            style = MaterialTheme.typography.headlineMedium,
+                            style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
@@ -99,12 +100,14 @@ fun AccountsScreen(onEdit: (String) -> Unit) {
                         )
                     } else {
                         Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            modifier = Modifier
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 2.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             currencyHoldings.forEach { holding ->
                                 Surface(
-                                    modifier = Modifier.width(156.dp),
+                                    modifier = Modifier.width(152.dp),
                                     shape = RoundedCornerShape(16.dp),
                                     color = MaterialTheme.colorScheme.surfaceVariant,
                                     border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
@@ -121,7 +124,7 @@ fun AccountsScreen(onEdit: (String) -> Unit) {
                                         )
                                         Text(
                                             holding.amount.asCurrencyText(holding.currency),
-                                            style = MaterialTheme.typography.titleMedium,
+                                            style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.SemiBold,
                                             color = if (holding.amount.signum() >= 0) {
                                                 MaterialTheme.colorScheme.onSurface
@@ -144,7 +147,7 @@ fun AccountsScreen(onEdit: (String) -> Unit) {
                 onClick = { onEdit(row.account.id.toString()) }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = AppSpacing.inline),
+                    modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(
@@ -155,7 +158,7 @@ fun AccountsScreen(onEdit: (String) -> Unit) {
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(row.account.name, style = MaterialTheme.typography.bodyLarge)
+                            Text(row.account.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                             if (row.account.isArchived) {
                                 Text(
                                     "已歸檔",
@@ -166,18 +169,18 @@ fun AccountsScreen(onEdit: (String) -> Unit) {
                         }
                         Text(
                             "${row.account.type.rawValue} · ${row.account.currency}",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         if (row.balances.isEmpty()) {
-                            Text("0.00", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("0.00", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else if (row.balances.size == 1) {
                             val balance = row.balances.first()
                             Text(
                                 balance.amount.asCurrencyText(balance.currency),
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (balance.amount.signum() >= 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error
                             )
