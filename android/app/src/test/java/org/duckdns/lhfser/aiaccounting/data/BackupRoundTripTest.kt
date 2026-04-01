@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
+import org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService
 import org.duckdns.lhfser.aiaccounting.data.backup.BackupJsonAdapter
 import org.duckdns.lhfser.aiaccounting.data.backup.FullBackupData
 import org.duckdns.lhfser.aiaccounting.data.db.AIAccountingDatabase
@@ -22,11 +23,14 @@ class BackupRoundTripTest {
 
     private lateinit var database: AIAccountingDatabase
     private lateinit var repository: AccountingRepository
+    private lateinit var currencyService: CurrencyService
 
     @Before
     fun setUp() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
         database = buildDatabase()
-        repository = AccountingRepository(database)
+        currencyService = CurrencyService(context)
+        repository = AccountingRepository(database, currencyService)
     }
 
     @After
@@ -65,7 +69,7 @@ class BackupRoundTripTest {
 
         val secondDatabase = buildDatabase()
         try {
-            val secondRepository = AccountingRepository(secondDatabase)
+            val secondRepository = AccountingRepository(secondDatabase, currencyService)
             secondRepository.importBackupJson(exportedJson, replaceExisting = true)
 
             val secondReport = secondRepository.buildDataHealthReport()

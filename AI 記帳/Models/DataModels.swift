@@ -239,6 +239,50 @@ final class CategoryMonthlyBudget {
 }
 
 @Model
+final class BudgetMonthlyHistory {
+    @Attribute(.unique) var id: UUID
+    @Attribute(.unique) var historyKey: String
+    var monthKey: String
+    var categoryID: UUID
+    var categoryNameSnapshot: String
+    var budgetAmount: Decimal
+    var spentAmount: Decimal
+    var remainingAmount: Decimal
+    var usageRatio: Decimal
+    var isOverBudget: Bool
+    var currencyCode: String
+    var updatedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        historyKey: String,
+        monthKey: String,
+        categoryID: UUID,
+        categoryNameSnapshot: String,
+        budgetAmount: Decimal,
+        spentAmount: Decimal,
+        remainingAmount: Decimal,
+        usageRatio: Decimal,
+        isOverBudget: Bool,
+        currencyCode: String,
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.historyKey = historyKey
+        self.monthKey = monthKey
+        self.categoryID = categoryID
+        self.categoryNameSnapshot = categoryNameSnapshot
+        self.budgetAmount = budgetAmount
+        self.spentAmount = spentAmount
+        self.remainingAmount = remainingAmount
+        self.usageRatio = usageRatio
+        self.isOverBudget = isOverBudget
+        self.currencyCode = currencyCode
+        self.updatedAt = updatedAt
+    }
+}
+
+@Model
 final class AdvanceCase {
     @Attribute(.unique) var id: UUID
     var title: String

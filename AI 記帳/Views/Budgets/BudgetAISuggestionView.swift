@@ -1,8 +1,10 @@
 import SwiftUI
+import SwiftData
 import UniformTypeIdentifiers
 
 struct BudgetAISuggestionView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
 
     let selectedMonthDate: Date
     let categories: [Category]
@@ -10,6 +12,8 @@ struct BudgetAISuggestionView: View {
     let transactions: [FinancialTransaction]
     let currencyService: CurrencyService
     let onApply: ([BudgetSuggestionItem]) -> Void
+
+    @Query(sort: \BudgetMonthlyHistory.monthKey, order: .reverse) private var budgetHistories: [BudgetMonthlyHistory]
 
     private enum Phase {
         case configure
@@ -215,6 +219,14 @@ struct BudgetAISuggestionView: View {
 
         Task {
             do {
+                try BudgetHistoryService.shared.syncAll(
+                    modelContext: modelContext,
+                    currencyService: currencyService,
+                    budgets: budgets,
+                    transactions: transactions
+                )
+
+                let freshHistories = (try? modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>())) ?? budgetHistories
                 let request = BudgetSuggestionRequest(
                     startDate: startDate,
                     endDate: now,
@@ -222,6 +234,7 @@ struct BudgetAISuggestionView: View {
                     includeIncomeContext: includeIncomeContext,
                     mainCurrency: currencyService.mainCurrency,
                     appTransactions: transactions,
+                    budgetHistories: freshHistories,
                     currentBudgets: budgets,
                     targetCategories: targetExpenseCategories,
                     currencyService: currencyService,

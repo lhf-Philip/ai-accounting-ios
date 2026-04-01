@@ -14,6 +14,7 @@ struct FullBackupData: Codable {
     let transactions: [TransactionCodable]
     let shortcuts: [ShortcutCodable]
     let budgets: [BudgetCodable]?
+    let budgetHistory: [BudgetHistoryCodable]?
     let advanceCases: [AdvanceCaseCodable]?
     let advanceParticipants: [AdvanceParticipantCodable]?
     let advanceRepayments: [AdvanceRepaymentCodable]?
@@ -54,6 +55,20 @@ struct FullBackupData: Codable {
         let isEnabled: Bool?
         let categoryID: UUID?
         let createdAt: Date?
+        let updatedAt: Date?
+    }
+    struct BudgetHistoryCodable: Codable {
+        let id: UUID
+        let historyKey: String
+        let monthKey: String
+        let categoryID: UUID
+        let categoryNameSnapshot: String
+        let budgetAmount: Decimal
+        let spentAmount: Decimal
+        let remainingAmount: Decimal
+        let usageRatio: Decimal
+        let isOverBudget: Bool
+        let currencyCode: String
         let updatedAt: Date?
     }
     struct AdvanceCaseCodable: Codable {
@@ -158,11 +173,12 @@ class BackupManager: NSObject, ObservableObject {
         let transactions = (try? modelContext.fetch(FetchDescriptor<FinancialTransaction>())) ?? []
         let shortcuts = (try? modelContext.fetch(FetchDescriptor<Shortcut>())) ?? []
         let budgets = (try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []
+        let budgetHistory = (try? modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>())) ?? []
         let advanceCases = (try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []
         let advanceParticipants = (try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []
         let advanceRepayments = (try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []
         
-        return FullBackupData(version: "1.5", timestamp: Date(),
+        return FullBackupData(version: "1.6", timestamp: Date(),
             accounts: accounts.map { FullBackupData.AccountCodable(id: $0.id, name: $0.name, currency: $0.currency, type: $0.type.rawValue, baseBalance: $0.baseBalance, sortOrder: $0.sortOrder, isArchived: $0.isArchived) },
             categories: categories.map { FullBackupData.CategoryCodable(id: $0.id, name: $0.name, icon: $0.icon, colorHex: $0.colorHex, kind: $0.kind.rawValue) },
             tags: tags.map { FullBackupData.TagCodable(id: $0.id, name: $0.name) },
@@ -195,6 +211,22 @@ class BackupManager: NSObject, ObservableObject {
                     isEnabled: $0.isEnabled,
                     categoryID: $0.category?.id,
                     createdAt: $0.createdAt,
+                    updatedAt: $0.updatedAt
+                )
+            },
+            budgetHistory: budgetHistory.map {
+                FullBackupData.BudgetHistoryCodable(
+                    id: $0.id,
+                    historyKey: $0.historyKey,
+                    monthKey: $0.monthKey,
+                    categoryID: $0.categoryID,
+                    categoryNameSnapshot: $0.categoryNameSnapshot,
+                    budgetAmount: $0.budgetAmount,
+                    spentAmount: $0.spentAmount,
+                    remainingAmount: $0.remainingAmount,
+                    usageRatio: $0.usageRatio,
+                    isOverBudget: $0.isOverBudget,
+                    currencyCode: $0.currencyCode,
                     updatedAt: $0.updatedAt
                 )
             },
@@ -266,6 +298,7 @@ class BackupManager: NSObject, ObservableObject {
         var existingTransactionIDs = Set(((try? modelContext.fetch(FetchDescriptor<FinancialTransaction>())) ?? []).map(\.id))
         var existingShortcutIDs = Set(((try? modelContext.fetch(FetchDescriptor<Shortcut>())) ?? []).map(\.id))
         var existingBudgetIDs = Set(((try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []).map(\.id))
+        var historyByKey = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>())) ?? []).map { ($0.historyKey, $0) })
         var advanceCaseByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []).map { ($0.id, $0) })
         var participantByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []).map { ($0.id, $0) })
         var existingRepaymentIDs = Set(((try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []).map(\.id))
@@ -361,6 +394,41 @@ class BackupManager: NSObject, ObservableObject {
             }
         }
 
+        if let historyDTOs = backup.budgetHistory {
+            for historyDTO in historyDTOs {
+                if let existing = historyByKey[historyDTO.historyKey] {
+                    existing.monthKey = historyDTO.monthKey
+                    existing.categoryID = historyDTO.categoryID
+                    existing.categoryNameSnapshot = historyDTO.categoryNameSnapshot
+                    existing.budgetAmount = historyDTO.budgetAmount
+                    existing.spentAmount = historyDTO.spentAmount
+                    existing.remainingAmount = historyDTO.remainingAmount
+                    existing.usageRatio = historyDTO.usageRatio
+                    existing.isOverBudget = historyDTO.isOverBudget
+                    existing.currencyCode = historyDTO.currencyCode
+                    existing.updatedAt = historyDTO.updatedAt ?? Date()
+                    continue
+                }
+
+                let history = BudgetMonthlyHistory(
+                    id: historyDTO.id,
+                    historyKey: historyDTO.historyKey,
+                    monthKey: historyDTO.monthKey,
+                    categoryID: historyDTO.categoryID,
+                    categoryNameSnapshot: historyDTO.categoryNameSnapshot,
+                    budgetAmount: historyDTO.budgetAmount,
+                    spentAmount: historyDTO.spentAmount,
+                    remainingAmount: historyDTO.remainingAmount,
+                    usageRatio: historyDTO.usageRatio,
+                    isOverBudget: historyDTO.isOverBudget,
+                    currencyCode: historyDTO.currencyCode,
+                    updatedAt: historyDTO.updatedAt ?? Date()
+                )
+                modelContext.insert(history)
+                historyByKey[historyDTO.historyKey] = history
+            }
+        }
+
         if let advanceCaseDTOs = backup.advanceCases {
             for caseDTO in advanceCaseDTOs where advanceCaseByID[caseDTO.id] == nil {
                 let advanceCase = AdvanceCase(
@@ -419,6 +487,7 @@ class BackupManager: NSObject, ObservableObject {
             }
         }
 
+        try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: CurrencyService.shared)
         try modelContext.save()
     }
     

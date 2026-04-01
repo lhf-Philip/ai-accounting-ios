@@ -13,6 +13,7 @@ data class FullBackupData(
     val transactions: List<TransactionCodable>,
     val shortcuts: List<ShortcutCodable>,
     val budgets: List<BudgetCodable>?,
+    val budgetHistory: List<BudgetHistoryCodable>?,
     val advanceCases: List<AdvanceCaseCodable>?,
     val advanceParticipants: List<AdvanceParticipantCodable>?,
     val advanceRepayments: List<AdvanceRepaymentCodable>?
@@ -79,6 +80,21 @@ data class FullBackupData(
         val isEnabled: Boolean?,
         val categoryID: UUID?,
         val createdAt: Instant?,
+        val updatedAt: Instant?
+    )
+
+    data class BudgetHistoryCodable(
+        val id: UUID,
+        val historyKey: String,
+        val monthKey: String,
+        val categoryID: UUID,
+        val categoryNameSnapshot: String,
+        val budgetAmount: BigDecimal,
+        val spentAmount: BigDecimal,
+        val remainingAmount: BigDecimal,
+        val usageRatio: BigDecimal,
+        val isOverBudget: Boolean,
+        val currencyCode: String,
         val updatedAt: Instant?
     )
 

@@ -165,6 +165,12 @@ struct BudgetsView: View {
     
     private func deleteBudget(_ budget: CategoryMonthlyBudget) {
         modelContext.delete(budget)
+        do {
+            try modelContext.save()
+            try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: currencyService)
+        } catch {
+            print("刪除預算後同步歷史失敗: \(error)")
+        }
     }
 
     private func applyAISuggestions(_ suggestions: [BudgetSuggestionItem]) {
@@ -197,7 +203,12 @@ struct BudgetsView: View {
             }
         }
 
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+            try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: currencyService)
+        } catch {
+            print("套用 AI 預算建議後同步歷史失敗: \(error)")
+        }
     }
 }
 
@@ -311,7 +322,9 @@ struct BudgetEditorView: View {
             if let existingBudget, existingBudget.id != duplicate.id {
                 modelContext.delete(existingBudget)
             }
-            dismiss()
+            if persistBudgetChanges() {
+                dismiss()
+            }
             return
         }
         
@@ -332,12 +345,25 @@ struct BudgetEditorView: View {
             )
             modelContext.insert(budget)
         }
-        
-        dismiss()
+
+        if persistBudgetChanges() {
+            dismiss()
+        }
     }
-    
+
     private func showError(_ message: String) {
         errorMessage = message
         showingError = true
+    }
+
+    private func persistBudgetChanges() -> Bool {
+        do {
+            try modelContext.save()
+            try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: CurrencyService.shared)
+            return true
+        } catch {
+            showError("儲存預算後同步歷史失敗：\(error.localizedDescription)")
+            return false
+        }
     }
 }

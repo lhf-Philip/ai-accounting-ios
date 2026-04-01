@@ -3,6 +3,7 @@ package org.duckdns.lhfser.aiaccounting.core.ai
 import com.google.gson.Gson
 import java.io.IOException
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
@@ -16,6 +17,7 @@ import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.data.backup.FullBackupData
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
+import org.duckdns.lhfser.aiaccounting.data.db.BudgetMonthlyHistoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 
 data class BudgetSuggestionItem(
@@ -32,6 +34,7 @@ data class BudgetSuggestionRequest(
     val includeIncomeContext: Boolean,
     val mainCurrency: String,
     val transactions: List<TransactionWithDetails>,
+    val budgetHistories: List<BudgetMonthlyHistoryEntity>,
     val budgets: List<CategoryMonthlyBudgetEntity>,
     val targetCategories: List<CategoryEntity>,
     val backupData: FullBackupData?
@@ -120,13 +123,7 @@ class BudgetSuggestionService(
     private fun buildPayload(request: BudgetSuggestionRequest): BudgetSuggestionPayload {
         val startInstant = request.startDate.atStartOfDay(ZoneId.systemDefault()).toInstant()
         val targetMonthKey = monthKeyFromDate(request.targetMonthDate)
-        val expenseHistory = summarizeTransactions(
-            request.transactions,
-            startInstant,
-            request.endInstant,
-            TransactionType.Expense,
-            request.mainCurrency
-        )
+        val expenseHistory = summarizeBudgetHistory(request, startInstant)
         val expenseCurrentPeriod = summarizeCurrentPeriod(
             request.transactions,
             startInstant,
@@ -166,11 +163,10 @@ class BudgetSuggestionService(
             }
 
         val backupExpenseHistory = request.backupData?.let {
-            summarizeBackupTransactions(
+            summarizeBackupBudgetHistory(
                 backupData = it,
                 startInstant = startInstant,
                 endInstant = request.endInstant,
-                transactionTypeRawValue = TransactionType.Expense.rawValue,
                 targetCurrency = request.mainCurrency
             )
         }
@@ -196,13 +192,118 @@ class BudgetSuggestionService(
                 TargetCategoryPayload(categoryId = it.id.toString(), name = it.name)
             },
             existingBudgets = existingBudgets,
-            appExpenseHistory = expenseHistory,
+            appExpenseBudgetHistory = expenseHistory,
             appExpenseCurrentPeriod = expenseCurrentPeriod,
             appIncomeHistory = incomeHistory,
             appIncomeCurrentPeriod = incomeCurrentPeriod,
-            backupExpenseHistory = backupExpenseHistory,
+            backupExpenseBudgetHistory = backupExpenseHistory,
             backupIncomeHistory = backupIncomeHistory
         )
+    }
+
+    private fun summarizeBudgetHistory(
+        request: BudgetSuggestionRequest,
+        startInstant: Instant
+    ): List<MonthlyBudgetHistoryPayload> {
+        val validCategoryIds = request.targetCategories.map { it.id }.toSet()
+        val history = request.budgetHistories
+            .filter { it.categoryId in validCategoryIds }
+            .filter { monthKeyInRange(it.monthKey, startInstant, request.endInstant) }
+            .sortedWith(compareBy<BudgetMonthlyHistoryEntity> { it.monthKey }.thenBy { it.categoryNameSnapshot })
+
+        if (history.isNotEmpty()) {
+            return history.map {
+                MonthlyBudgetHistoryPayload(
+                    categoryId = it.categoryId.toString(),
+                    categoryName = it.categoryNameSnapshot,
+                    monthKey = it.monthKey,
+                    budgetAmount = currencyService.convert(it.budgetAmount, it.currencyCode, request.mainCurrency),
+                    spentAmount = currencyService.convert(it.spentAmount, it.currencyCode, request.mainCurrency),
+                    remainingAmount = currencyService.convert(it.remainingAmount, it.currencyCode, request.mainCurrency),
+                    usageRatio = it.usageRatio,
+                    isOverBudget = it.isOverBudget,
+                    currencyCode = request.mainCurrency
+                )
+            }
+        }
+
+        return synthesizeBudgetHistoryFromBudgets(request, startInstant)
+    }
+
+    private fun synthesizeBudgetHistoryFromBudgets(
+        request: BudgetSuggestionRequest,
+        startInstant: Instant
+    ): List<MonthlyBudgetHistoryPayload> {
+        return request.budgets
+            .filter { it.isEnabled }
+            .filter { it.categoryId in request.targetCategories.map { category -> category.id }.toSet() }
+            .filter { monthKeyInRange(it.monthKey, startInstant, request.endInstant) }
+            .mapNotNull { budget ->
+                val category = request.targetCategories.firstOrNull { it.id == budget.categoryId } ?: return@mapNotNull null
+                val spentAmount = request.transactions
+                    .asSequence()
+                    .filter { tx ->
+                        tx.transaction.type == TransactionType.Expense &&
+                            tx.transaction.categoryId == budget.categoryId &&
+                            monthKeyFromInstant(tx.transaction.date) == budget.monthKey
+                    }
+                    .fold(BigDecimal.ZERO) { partial, tx ->
+                        partial + currencyService.convert(tx.transaction.amount.abs(), tx.transaction.currencyCode, budget.currencyCode)
+                    }
+                val remainingAmount = budget.amount.subtract(spentAmount)
+                val usageRatio = if (budget.amount > BigDecimal.ZERO) {
+                    spentAmount.divide(budget.amount, 6, RoundingMode.HALF_UP)
+                } else {
+                    BigDecimal.ZERO
+                }
+                MonthlyBudgetHistoryPayload(
+                    categoryId = category.id.toString(),
+                    categoryName = category.name,
+                    monthKey = budget.monthKey,
+                    budgetAmount = currencyService.convert(budget.amount, budget.currencyCode, request.mainCurrency),
+                    spentAmount = currencyService.convert(spentAmount, budget.currencyCode, request.mainCurrency),
+                    remainingAmount = currencyService.convert(remainingAmount, budget.currencyCode, request.mainCurrency),
+                    usageRatio = usageRatio,
+                    isOverBudget = remainingAmount < BigDecimal.ZERO,
+                    currencyCode = request.mainCurrency
+                )
+            }
+    }
+
+    private fun summarizeBackupTransactions(
+        backupData: FullBackupData,
+        startInstant: Instant,
+        endInstant: Instant,
+        transactionTypeRawValue: String,
+        targetCurrency: String
+    ): List<CategoryHistoryPayload> {
+        val categoryNames = backupData.categories.associate { it.id to it.name }
+        val totals = linkedMapOf<String, BigDecimal>()
+        val names = mutableMapOf<String, String>()
+        val ids = mutableMapOf<String, String?>()
+
+        backupData.transactions.filter { tx ->
+            tx.type == transactionTypeRawValue &&
+                tx.date >= startInstant &&
+                tx.date <= endInstant
+        }.forEach { tx ->
+            val monthKey = monthKeyFromInstant(tx.date)
+            val categoryName = tx.categoryID?.let(categoryNames::get) ?: "未分類"
+            val key = "$monthKey|${tx.categoryID?.toString() ?: categoryName}"
+            val normalizedAmount = currencyService.convert(tx.amount.abs(), tx.currencyCode, targetCurrency)
+            totals[key] = totals.getOrDefault(key, BigDecimal.ZERO).add(normalizedAmount)
+            names[key] = categoryName
+            ids[key] = tx.categoryID?.toString()
+        }
+
+        return totals.entries.map { (key, total) ->
+            CategoryHistoryPayload(
+                categoryId = ids[key],
+                categoryName = names[key] ?: "未分類",
+                monthKey = key.substringBefore("|"),
+                total = total
+            )
+        }
     }
 
     private fun summarizeTransactions(
@@ -276,54 +377,79 @@ class BudgetSuggestionService(
         }
     }
 
-    private fun summarizeBackupTransactions(
+    private fun summarizeBackupBudgetHistory(
         backupData: FullBackupData,
         startInstant: Instant,
         endInstant: Instant,
-        transactionTypeRawValue: String,
         targetCurrency: String
-    ): List<CategoryHistoryPayload> {
-        val categoryNames = backupData.categories.associate { it.id to it.name }
-        val totals = linkedMapOf<String, BigDecimal>()
-        val names = mutableMapOf<String, String>()
+    ): List<MonthlyBudgetHistoryPayload> {
+        val history = backupData.budgetHistory.orEmpty()
+            .filter { monthKeyInRange(it.monthKey, startInstant, endInstant) }
+            .sortedWith(compareBy<FullBackupData.BudgetHistoryCodable> { it.monthKey }.thenBy { it.categoryNameSnapshot })
 
-        backupData.transactions.filter { tx ->
-            tx.type == transactionTypeRawValue &&
-                tx.date >= startInstant &&
-                tx.date <= endInstant
-        }.forEach { tx ->
-            val categoryName = tx.categoryID?.let(categoryNames::get) ?: "未分類"
-            val monthKey = monthKeyFromInstant(tx.date)
-            val key = "$monthKey|$categoryName"
-            val normalizedAmount = if (tx.currencyCode.equals(targetCurrency, ignoreCase = true)) {
-                tx.amount.abs()
-            } else {
-                tx.amount.abs()
+        if (history.isNotEmpty()) {
+            return history.map {
+                MonthlyBudgetHistoryPayload(
+                    categoryId = it.categoryID.toString(),
+                    categoryName = it.categoryNameSnapshot,
+                    monthKey = it.monthKey,
+                    budgetAmount = currencyService.convert(it.budgetAmount, it.currencyCode, targetCurrency),
+                    spentAmount = currencyService.convert(it.spentAmount, it.currencyCode, targetCurrency),
+                    remainingAmount = currencyService.convert(it.remainingAmount, it.currencyCode, targetCurrency),
+                    usageRatio = it.usageRatio,
+                    isOverBudget = it.isOverBudget,
+                    currencyCode = targetCurrency
+                )
             }
-            totals[key] = totals.getOrDefault(key, BigDecimal.ZERO).add(normalizedAmount)
-            names[key] = categoryName
         }
 
-        return totals.entries.map { (key, total) ->
-            CategoryHistoryPayload(
-                categoryId = null,
-                categoryName = names[key] ?: "未分類",
-                monthKey = key.substringBefore("|"),
-                total = total
-            )
-        }
+        val categoryNames = backupData.categories.associate { it.id to it.name }
+        return backupData.budgets.orEmpty()
+            .filter { (it.isEnabled ?: true) && monthKeyInRange(it.monthKey, startInstant, endInstant) }
+            .mapNotNull { budget ->
+                val categoryId = budget.categoryID ?: return@mapNotNull null
+                val categoryName = categoryNames[categoryId] ?: "未分類"
+                val spentAmount = backupData.transactions
+                    .asSequence()
+                    .filter { tx ->
+                        tx.type == TransactionType.Expense.rawValue &&
+                            tx.categoryID == categoryId &&
+                            monthKeyFromInstant(tx.date) == budget.monthKey
+                    }
+                    .fold(BigDecimal.ZERO) { partial, tx ->
+                        partial + currencyService.convert(tx.amount.abs(), tx.currencyCode, budget.currencyCode)
+                    }
+                val remainingAmount = budget.amount.subtract(spentAmount)
+                val usageRatio = if (budget.amount > BigDecimal.ZERO) {
+                    spentAmount.divide(budget.amount, 6, RoundingMode.HALF_UP)
+                } else {
+                    BigDecimal.ZERO
+                }
+
+                MonthlyBudgetHistoryPayload(
+                    categoryId = categoryId.toString(),
+                    categoryName = categoryName,
+                    monthKey = budget.monthKey,
+                    budgetAmount = currencyService.convert(budget.amount, budget.currencyCode, targetCurrency),
+                    spentAmount = currencyService.convert(spentAmount, budget.currencyCode, targetCurrency),
+                    remainingAmount = currencyService.convert(remainingAmount, budget.currencyCode, targetCurrency),
+                    usageRatio = usageRatio,
+                    isOverBudget = remainingAmount < BigDecimal.ZERO,
+                    currencyCode = targetCurrency
+                )
+            }
     }
 
     private fun hasMeaningfulSignal(payload: BudgetSuggestionPayload): Boolean {
-        return payload.appExpenseHistory.isNotEmpty() ||
+        return payload.appExpenseBudgetHistory.isNotEmpty() ||
             payload.appExpenseCurrentPeriod.isNotEmpty() ||
-            !payload.backupExpenseHistory.isNullOrEmpty()
+            !payload.backupExpenseBudgetHistory.isNullOrEmpty()
     }
 
     private fun buildPrompt(payloadJson: String): String {
         return """
             You are an AI assistant for a personal finance app.
-            Based on the summarized finance data below, suggest practical monthly budgets for the target month.
+            Based on the summarized finance data below, especially the historical monthly budget usage, suggest practical monthly budgets for the target month.
 
             Requirements:
             1. ONLY suggest budgets for the provided targetCategories.
@@ -358,6 +484,13 @@ class BudgetSuggestionService(
         return "%04d-%02d".format(date.year, date.monthValue)
     }
 
+    private fun monthKeyInRange(monthKey: String, startInstant: Instant, endInstant: Instant): Boolean {
+        val localDate = runCatching { LocalDate.parse("$monthKey-01") }.getOrNull() ?: return false
+        val rangeStart = startInstant.atZone(ZoneId.systemDefault()).toLocalDate().withDayOfMonth(1)
+        val rangeEnd = endInstant.atZone(ZoneId.systemDefault()).toLocalDate().withDayOfMonth(1)
+        return !localDate.isBefore(rangeStart) && !localDate.isAfter(rangeEnd)
+    }
+
     private data class TargetCategoryPayload(
         val categoryId: String,
         val name: String
@@ -367,6 +500,18 @@ class BudgetSuggestionService(
         val categoryId: String,
         val categoryName: String,
         val amount: BigDecimal,
+        val currencyCode: String
+    )
+
+    private data class MonthlyBudgetHistoryPayload(
+        val categoryId: String,
+        val categoryName: String,
+        val monthKey: String,
+        val budgetAmount: BigDecimal,
+        val spentAmount: BigDecimal,
+        val remainingAmount: BigDecimal,
+        val usageRatio: BigDecimal,
+        val isOverBudget: Boolean,
         val currencyCode: String
     )
 
@@ -390,11 +535,11 @@ class BudgetSuggestionService(
         val mainCurrency: String,
         val targetCategories: List<TargetCategoryPayload>,
         val existingBudgets: List<ExistingBudgetPayload>,
-        val appExpenseHistory: List<CategoryHistoryPayload>,
+        val appExpenseBudgetHistory: List<MonthlyBudgetHistoryPayload>,
         val appExpenseCurrentPeriod: List<CategoryCurrentPayload>,
         val appIncomeHistory: List<CategoryHistoryPayload>?,
         val appIncomeCurrentPeriod: List<CategoryCurrentPayload>?,
-        val backupExpenseHistory: List<CategoryHistoryPayload>?,
+        val backupExpenseBudgetHistory: List<MonthlyBudgetHistoryPayload>?,
         val backupIncomeHistory: List<CategoryHistoryPayload>?
     )
 
