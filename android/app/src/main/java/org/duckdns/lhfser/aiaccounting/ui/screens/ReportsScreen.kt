@@ -60,6 +60,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
@@ -161,6 +162,17 @@ fun ReportsScreen() {
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AppSpacing.screenHorizontal, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            ParityTopSection(
+                title = "報表",
+                subtitle = "切換收支、分類與標籤，查看和 iOS 對齊的統計視圖。"
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()

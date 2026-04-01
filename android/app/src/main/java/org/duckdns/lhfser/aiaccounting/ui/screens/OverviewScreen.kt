@@ -52,6 +52,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
@@ -114,19 +115,10 @@ fun OverviewScreen(
             .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.tight)) {
-            Text("歡迎使用 AI 記帳", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(
-                "今天是 ${LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年 M月d日"))}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                "${filterDisplayString(filterType, selectedDate)}已記錄 $recordCount 筆收入/支出",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        ParityTopSection(
+            title = "總覽",
+            subtitle = "今天是 ${LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年 M月d日"))} · ${filterDisplayString(filterType, selectedDate)}已記錄 $recordCount 筆收入/支出"
+        )
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Surface(

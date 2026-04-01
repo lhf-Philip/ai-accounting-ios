@@ -54,6 +54,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
@@ -147,6 +148,11 @@ fun TransactionsScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        ParityTopSection(
+            title = "帳目明細",
+            modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = 4.dp),
+            subtitle = "搜尋、篩選、編輯所有交易與代墊摘要。"
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
