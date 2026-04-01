@@ -210,6 +210,7 @@ struct BudgetsView: View {
             print("套用 AI 預算建議後同步歷史失敗: \(error)")
         }
     }
+
 }
 
 struct BudgetEditorView: View {
