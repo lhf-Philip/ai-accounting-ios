@@ -19,10 +19,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +45,7 @@ object ParityTokens {
     val TopSectionBottomPadding = 10.dp
     val FilterCapsuleHeight = 40.dp
     val SegmentedControlHeight = 42.dp
+    val SearchFieldMinHeight = 52.dp
     val ShortcutTileWidth = 76.dp
     val ShortcutTileHeight = 88.dp
     val ShortcutIconSize = 46.dp
@@ -174,6 +180,63 @@ fun <T> ParitySegmentedControl(
 }
 
 @Composable
+fun ParitySearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier
+) {
+    TextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = ParityTokens.SearchFieldMinHeight),
+        singleLine = true,
+        shape = RoundedCornerShape(18.dp),
+        placeholder = {
+            Text(
+                text = placeholder,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        },
+        trailingIcon = {
+            if (value.isNotBlank()) {
+                IconButton(onClick = { onValueChange("") }) {
+                    Icon(
+                        imageVector = Icons.Default.Clear,
+                        contentDescription = "清除",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        textStyle = MaterialTheme.typography.bodyLarge,
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            errorContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+            disabledIndicatorColor = Color.Transparent,
+            errorIndicatorColor = Color.Transparent,
+            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+            cursorColor = MaterialTheme.colorScheme.primary
+        )
+    )
+}
+
+@Composable
 fun ParitySummaryCard(
     title: String,
     value: String,
@@ -223,6 +286,48 @@ fun ParitySettingRow(
             Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         trailing?.invoke()
+    }
+}
+
+@Composable
+fun ParityActionSheetRow(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    onClick: () -> Unit
+) {
+    PressableCard(
+        modifier = modifier.fillMaxWidth(),
+        onClick = onClick,
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        pressedContainerColor = MaterialTheme.colorScheme.surface,
+        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.24f),
+        pressedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.38f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (icon != null) {
+                Surface(
+                    modifier = Modifier.size(42.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 

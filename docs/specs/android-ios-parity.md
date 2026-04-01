@@ -66,3 +66,10 @@
 - Receipt scan, debt entry, account detail all exist on Android.
 - Android build and unit tests pass after each parity wave.
 - iOS build passes after each parity wave to protect source-of-truth stability.
+
+
+## Wave 2 Refinements
+- Replace ad-hoc filter/search controls with shared parity capsules and segmented controls.
+- Keep ledger filter, shortcut rail, and search field visually distinct but rhythmically aligned with iOS.
+- Use parity-styled add sheet rows with supporting descriptions instead of bare text buttons.
+- Tighten Reports chart card, list rows, and Settings section density toward the iOS source of truth.

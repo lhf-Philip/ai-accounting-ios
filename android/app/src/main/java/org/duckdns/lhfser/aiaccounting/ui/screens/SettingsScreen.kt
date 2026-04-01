@@ -1,6 +1,9 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -89,8 +92,13 @@ fun SettingsScreen(
                 message = "匯入失敗：檔案內容為空。"
                 return@launch
             }
-            repository.importBackupJson(text, replaceExisting = replaceExisting)
-            message = "匯入完成。"
+            runCatching {
+                repository.importBackupJson(text, replaceExisting = replaceExisting)
+            }.onSuccess {
+                message = "匯入完成。"
+            }.onFailure {
+                message = "匯入失敗：${it.localizedMessage ?: "未知錯誤"}"
+            }
         }
     }
 
@@ -114,34 +122,39 @@ fun SettingsScreen(
                     subtitle = "查看 app 的主要流程與功能說明",
                     onClick = onOpenGuide
                 )
+                ParitySettingRow(
+                    title = "更改語言（系統設定）",
+                    subtitle = "前往系統頁面調整 app 語言與顯示偏好",
+                    onClick = { openSystemLanguageSettings(context) }
+                )
             }
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
             Text("偏好設定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             SectionCard {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("主要貨幣", style = MaterialTheme.typography.titleSmall)
-                        Text("總覽與報表會優先以此幣別顯示", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Button(onClick = { currencyMenuExpanded = true }, modifier = Modifier.height(42.dp)) {
-                        Text(mainCurrency)
-                    }
-                    DropdownMenu(expanded = currencyMenuExpanded, onDismissRequest = { currencyMenuExpanded = false }) {
-                        listOf("HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP").forEach { code ->
-                            DropdownMenuItem(
-                                text = { Text(code) },
-                                onClick = {
-                                    currencyMenuExpanded = false
-                                    mainCurrency = code
-                                    currencyService.mainCurrency = code
-                                    scope.launch { currencyService.fetchRates() }
-                                }
-                            )
+                ParitySettingRow(
+                    title = "主要貨幣",
+                    subtitle = "總覽與報表會優先以此幣別顯示",
+                    trailing = {
+                        Button(onClick = { currencyMenuExpanded = true }, modifier = Modifier.height(42.dp)) {
+                            Text(mainCurrency)
+                        }
+                        DropdownMenu(expanded = currencyMenuExpanded, onDismissRequest = { currencyMenuExpanded = false }) {
+                            listOf("HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP").forEach { code ->
+                                DropdownMenuItem(
+                                    text = { Text(code) },
+                                    onClick = {
+                                        currencyMenuExpanded = false
+                                        mainCurrency = code
+                                        currencyService.mainCurrency = code
+                                        scope.launch { currencyService.fetchRates() }
+                                    }
+                                )
+                            }
                         }
                     }
-                }
+                )
                 OutlinedTextField(
                     value = apiKey,
                     onValueChange = {
@@ -149,6 +162,7 @@ fun SettingsScreen(
                         geminiSettingsStore.apiKey = it
                     },
                     label = { Text("Gemini API Key（可選）") },
+                    placeholder = { Text("輸入後可使用 AI 預算與掃描功能") },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -192,5 +206,43 @@ fun SettingsScreen(
                 }
             }
         }
+
+        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
+            Text("偵錯與測試版資訊", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            SectionCard {
+                ParitySettingRow(
+                    title = "版本",
+                    subtitle = "目前安裝的 Android 版本資訊",
+                    trailing = { Text(android.os.Build.VERSION.RELEASE ?: "Android", style = MaterialTheme.typography.labelMedium) }
+                )
+                ParitySettingRow(
+                    title = "AI 功能狀態",
+                    subtitle = if (apiKey.isBlank()) "尚未設定 Gemini API Key" else "Gemini API Key 已設定",
+                    trailing = { Text(if (apiKey.isBlank()) "未設定" else "已啟用", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                )
+            }
+        }
     }
+}
+
+private fun openSystemLanguageSettings(context: android.content.Context) {
+    val localeIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Intent(Settings.ACTION_APP_LOCALE_SETTINGS).apply {
+            data = Uri.fromParts("package", context.packageName, null)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    } else {
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", context.packageName, null)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+    runCatching { context.startActivity(localeIntent) }
+        .onFailure {
+            val fallbackIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", context.packageName, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            runCatching { context.startActivity(fallbackIntent) }
+        }
 }

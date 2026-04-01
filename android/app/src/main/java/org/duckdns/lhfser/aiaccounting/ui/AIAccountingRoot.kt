@@ -1,5 +1,6 @@
 package org.duckdns.lhfser.aiaccounting.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -12,8 +13,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +44,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityActionSheetRow
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityBottomBar
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityBottomBarItem
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityFloatingAddButton
@@ -391,23 +397,40 @@ private fun AddActionSheet(
     onAction: (String) -> Unit
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-            Text("新增內容", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(16.dp))
-            AddActionRow(label = "記一筆（收入/支出）") { onAction(AppDestination.TransactionAdd.route) }
-            AddActionRow(label = "掃描收據（AI）") { onAction(AppDestination.ReceiptScan.route) }
-            AddActionRow(label = "轉帳") { onAction(AppDestination.TransferAdd.route) }
-            AddActionRow(label = "借貸（借入/還款）") { onAction(AppDestination.DebtAdd.route) }
-            AddActionRow(label = "新增代墊單（多人分帳）") { onAction(AppDestination.AdvanceAdd.route) }
+        Column(
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("新增內容", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            Text("選擇現在想建立的記錄類型。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(4.dp))
+            ParityActionSheetRow(
+                title = "記一筆（收入/支出）",
+                subtitle = "快速新增收入或支出交易",
+                icon = Icons.Default.Description
+            ) { onAction(AppDestination.TransactionAdd.route) }
+            ParityActionSheetRow(
+                title = "掃描收據（AI）",
+                subtitle = "上傳照片後由 AI 分析帳單內容",
+                icon = Icons.Default.QrCodeScanner
+            ) { onAction(AppDestination.ReceiptScan.route) }
+            ParityActionSheetRow(
+                title = "轉帳",
+                subtitle = "處理帳戶之間的資金移動",
+                icon = Icons.Default.SwapHoriz
+            ) { onAction(AppDestination.TransferAdd.route) }
+            ParityActionSheetRow(
+                title = "借貸（借入/還款）",
+                subtitle = "建立借貸或記錄還款流向",
+                icon = Icons.Default.AccountBalanceWallet
+            ) { onAction(AppDestination.DebtAdd.route) }
+            ParityActionSheetRow(
+                title = "新增代墊單（多人分帳）",
+                subtitle = "建立多人代墊並追蹤後續還款",
+                icon = Icons.Default.Group
+            ) { onAction(AppDestination.AdvanceAdd.route) }
             Spacer(modifier = Modifier.height(12.dp))
         }
-    }
-}
-
-@Composable
-private fun AddActionRow(label: String, onClick: () -> Unit) {
-    TextButton(onClick = onClick, modifier = Modifier.padding(vertical = 4.dp)) {
-        Text(label)
     }
 }
 

@@ -1,16 +1,16 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
 import android.app.DatePickerDialog
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -18,19 +18,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,22 +39,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.ExperimentalFoundationApi
-import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
-import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
-import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
-import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
-import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
-import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
-import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
-import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
-import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
-import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
-import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
+import androidx.compose.ui.unit.sp
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
@@ -66,6 +48,20 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.launch
+import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
+import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
+import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
+import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
+import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
+import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityFilterCapsule
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySearchField
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
+import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
+import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
+import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 
 private enum class DateFilterType(val label: String) {
     Month("本月"),
@@ -89,10 +85,6 @@ private sealed interface LedgerItem {
 }
 
 private data class DailySection(val date: LocalDate, val items: List<LedgerItem>)
-private val LedgerFilterShape = RoundedCornerShape(18.dp)
-private val ShortcutTileWidth = 76.dp
-private val ShortcutTileHeight = 88.dp
-private val ShortcutIconContainerSize = 46.dp
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
@@ -153,52 +145,49 @@ fun TransactionsScreen(
             modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = 4.dp),
             subtitle = "搜尋、篩選、編輯所有交易與代墊摘要。"
         )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = AppSpacing.screenHorizontal, vertical = 10.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                modifier = Modifier.clickable { showFilterDialog = true },
-                shape = LedgerFilterShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = AppSpacing.screenHorizontal, vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(Icons.Default.DateRange, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text(
-                        filterLabel(filterType, selectedDate, customStartDate, customEndDate),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                ParityFilterCapsule(
+                    label = filterLabel(filterType, selectedDate, customStartDate, customEndDate),
+                    icon = Icons.Default.DateRange,
+                    onClick = { showFilterDialog = true }
+                )
+            }
+
+            HorizontalDivider()
+
+            ShortcutsBar(
+                modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal),
+                shortcuts = shortcuts,
+                onAddShortcut = onAddShortcut,
+                onShortcutTap = {
+                    pendingShortcut = it
+                    showShortcutConfirm = true
+                },
+                onShortcutLongPress = {
+                    shortcutToDelete = it
+                    showShortcutDeleteConfirm = true
                 }
-            }
+            )
+
+            HorizontalDivider()
+
+            ParitySearchField(
+                value = searchText,
+                onValueChange = { searchText = it },
+                placeholder = "搜尋備註、分類、標籤、金額",
+                modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = 12.dp)
+            )
+
+            HorizontalDivider()
         }
-
-        HorizontalDivider()
-
-        ShortcutsBar(
-            modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal),
-            shortcuts = shortcuts,
-            onAddShortcut = onAddShortcut,
-            onShortcutTap = {
-                pendingShortcut = it
-                showShortcutConfirm = true
-            },
-            onShortcutLongPress = {
-                shortcutToDelete = it
-                showShortcutDeleteConfirm = true
-            }
-        )
-
-        HorizontalDivider()
 
         LazyColumn(
             modifier = Modifier.weight(1f),
@@ -208,24 +197,6 @@ fun TransactionsScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.item)
         ) {
-            item {
-                OutlinedTextField(
-                    value = searchText,
-                    onValueChange = { searchText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("搜尋備註、分類、標籤、金額") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (searchText.isNotBlank()) {
-                            IconButton(onClick = { searchText = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "清除")
-                            }
-                        }
-                    },
-                    singleLine = true
-                )
-            }
-
             if (ledgerItems.isEmpty()) {
                 item {
                     Column(
@@ -246,12 +217,9 @@ fun TransactionsScreen(
                         ) {
                             Text(
                                 text = formatHeaderDate(section.date),
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(
-                                    horizontal = AppSpacing.screenHorizontal,
-                                    vertical = 10.dp
-                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(vertical = 8.dp),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -410,9 +378,7 @@ fun TransactionsScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     DateFilterType.values().forEach { type ->
-                        TextButton(onClick = {
-                            filterType = type
-                        }) {
+                        TextButton(onClick = { filterType = type }) {
                             Text(type.label)
                         }
                     }
@@ -573,7 +539,7 @@ private fun ShortcutsBar(
     ) {
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(vertical = 10.dp)
+            contentPadding = PaddingValues(vertical = 12.dp)
         ) {
             item {
                 AddShortcutTile(onClick = onAddShortcut)
@@ -593,8 +559,8 @@ private fun ShortcutsBar(
 private fun AddShortcutTile(onClick: () -> Unit) {
     PressableCard(
         modifier = Modifier
-            .width(ShortcutTileWidth)
-            .height(ShortcutTileHeight)
+            .width(ParityTokens.ShortcutTileWidth)
+            .height(ParityTokens.ShortcutTileHeight)
             .padding(vertical = 2.dp),
         onClick = onClick,
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -610,7 +576,7 @@ private fun AddShortcutTile(onClick: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Surface(
-                modifier = Modifier.size(ShortcutIconContainerSize),
+                modifier = Modifier.size(ParityTokens.ShortcutIconSize),
                 shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
             ) {
@@ -642,8 +608,8 @@ private fun ShortcutTile(
 ) {
     PressableCard(
         modifier = Modifier
-            .width(ShortcutTileWidth)
-            .height(ShortcutTileHeight)
+            .width(ParityTokens.ShortcutTileWidth)
+            .height(ParityTokens.ShortcutTileHeight)
             .padding(vertical = 2.dp),
         onClick = onClick,
         onLongClick = onLongClick,
@@ -660,7 +626,7 @@ private fun ShortcutTile(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Surface(
-                modifier = Modifier.size(ShortcutIconContainerSize),
+                modifier = Modifier.size(ParityTokens.ShortcutIconSize),
                 shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.surface
             ) {

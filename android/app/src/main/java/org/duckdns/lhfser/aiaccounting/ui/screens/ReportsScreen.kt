@@ -3,8 +3,6 @@ package org.duckdns.lhfser.aiaccounting.ui.screens
 import android.app.DatePickerDialog
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,15 +11,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -34,7 +30,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,28 +44,29 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.shape.RoundedCornerShape
-import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
-import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
-import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
-import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
-import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
-import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
-import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
-import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
-import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
-import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
-import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
+import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
+import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
+import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
+import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
+import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityFilterCapsule
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySegmentedControl
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
+import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
+import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
+import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 
 private enum class ReportFilterType(val label: String) {
     All("全部時間"),
@@ -107,8 +103,6 @@ private data class BudgetAlert(
     val remaining: BigDecimal,
     val categoryName: String
 )
-
-private val ReportFilterShape = RoundedCornerShape(18.dp)
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -162,52 +156,28 @@ fun ReportsScreen() {
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = AppSpacing.screenHorizontal, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
-        ) {
-            ParityTopSection(
-                title = "報表",
-                subtitle = "切換收支、分類與標籤，查看和 iOS 對齊的統計視圖。"
-            )
-        }
+        ParityTopSection(
+            title = "報表",
+            modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = 4.dp),
+            subtitle = "切換收支、分類與標籤，查看和 iOS 對齊的統計視圖。"
+        )
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    modifier = Modifier.clickable { showFilterDialog = true },
-                    shape = ReportFilterShape,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                    border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(Icons.Default.DateRange, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text(
-                            filterLabel(filterType, selectedDate),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.weight(1f))
-            }
+            ParityFilterCapsule(
+                label = filterLabel(filterType, selectedDate),
+                icon = Icons.Default.DateRange,
+                onClick = { showFilterDialog = true }
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(AppSpacing.inline)
             ) {
-                SegmentedOptionGroup(
+                ParitySegmentedControl(
                     modifier = Modifier.weight(1f),
                     options = ReportFlowMode.values().toList(),
                     selected = flowMode,
@@ -217,7 +187,7 @@ fun ReportsScreen() {
                         selectedTag = null
                     }
                 )
-                SegmentedOptionGroup(
+                ParitySegmentedControl(
                     modifier = Modifier.weight(1f),
                     options = ReportChartMode.values().toList(),
                     selected = chartMode,
@@ -242,11 +212,12 @@ fun ReportsScreen() {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { selectedTag = null }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                         }
                         Text(
                             selectedTag ?: "",
                             style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -316,7 +287,7 @@ fun ReportsScreen() {
                             Text(type.label)
                         }
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.size(6.dp))
                     TextButton(onClick = {
                         showDatePicker(context, selectedDate) { selectedDate = it }
                     }) {
@@ -342,57 +313,6 @@ fun ReportsScreen() {
 }
 
 @Composable
-private fun <T> SegmentedOptionGroup(
-    modifier: Modifier = Modifier,
-    options: List<T>,
-    selected: T,
-    label: (T) -> String,
-    onSelect: (T) -> Unit
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.24f))
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            options.forEach { option ->
-                val isSelected = option == selected
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    onClick = { onSelect(option) },
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (isSelected) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        Color.Transparent
-                    }
-                ) {
-                    Text(
-                        text = label(option),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        textAlign = TextAlign.Center,
-                        maxLines = 1
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun ReportRow(
     item: ReportSlice,
     total: BigDecimal,
@@ -403,6 +323,9 @@ private fun ReportRow(
     val progress = if (total > BigDecimal.ZERO) {
         item.amount.divide(total, 4, RoundingMode.HALF_UP).toFloat().coerceIn(0f, 1f)
     } else 0f
+    val percent = if (total > BigDecimal.ZERO) {
+        item.amount.multiply(BigDecimal(100)).divide(total, 1, RoundingMode.HALF_UP)
+    } else BigDecimal.ZERO
     PressableCard(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick
@@ -411,25 +334,37 @@ private fun ReportRow(
             modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.tight)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ColorDot(color = item.color)
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(item.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${percent.stripTrailingZeros().toPlainString()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         item.amount.asCurrencyText(baseCurrency),
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    Text(
+                        trailingLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
-                Text(
-                    trailingLabel,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.primary
-                )
             }
-            LinearProgressIndicator(progress = { progress }, color = item.color, trackColor = MaterialTheme.colorScheme.surface)
+            LinearProgressIndicator(
+                progress = { progress },
+                color = item.color,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
@@ -437,42 +372,50 @@ private fun ReportRow(
 @Composable
 private fun DonutChart(data: List<ReportSlice>, baseCurrency: String, title: String) {
     val total = totalAmount(data)
-    Column(
-        verticalArrangement = Arrangement.spacedBy(AppSpacing.inline),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.padding(top = 4.dp)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = androidx.compose.foundation.BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.28f))
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Canvas(modifier = Modifier.size(212.dp)) {
-                val stroke = Stroke(width = 22.dp.toPx(), cap = StrokeCap.Butt)
-                val diameter = minOf(size.width, size.height)
-                val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
-                val rect = Rect(topLeft, Size(diameter, diameter))
-                var startAngle = -90f
-                data.forEach { slice ->
-                    val sweep = if (total > BigDecimal.ZERO) {
-                        slice.amount.divide(total, 6, RoundingMode.HALF_UP).toFloat() * 360f
-                    } else 0f
-                    drawArc(
-                        color = slice.color,
-                        startAngle = startAngle,
-                        sweepAngle = sweep,
-                        useCenter = false,
-                        topLeft = rect.topLeft,
-                        size = rect.size,
-                        style = stroke
-                    )
-                    startAngle += sweep
+        Column(
+            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.inline),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Canvas(modifier = Modifier.size(228.dp)) {
+                    val stroke = Stroke(width = 24.dp.toPx(), cap = StrokeCap.Butt)
+                    val diameter = minOf(size.width, size.height)
+                    val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
+                    val rect = Rect(topLeft, Size(diameter, diameter))
+                    var startAngle = -90f
+                    data.forEach { slice ->
+                        val sweep = if (total > BigDecimal.ZERO) {
+                            slice.amount.divide(total, 6, RoundingMode.HALF_UP).toFloat() * 360f
+                        } else 0f
+                        drawArc(
+                            color = slice.color,
+                            startAngle = startAngle,
+                            sweepAngle = sweep,
+                            useCenter = false,
+                            topLeft = rect.topLeft,
+                            size = rect.size,
+                            style = stroke
+                        )
+                        startAngle += sweep
+                    }
                 }
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(
-                    total.asCurrencyText(baseCurrency),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        total.asCurrencyText(baseCurrency),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
         }
     }
@@ -501,23 +444,27 @@ private fun EmptyState(message: String) {
 
 @Composable
 private fun BudgetAlertCard(alerts: List<BudgetAlert>) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.error.copy(alpha = 0.06f), shape = MaterialTheme.shapes.medium)
-            .padding(AppSpacing.card),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.error.copy(alpha = 0.06f),
+        border = androidx.compose.foundation.BorderStroke(0.6.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.18f))
     ) {
-        Text("本月超支提醒", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        alerts.take(3).forEach { alert ->
-            Row {
-                Text(alert.categoryName, style = MaterialTheme.typography.bodySmall)
-                Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    "超支 ${alert.remaining.abs().asCurrencyText(alert.budget.currencyCode)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
+        Column(
+            modifier = Modifier.padding(AppSpacing.card),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text("本月超支提醒", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            alerts.take(3).forEach { alert ->
+                Row {
+                    Text(alert.categoryName, style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        "超支 ${alert.remaining.abs().asCurrencyText(alert.budget.currencyCode)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             }
         }
     }
@@ -607,11 +554,10 @@ private fun filterTransactions(
     return transactions.filter { tx ->
         if (tx.transaction.type != type) return@filter false
         val date = tx.transaction.date
-        val inRange = when {
+        when {
             rangeStart == null || rangeEnd == null -> true
             else -> date >= rangeStart && date < rangeEnd
         }
-        inRange
     }
 }
 
