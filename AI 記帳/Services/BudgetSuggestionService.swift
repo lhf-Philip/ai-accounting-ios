@@ -132,23 +132,27 @@ final class BudgetSuggestionService {
 
         let service = GeminiService.shared
         let model = try service.makeModel(name: modelName)
-        let response = try await model.generateContent(prompt)
-        guard let text = response.text else {
-            throw BudgetSuggestionError.invalidResponse
+        do {
+            let response = try await model.generateContent(prompt)
+            guard let text = response.text else {
+                throw BudgetSuggestionError.invalidResponse
+            }
+
+            let cleaned = text
+                .replacingOccurrences(of: "```json", with: "")
+                .replacingOccurrences(of: "```", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard let data = cleaned.data(using: .utf8) else {
+                throw BudgetSuggestionError.invalidResponse
+            }
+
+            let decoded = try JSONDecoder().decode(BudgetSuggestionResult.self, from: data)
+            let validCategoryIDs = Set(request.targetCategories.map(\.id))
+            return decoded.suggestions.filter { validCategoryIDs.contains($0.categoryId) && $0.suggestedAmount >= 0 }
+        } catch {
+            throw mappedAIError(from: error)
         }
-
-        let cleaned = text
-            .replacingOccurrences(of: "```json", with: "")
-            .replacingOccurrences(of: "```", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard let data = cleaned.data(using: .utf8) else {
-            throw BudgetSuggestionError.invalidResponse
-        }
-
-        let decoded = try JSONDecoder().decode(BudgetSuggestionResult.self, from: data)
-        let validCategoryIDs = Set(request.targetCategories.map(\.id))
-        return decoded.suggestions.filter { validCategoryIDs.contains($0.categoryId) && $0.suggestedAmount >= 0 }
     }
 
     private func buildPayload(for request: BudgetSuggestionRequest) -> BudgetSuggestionPayload {
@@ -439,6 +443,104 @@ final class BudgetSuggestionService {
         Finance summary:
         \(payloadJSON)
         """
+    }
+
+    private func mappedAIError(from error: Error) -> Error {
+        guard let generateError = error as? GenerateContentError else {
+            return error
+        }
+
+        switch generateError {
+        case .invalidAPIKey(let message):
+            return NSError(
+                domain: "Gemini",
+                code: 401,
+                userInfo: [NSLocalizedDescriptionKey: "Gemini API Key 無效：\(message)"]
+            )
+        case .unsupportedUserLocation:
+            return NSError(
+                domain: "Gemini",
+                code: 451,
+                userInfo: [NSLocalizedDescriptionKey: "目前所在網路區域不支援 Gemini API。請確認 VPN 已連線並重試。"]
+            )
+        case .promptBlocked:
+            return NSError(
+                domain: "Gemini",
+                code: 400,
+                userInfo: [NSLocalizedDescriptionKey: "Gemini 拒絕了這次預算分析請求。請縮短分析時間範圍，或先不要加入收入資料與 JSON 備份再試。"]
+            )
+        case .responseStoppedEarly(let reason, _):
+            return NSError(
+                domain: "Gemini",
+                code: 499,
+                userInfo: [NSLocalizedDescriptionKey: "Gemini 回應中途停止（\(reason)）。請再試一次。"]
+            )
+        case .promptImageContentError:
+            return NSError(
+                domain: "Gemini",
+                code: 400,
+                userInfo: [NSLocalizedDescriptionKey: "AI 預算建議請求格式錯誤。請稍後再試。"]
+            )
+        case .internalError(let underlying):
+            let details = extractGeminiUnderlyingDetails(from: underlying)
+            let status = details.status.uppercased()
+            let message = details.message.isEmpty ? String(describing: underlying) : details.message
+
+            if details.httpCode == 429 || status.contains("RESOURCE_EXHAUSTED") {
+                return NSError(
+                    domain: "Gemini",
+                    code: 429,
+                    userInfo: [NSLocalizedDescriptionKey: "Gemini 已達使用上限或暫時繁忙。請稍後再試。"]
+                )
+            }
+
+            if details.httpCode == 503 || status.contains("UNAVAILABLE") {
+                return NSError(
+                    domain: "Gemini",
+                    code: 503,
+                    userInfo: [NSLocalizedDescriptionKey: "Gemini 服務暫時不可用。請稍後再試。"]
+                )
+            }
+
+            if details.httpCode == 400 || status.contains("INVALID_ARGUMENT") {
+                return NSError(
+                    domain: "Gemini",
+                    code: 400,
+                    userInfo: [NSLocalizedDescriptionKey: "Gemini 不接受這次預算分析請求。常見原因是分析資料太多。請縮短分析時間範圍，或先不要加入收入資料與 JSON 備份再試。\n\n服務訊息：\(message)"]
+                )
+            }
+
+            return NSError(
+                domain: "Gemini",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Gemini 內部錯誤。\n\n服務狀態：\(status.isEmpty ? "未知" : status)\n服務訊息：\(message)"]
+            )
+        }
+    }
+
+    private func extractGeminiUnderlyingDetails(from error: Error) -> (httpCode: Int?, status: String, message: String) {
+        var httpCode: Int?
+        var status = ""
+        var message = error.localizedDescription
+
+        let mirror = Mirror(reflecting: error)
+        for child in mirror.children {
+            guard let label = child.label else { continue }
+            switch label {
+            case "httpResponseCode":
+                httpCode = child.value as? Int
+            case "message":
+                if let value = child.value as? String, !value.isEmpty {
+                    message = value
+                }
+            case "status":
+                status = String(describing: child.value)
+            default:
+                continue
+            }
+        }
+
+        return (httpCode, status, message)
     }
 
     private func isoDateString(_ date: Date) -> String {
