@@ -114,6 +114,29 @@ data class CategoryMonthlyBudgetEntity(
 )
 
 @Entity(
+    tableName = "budget_monthly_history",
+    indices = [
+        Index("monthKey"),
+        Index("categoryId"),
+        Index(value = ["historyKey"], unique = true)
+    ]
+)
+data class BudgetMonthlyHistoryEntity(
+    @PrimaryKey val id: UUID,
+    val historyKey: String,
+    val monthKey: String,
+    val categoryId: UUID,
+    val categoryNameSnapshot: String,
+    val budgetAmount: BigDecimal,
+    val spentAmount: BigDecimal,
+    val remainingAmount: BigDecimal,
+    val usageRatio: BigDecimal,
+    val isOverBudget: Boolean,
+    val currencyCode: String,
+    val updatedAt: Instant
+)
+
+@Entity(
     tableName = "advance_cases",
     indices = [Index("payerAccountId"), Index("expenseCategoryId")]
 )

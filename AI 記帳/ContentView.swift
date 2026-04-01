@@ -13,6 +13,8 @@ enum RootTab: Hashable {
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Query(sort: \CategoryMonthlyBudget.updatedAt, order: .reverse) private var budgets: [CategoryMonthlyBudget]
+    @Query(sort: \FinancialTransaction.updatedAt, order: .reverse) private var transactions: [FinancialTransaction]
 
     @State private var selectedTab: RootTab = .ledger
     @State private var showingAddOptions = false
@@ -29,6 +31,32 @@ struct ContentView: View {
     @State private var idleBackupTask: Task<Void, Never>?
     @State private var showingUserGuide = false
     @State private var initialGuideChecked = false
+
+    private var budgetHistorySyncToken: Int {
+        var hasher = Hasher()
+
+        for budget in budgets {
+            hasher.combine(budget.id)
+            hasher.combine(budget.monthKey)
+            hasher.combine(NSDecimalNumber(decimal: budget.amount).stringValue)
+            hasher.combine(budget.currencyCode)
+            hasher.combine(budget.isEnabled)
+            hasher.combine(budget.updatedAt.timeIntervalSince1970)
+            hasher.combine(budget.category?.id)
+        }
+
+        for transaction in transactions {
+            hasher.combine(transaction.id)
+            hasher.combine(transaction.type.rawValue)
+            hasher.combine(NSDecimalNumber(decimal: transaction.amount).stringValue)
+            hasher.combine(transaction.currencyCode)
+            hasher.combine(transaction.date.timeIntervalSince1970)
+            hasher.combine(transaction.updatedAt.timeIntervalSince1970)
+            hasher.combine(transaction.category?.id)
+        }
+
+        return hasher.finalize()
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -128,6 +156,18 @@ struct ContentView: View {
             selectedTab = hasSeenUserGuide ? .ledger : .home
             if !hasSeenUserGuide {
                 showingUserGuide = true
+            }
+        }
+        .task(id: budgetHistorySyncToken) {
+            do {
+                try BudgetHistoryService.shared.syncAll(
+                    modelContext: modelContext,
+                    currencyService: CurrencyService.shared,
+                    budgets: budgets,
+                    transactions: transactions
+                )
+            } catch {
+                print("⚠️ 預算歷史同步失敗: \(error)")
             }
         }
     }

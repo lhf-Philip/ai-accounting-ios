@@ -187,6 +187,7 @@ struct AI___App: App {
             Tag.self,
             Shortcut.self,
             CategoryMonthlyBudget.self,
+            BudgetMonthlyHistory.self,
             AdvanceCase.self,
             AdvanceParticipant.self,
             AdvanceRepayment.self

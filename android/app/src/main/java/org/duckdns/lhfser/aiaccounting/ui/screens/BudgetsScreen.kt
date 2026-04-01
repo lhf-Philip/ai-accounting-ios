@@ -59,6 +59,7 @@ import org.duckdns.lhfser.aiaccounting.data.backup.BackupJsonAdapter
 import org.duckdns.lhfser.aiaccounting.data.backup.FullBackupData
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
+import org.duckdns.lhfser.aiaccounting.data.db.BudgetMonthlyHistoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
@@ -91,6 +92,7 @@ fun BudgetsScreen() {
     val scope = rememberCoroutineScope()
 
     val budgets by repository.budgets.collectAsState(initial = emptyList())
+    val budgetHistories by repository.budgetHistories.collectAsState(initial = emptyList())
     val categories by repository.categories.collectAsState(initial = emptyList())
     val transactions by repository.transactions.collectAsState(initial = emptyList())
 
@@ -342,6 +344,7 @@ fun BudgetsScreen() {
                                             includeIncomeContext = includeIncomeContext,
                                             mainCurrency = currencyService.mainCurrency,
                                             transactions = transactions,
+                                            budgetHistories = budgetHistories,
                                             budgets = budgets,
                                             targetCategories = expenseCategories,
                                             backupData = uploadedBackup

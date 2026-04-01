@@ -9,6 +9,7 @@ import org.duckdns.lhfser.aiaccounting.core.backup.BackupBudgetInput
 import org.duckdns.lhfser.aiaccounting.core.backup.BackupCategoryInput
 import org.duckdns.lhfser.aiaccounting.core.backup.BackupDefaults
 import org.duckdns.lhfser.aiaccounting.core.backup.BackupShortcutInput
+import org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService
 import org.duckdns.lhfser.aiaccounting.core.health.DataHealthChecker
 import org.duckdns.lhfser.aiaccounting.core.health.DataHealthReport
 import org.duckdns.lhfser.aiaccounting.core.health.DataHealthSnapshot
@@ -22,6 +23,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.AIAccountingDatabase
 import org.duckdns.lhfser.aiaccounting.data.db.BudgetDao
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
+import org.duckdns.lhfser.aiaccounting.data.db.BudgetMonthlyHistoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutEntity
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutTagCrossRef
 import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
@@ -33,6 +35,8 @@ import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
 import org.duckdns.lhfser.aiaccounting.data.backup.BackupJsonAdapter
 import org.duckdns.lhfser.aiaccounting.data.backup.FullBackupData
 import java.math.BigDecimal
+import java.math.RoundingMode
+import java.time.ZoneId
 import java.time.Instant
 import java.util.UUID
 
@@ -56,7 +60,10 @@ data class AccountDeletionImpact(
         get() = !counts.hasBookkeeping
 }
 
-class AccountingRepository(private val database: AIAccountingDatabase) {
+class AccountingRepository(
+    private val database: AIAccountingDatabase,
+    private val currencyService: CurrencyService
+) {
     private val accountDao = database.accountDao()
     private val categoryDao = database.categoryDao()
     private val tagDao = database.tagDao()
@@ -71,6 +78,7 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
     val transactions: Flow<List<TransactionWithDetails>> = transactionDao.observeTransactions()
     val shortcuts: Flow<List<ShortcutWithDetails>> = shortcutDao.observeShortcuts()
     val budgets: Flow<List<CategoryMonthlyBudgetEntity>> = budgetDao.observeBudgets()
+    val budgetHistories: Flow<List<BudgetMonthlyHistoryEntity>> = budgetDao.observeBudgetHistory()
     val advanceCases: Flow<List<AdvanceCaseWithDetails>> = advanceDao.observeAdvanceCases()
 
     private data class AccountDeletionTargets(
@@ -145,6 +153,7 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
 
             deleteTransactions(targets.directTransactionsToDelete)
             accountDao.delete(targets.account)
+            syncAllBudgetHistory()
         }
     }
 
@@ -153,11 +162,17 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
     }
 
     suspend fun upsertCategory(category: CategoryEntity) {
-        categoryDao.upsert(category)
+        database.withTransaction {
+            categoryDao.upsert(category)
+            syncAllBudgetHistory()
+        }
     }
 
     suspend fun deleteCategory(category: CategoryEntity) {
-        categoryDao.delete(category)
+        database.withTransaction {
+            categoryDao.delete(category)
+            syncAllBudgetHistory()
+        }
     }
 
     suspend fun upsertTag(tag: TagEntity) {
@@ -169,13 +184,16 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
     }
 
     suspend fun upsertTransaction(transaction: TransactionEntity, tagIds: List<UUID>) {
-        transactionDao.upsert(transaction)
-        transactionDao.clearTransactionTags(transaction.id)
-        if (tagIds.isNotEmpty()) {
-            val refs = tagIds.map { tagId ->
-                TransactionTagCrossRef(transactionId = transaction.id, tagId = tagId)
+        database.withTransaction {
+            transactionDao.upsert(transaction)
+            transactionDao.clearTransactionTags(transaction.id)
+            if (tagIds.isNotEmpty()) {
+                val refs = tagIds.map { tagId ->
+                    TransactionTagCrossRef(transactionId = transaction.id, tagId = tagId)
+                }
+                transactionDao.insertTransactionTags(refs)
             }
-            transactionDao.insertTransactionTags(refs)
+            syncAllBudgetHistory()
         }
     }
 
@@ -192,27 +210,37 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
                     }
                 )
             }
+            syncAllBudgetHistory()
         }
     }
 
     suspend fun deleteTransaction(transaction: TransactionEntity) {
-        transactionDao.delete(transaction)
-        transactionDao.clearTransactionTags(transaction.id)
+        database.withTransaction {
+            transactionDao.delete(transaction)
+            transactionDao.clearTransactionTags(transaction.id)
+            syncAllBudgetHistory()
+        }
     }
 
     suspend fun deleteTransactionById(transactionId: UUID) {
-        val existing = transactionDao.getTransaction(transactionId)
-        if (existing != null) {
-            transactionDao.delete(existing.transaction)
-            transactionDao.clearTransactionTags(transactionId)
+        database.withTransaction {
+            val existing = transactionDao.getTransaction(transactionId)
+            if (existing != null) {
+                transactionDao.delete(existing.transaction)
+                transactionDao.clearTransactionTags(transactionId)
+                syncAllBudgetHistory()
+            }
         }
     }
 
     suspend fun deleteTransferGroup(groupId: UUID) {
-        val existing = transactionDao.getTransferGroup(groupId)
-        existing.forEach { tx ->
-            transactionDao.delete(tx.transaction)
-            transactionDao.clearTransactionTags(tx.transaction.id)
+        database.withTransaction {
+            val existing = transactionDao.getTransferGroup(groupId)
+            existing.forEach { tx ->
+                transactionDao.delete(tx.transaction)
+                transactionDao.clearTransactionTags(tx.transaction.id)
+            }
+            syncAllBudgetHistory()
         }
     }
 
@@ -233,11 +261,17 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
     }
 
     suspend fun upsertBudget(budget: CategoryMonthlyBudgetEntity) {
-        budgetDao.upsert(budget)
+        database.withTransaction {
+            budgetDao.upsert(budget)
+            syncAllBudgetHistory()
+        }
     }
 
     suspend fun deleteBudget(budget: CategoryMonthlyBudgetEntity) {
-        budgetDao.delete(budget)
+        database.withTransaction {
+            budgetDao.delete(budget)
+            syncAllBudgetHistory()
+        }
     }
 
     suspend fun createTransferOneToOne(
@@ -556,6 +590,7 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
 
             advanceDao.upsertParticipants(participantEntities)
             transactionDao.upsertAll(transferEntities)
+            syncAllBudgetHistory()
             caseId
         }
     }
@@ -695,6 +730,7 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
         val shortcuts = shortcutDao.getAll()
         val shortcutTags = shortcutDao.getShortcutTags()
         val budgets = budgetDao.getAll()
+        val budgetHistories = budgetDao.getAllHistory()
         val advanceCases = advanceDao.getAllCases()
         val advanceParticipants = advanceDao.getAllParticipants()
         val advanceRepayments = advanceDao.getAllRepayments()
@@ -703,7 +739,7 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
         val shortcutTagMap = shortcutTags.groupBy { it.shortcutId }
 
         return FullBackupData(
-            version = "1.5",
+            version = "1.6",
             timestamp = Instant.now(),
             accounts = accounts.map {
                 FullBackupData.AccountCodable(
@@ -769,6 +805,22 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
                     categoryID = budget.categoryId,
                     createdAt = budget.createdAt,
                     updatedAt = budget.updatedAt
+                )
+            },
+            budgetHistory = budgetHistories.map { history ->
+                FullBackupData.BudgetHistoryCodable(
+                    id = history.id,
+                    historyKey = history.historyKey,
+                    monthKey = history.monthKey,
+                    categoryID = history.categoryId,
+                    categoryNameSnapshot = history.categoryNameSnapshot,
+                    budgetAmount = history.budgetAmount,
+                    spentAmount = history.spentAmount,
+                    remainingAmount = history.remainingAmount,
+                    usageRatio = history.usageRatio,
+                    isOverBudget = history.isOverBudget,
+                    currencyCode = history.currencyCode,
+                    updatedAt = history.updatedAt
                 )
             },
             advanceCases = advanceCases.map { case ->
@@ -912,6 +964,23 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
             )
         }.orEmpty()
 
+        val historyEntities = data.budgetHistory?.map { history ->
+            BudgetMonthlyHistoryEntity(
+                id = history.id,
+                historyKey = history.historyKey,
+                monthKey = history.monthKey,
+                categoryId = history.categoryID,
+                categoryNameSnapshot = history.categoryNameSnapshot,
+                budgetAmount = history.budgetAmount,
+                spentAmount = history.spentAmount,
+                remainingAmount = history.remainingAmount,
+                usageRatio = history.usageRatio,
+                isOverBudget = history.isOverBudget,
+                currencyCode = history.currencyCode,
+                updatedAt = history.updatedAt ?: Instant.now()
+            )
+        }.orEmpty()
+
         val caseEntities = data.advanceCases?.map { case ->
             AdvanceCaseEntity(
                 id = case.id,
@@ -979,11 +1048,87 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
             if (budgetEntities.isNotEmpty()) {
                 budgetDao.upsertAll(budgetEntities)
             }
+            if (historyEntities.isNotEmpty()) {
+                budgetDao.upsertAllHistory(historyEntities)
+            }
             caseEntities.forEach { advanceDao.upsertCase(it) }
             if (participantEntities.isNotEmpty()) {
                 advanceDao.upsertParticipants(participantEntities)
             }
             repaymentEntities.forEach { advanceDao.upsertRepayment(it) }
+            syncAllBudgetHistory()
+        }
+    }
+
+    private suspend fun syncAllBudgetHistory() {
+        val budgets = budgetDao.getAll()
+        val categoriesById = categoryDao.getAll().associateBy { it.id }
+        val transactions = transactionDao.getAll()
+        val existingHistory = budgetDao.getAllHistory()
+
+        val desiredHistory = budgets
+            .filter { it.isEnabled }
+            .mapNotNull { budget ->
+                val categoryId = budget.categoryId ?: return@mapNotNull null
+                val category = categoriesById[categoryId] ?: return@mapNotNull null
+                if (!category.kind.supports(TransactionType.Expense)) {
+                    return@mapNotNull null
+                }
+
+                val spentAmount = transactions
+                    .asSequence()
+                    .filter { transaction ->
+                        transaction.type == TransactionType.Expense &&
+                            transaction.categoryId == categoryId &&
+                            monthKeyFromInstant(transaction.date) == budget.monthKey
+                    }
+                    .fold(BigDecimal.ZERO) { partial, transaction ->
+                        partial + currencyService.convert(
+                            transaction.amount.abs(),
+                            transaction.currencyCode,
+                            budget.currencyCode
+                        )
+                    }
+
+                val remainingAmount = budget.amount.subtract(spentAmount)
+                val usageRatio = if (budget.amount > BigDecimal.ZERO) {
+                    spentAmount.divide(budget.amount, 6, RoundingMode.HALF_UP)
+                } else {
+                    BigDecimal.ZERO
+                }
+
+                BudgetMonthlyHistoryEntity(
+                    id = UUID.randomUUID(),
+                    historyKey = budgetHistoryKey(budget.monthKey, categoryId),
+                    monthKey = budget.monthKey,
+                    categoryId = categoryId,
+                    categoryNameSnapshot = category.name,
+                    budgetAmount = budget.amount,
+                    spentAmount = spentAmount,
+                    remainingAmount = remainingAmount,
+                    usageRatio = usageRatio,
+                    isOverBudget = remainingAmount < BigDecimal.ZERO,
+                    currencyCode = budget.currencyCode,
+                    updatedAt = Instant.now()
+                )
+            }
+
+        val existingByKey = existingHistory.associateBy { it.historyKey }
+        val desiredByKey = desiredHistory.associateBy { it.historyKey }
+
+        existingHistory
+            .filter { it.historyKey !in desiredByKey }
+            .forEach { budgetDao.deleteHistory(it) }
+
+        desiredHistory.forEach { history ->
+            val existing = existingByKey[history.historyKey]
+            if (existing == null) {
+                budgetDao.upsertHistory(history)
+            } else {
+                budgetDao.upsertHistory(
+                    history.copy(id = existing.id)
+                )
+            }
         }
     }
 
@@ -993,6 +1138,7 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
         advanceDao.deleteAllRepayments()
         advanceDao.deleteAllParticipants()
         advanceDao.deleteAllCases()
+        budgetDao.deleteAllHistory()
         budgetDao.deleteAll()
         shortcutDao.deleteAllShortcuts()
         transactionDao.deleteAllTransactions()
@@ -1158,6 +1304,15 @@ class AccountingRepository(private val database: AIAccountingDatabase) {
             transactionDao.delete(transaction)
             transactionDao.clearTransactionTags(transaction.id)
         }
+    }
+
+    private fun budgetHistoryKey(monthKey: String, categoryId: UUID): String {
+        return "$monthKey|$categoryId"
+    }
+
+    private fun monthKeyFromInstant(instant: Instant): String {
+        val date = instant.atZone(ZoneId.systemDefault()).toLocalDate()
+        return "%04d-%02d".format(date.year, date.monthValue)
     }
 }
 

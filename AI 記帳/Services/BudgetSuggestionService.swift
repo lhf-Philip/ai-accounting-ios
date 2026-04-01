@@ -21,6 +21,7 @@ struct BudgetSuggestionRequest {
     let includeIncomeContext: Bool
     let mainCurrency: String
     let appTransactions: [FinancialTransaction]
+    let budgetHistories: [BudgetMonthlyHistory]
     let currentBudgets: [CategoryMonthlyBudget]
     let targetCategories: [Category]
     let currencyService: CurrencyService
@@ -46,6 +47,18 @@ private struct BudgetSuggestionCategoryTotal: Codable {
     let total: Decimal
 }
 
+private struct BudgetSuggestionMonthlyHistoryPayload: Codable {
+    let categoryId: UUID
+    let categoryName: String
+    let monthKey: String
+    let budgetAmount: Decimal
+    let spentAmount: Decimal
+    let remainingAmount: Decimal
+    let usageRatio: Decimal
+    let isOverBudget: Bool
+    let currencyCode: String
+}
+
 private struct BudgetSuggestionCurrentPeriodTotal: Codable {
     let categoryId: UUID?
     let categoryName: String
@@ -59,11 +72,11 @@ private struct BudgetSuggestionPayload: Codable {
     let mainCurrency: String
     let targetCategories: [BudgetSuggestionCategoryTarget]
     let existingBudgets: [BudgetSuggestionExistingBudget]
-    let appExpenseHistory: [BudgetSuggestionCategoryTotal]
+    let appExpenseBudgetHistory: [BudgetSuggestionMonthlyHistoryPayload]
     let appExpenseCurrentPeriod: [BudgetSuggestionCurrentPeriodTotal]
     let appIncomeHistory: [BudgetSuggestionCategoryTotal]?
     let appIncomeCurrentPeriod: [BudgetSuggestionCurrentPeriodTotal]?
-    let backupExpenseHistory: [BudgetSuggestionCategoryTotal]?
+    let backupExpenseBudgetHistory: [BudgetSuggestionMonthlyHistoryPayload]?
     let backupIncomeHistory: [BudgetSuggestionCategoryTotal]?
 }
 
@@ -160,14 +173,7 @@ final class BudgetSuggestionService {
         let analysisStart = request.startDate
         let analysisEnd = request.endDate
 
-        let appExpenseHistory = summarizeAppTransactions(
-            transactions: request.appTransactions,
-            startDate: analysisStart,
-            endDate: analysisEnd,
-            transactionType: .expense,
-            currencyService: request.currencyService,
-            targetCurrency: request.mainCurrency
-        )
+        let appExpenseHistory = summarizeAppBudgetHistory(for: request)
         let appExpenseCurrentPeriod = summarizeCurrentPeriodTransactions(
             transactions: request.appTransactions,
             startDate: analysisStart,
@@ -200,12 +206,12 @@ final class BudgetSuggestionService {
             : nil
 
         let backupExpenseHistory = request.backupData.map {
-            summarizeBackupTransactions(
+            summarizeBackupBudgetHistory(
                 backupData: $0,
                 startDate: analysisStart,
                 endDate: analysisEnd,
-                transactionTypeRawValue: TransactionType.expense.rawValue,
-                targetCurrency: request.mainCurrency
+                targetCurrency: request.mainCurrency,
+                currencyService: request.currencyService
             )
         }
 
@@ -215,7 +221,8 @@ final class BudgetSuggestionService {
                 startDate: analysisStart,
                 endDate: analysisEnd,
                 transactionTypeRawValue: TransactionType.income.rawValue,
-                targetCurrency: request.mainCurrency
+                targetCurrency: request.mainCurrency,
+                currencyService: request.currencyService
             )
         } : nil
 
@@ -245,13 +252,47 @@ final class BudgetSuggestionService {
                 BudgetSuggestionCategoryTarget(categoryId: $0.id, name: $0.name)
             },
             existingBudgets: existingBudgets,
-            appExpenseHistory: appExpenseHistory,
+            appExpenseBudgetHistory: appExpenseHistory,
             appExpenseCurrentPeriod: appExpenseCurrentPeriod,
             appIncomeHistory: appIncomeHistory,
             appIncomeCurrentPeriod: appIncomeCurrentPeriod,
-            backupExpenseHistory: backupExpenseHistory,
+            backupExpenseBudgetHistory: backupExpenseHistory,
             backupIncomeHistory: backupIncomeHistory
         )
+    }
+
+    private func summarizeAppBudgetHistory(for request: BudgetSuggestionRequest) -> [BudgetSuggestionMonthlyHistoryPayload] {
+        let relevantHistory = request.budgetHistories.filter { history in
+            guard monthKeyInRange(history.monthKey, startDate: request.startDate, endDate: request.endDate) else {
+                return false
+            }
+            return request.targetCategories.contains { $0.id == history.categoryID }
+        }
+
+        if !relevantHistory.isEmpty {
+            return relevantHistory
+                .map {
+                    BudgetSuggestionMonthlyHistoryPayload(
+                        categoryId: $0.categoryID,
+                        categoryName: $0.categoryNameSnapshot,
+                        monthKey: $0.monthKey,
+                        budgetAmount: request.currencyService.convert(amount: $0.budgetAmount, from: $0.currencyCode, to: request.mainCurrency),
+                        spentAmount: request.currencyService.convert(amount: $0.spentAmount, from: $0.currencyCode, to: request.mainCurrency),
+                        remainingAmount: request.currencyService.convert(amount: $0.remainingAmount, from: $0.currencyCode, to: request.mainCurrency),
+                        usageRatio: $0.usageRatio,
+                        isOverBudget: $0.isOverBudget,
+                        currencyCode: request.mainCurrency
+                    )
+                }
+                .sorted {
+                    if $0.monthKey == $1.monthKey {
+                        return $0.categoryName < $1.categoryName
+                    }
+                    return $0.monthKey < $1.monthKey
+                }
+        }
+
+        return synthesizeBudgetHistoryFromAppData(for: request)
     }
 
     private func summarizeAppTransactions(
@@ -304,6 +345,53 @@ final class BudgetSuggestionService {
         }
     }
 
+    private func synthesizeBudgetHistoryFromAppData(for request: BudgetSuggestionRequest) -> [BudgetSuggestionMonthlyHistoryPayload] {
+        request.currentBudgets
+            .filter { budget in
+                budget.isEnabled &&
+                monthKeyInRange(budget.monthKey, startDate: request.startDate, endDate: request.endDate) &&
+                request.targetCategories.contains { $0.id == budget.category?.id }
+            }
+            .compactMap { budget -> BudgetSuggestionMonthlyHistoryPayload? in
+                guard let category = budget.category else { return nil }
+
+                let spent = request.appTransactions
+                    .filter { transaction in
+                        transaction.type == .expense &&
+                        BudgetService.monthKey(from: transaction.date) == budget.monthKey &&
+                        transaction.category?.id == category.id
+                    }
+                    .reduce(Decimal.zero) { partial, transaction in
+                        partial + request.currencyService.convert(
+                            amount: abs(transaction.amount),
+                            from: transaction.currencyCode,
+                            to: budget.currencyCode
+                        )
+                    }
+
+                let remaining = budget.amount - spent
+                let ratio: Decimal = budget.amount > 0 ? (spent / budget.amount) : 0
+
+                return BudgetSuggestionMonthlyHistoryPayload(
+                    categoryId: category.id,
+                    categoryName: category.name,
+                    monthKey: budget.monthKey,
+                    budgetAmount: request.currencyService.convert(amount: budget.amount, from: budget.currencyCode, to: request.mainCurrency),
+                    spentAmount: request.currencyService.convert(amount: spent, from: budget.currencyCode, to: request.mainCurrency),
+                    remainingAmount: request.currencyService.convert(amount: remaining, from: budget.currencyCode, to: request.mainCurrency),
+                    usageRatio: ratio,
+                    isOverBudget: remaining < 0,
+                    currencyCode: request.mainCurrency
+                )
+            }
+            .sorted {
+                if $0.monthKey == $1.monthKey {
+                    return $0.categoryName < $1.categoryName
+                }
+                return $0.monthKey < $1.monthKey
+            }
+    }
+
     private func summarizeCurrentPeriodTransactions(
         transactions: [FinancialTransaction],
         startDate: Date,
@@ -350,7 +438,8 @@ final class BudgetSuggestionService {
         startDate: Date,
         endDate: Date,
         transactionTypeRawValue: String,
-        targetCurrency: String
+        targetCurrency: String,
+        currencyService: CurrencyService
     ) -> [BudgetSuggestionCategoryTotal] {
         let categoryNames = Dictionary(uniqueKeysWithValues: backupData.categories.map { ($0.id, $0.name) })
         let filtered = backupData.transactions.filter {
@@ -360,26 +449,28 @@ final class BudgetSuggestionService {
         }
 
         var totals: [String: Decimal] = [:]
-        var names: [String: String] = [:]
+        var categoryIDs: [String: UUID?] = [:]
+        var categoryNamesByKey: [String: String] = [:]
 
         for transaction in filtered {
-            let categoryName = transaction.categoryID.flatMap { categoryNames[$0] } ?? "未分類"
             let monthKey = BudgetService.monthKey(from: transaction.date)
-            let key = "\(monthKey)|\(categoryName)"
-            let normalizedAmount = convertBackupAmountToTargetCurrency(
+            let categoryName = transaction.categoryID.flatMap { categoryNames[$0] } ?? "未分類"
+            let key = "\(monthKey)|\(transaction.categoryID?.uuidString ?? categoryName)"
+            let normalizedAmount = currencyService.convert(
                 amount: abs(transaction.amount),
                 from: transaction.currencyCode,
-                targetCurrency: targetCurrency
+                to: targetCurrency
             )
             totals[key, default: 0] += normalizedAmount
-            names[key] = categoryName
+            categoryIDs[key] = transaction.categoryID
+            categoryNamesByKey[key] = categoryName
         }
 
         return totals.map { key, total in
             let parts = key.split(separator: "|", maxSplits: 1).map(String.init)
             return BudgetSuggestionCategoryTotal(
-                categoryId: nil,
-                categoryName: names[key] ?? "未分類",
+                categoryId: categoryIDs[key] ?? nil,
+                categoryName: categoryNamesByKey[key] ?? "未分類",
                 monthKey: parts.first ?? "",
                 total: total
             )
@@ -392,17 +483,87 @@ final class BudgetSuggestionService {
         }
     }
 
-    private func convertBackupAmountToTargetCurrency(amount: Decimal, from: String, targetCurrency: String) -> Decimal {
-        if from.uppercased() == targetCurrency.uppercased() {
-            return amount
+    private func summarizeBackupBudgetHistory(
+        backupData: FullBackupData,
+        startDate: Date,
+        endDate: Date,
+        targetCurrency: String,
+        currencyService: CurrencyService
+    ) -> [BudgetSuggestionMonthlyHistoryPayload] {
+        if let history = backupData.budgetHistory, !history.isEmpty {
+            return history
+                .filter { monthKeyInRange($0.monthKey, startDate: startDate, endDate: endDate) }
+                .map {
+                    BudgetSuggestionMonthlyHistoryPayload(
+                        categoryId: $0.categoryID,
+                        categoryName: $0.categoryNameSnapshot,
+                        monthKey: $0.monthKey,
+                        budgetAmount: currencyService.convert(amount: $0.budgetAmount, from: $0.currencyCode, to: targetCurrency),
+                        spentAmount: currencyService.convert(amount: $0.spentAmount, from: $0.currencyCode, to: targetCurrency),
+                        remainingAmount: currencyService.convert(amount: $0.remainingAmount, from: $0.currencyCode, to: targetCurrency),
+                        usageRatio: $0.usageRatio,
+                        isOverBudget: $0.isOverBudget,
+                        currencyCode: targetCurrency
+                    )
+                }
+                .sorted {
+                    if $0.monthKey == $1.monthKey {
+                        return $0.categoryName < $1.categoryName
+                    }
+                    return $0.monthKey < $1.monthKey
+                }
         }
-        return amount
+
+        let categoryNames = Dictionary(uniqueKeysWithValues: backupData.categories.map { ($0.id, $0.name) })
+
+        return (backupData.budgets ?? [])
+            .filter { ($0.isEnabled ?? true) && monthKeyInRange($0.monthKey, startDate: startDate, endDate: endDate) }
+            .compactMap { budget -> BudgetSuggestionMonthlyHistoryPayload? in
+                guard let categoryID = budget.categoryID else { return nil }
+                let categoryName = categoryNames[categoryID] ?? "未分類"
+                let spentAmount = backupData.transactions
+                    .filter { transaction in
+                        transaction.type == TransactionType.expense.rawValue &&
+                        BudgetService.monthKey(from: transaction.date) == budget.monthKey &&
+                        transaction.categoryID == categoryID
+                    }
+                    .reduce(Decimal.zero) { partial, transaction in
+                        partial + currencyService.convert(amount: abs(transaction.amount), from: transaction.currencyCode, to: budget.currencyCode)
+                    }
+                let remainingAmount = budget.amount - spentAmount
+                let usageRatio: Decimal = budget.amount > 0 ? (spentAmount / budget.amount) : 0
+
+                return BudgetSuggestionMonthlyHistoryPayload(
+                    categoryId: categoryID,
+                    categoryName: categoryName,
+                    monthKey: budget.monthKey,
+                    budgetAmount: currencyService.convert(amount: budget.amount, from: budget.currencyCode, to: targetCurrency),
+                    spentAmount: currencyService.convert(amount: spentAmount, from: budget.currencyCode, to: targetCurrency),
+                    remainingAmount: currencyService.convert(amount: remainingAmount, from: budget.currencyCode, to: targetCurrency),
+                    usageRatio: usageRatio,
+                    isOverBudget: remainingAmount < 0,
+                    currencyCode: targetCurrency
+                )
+            }
+            .sorted {
+                if $0.monthKey == $1.monthKey {
+                    return $0.categoryName < $1.categoryName
+                }
+                return $0.monthKey < $1.monthKey
+            }
+    }
+
+    private func monthKeyInRange(_ monthKey: String, startDate: Date, endDate: Date) -> Bool {
+        guard let monthStart = BudgetService.monthStart(from: monthKey) else { return false }
+        let rangeStart = Calendar.current.startOfDay(for: startDate)
+        let rangeEnd = Calendar.current.startOfDay(for: endDate)
+        return monthStart >= rangeStart && monthStart <= rangeEnd
     }
 
     private func hasMeaningfulSignal(_ payload: BudgetSuggestionPayload) -> Bool {
-        !payload.appExpenseHistory.isEmpty ||
+        !payload.appExpenseBudgetHistory.isEmpty ||
         !payload.appExpenseCurrentPeriod.isEmpty ||
-        !(payload.backupExpenseHistory?.isEmpty ?? true)
+        !(payload.backupExpenseBudgetHistory?.isEmpty ?? true)
     }
 
     private func encodePayload(_ payload: BudgetSuggestionPayload) throws -> String {
@@ -418,7 +579,7 @@ final class BudgetSuggestionService {
     private func buildPrompt(payloadJSON: String) -> String {
         """
         You are an AI assistant for a personal finance app.
-        Based on the summarized finance data below, suggest practical monthly budgets for the target month.
+        Based on the summarized finance data below, especially the historical monthly budget usage, suggest practical monthly budgets for the target month.
 
         Requirements:
         1. ONLY suggest budgets for the provided targetCategories.
