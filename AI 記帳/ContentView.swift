@@ -155,7 +155,7 @@ struct ContentView: View {
     }
 
     private func floatingButtonBottomPadding(safeAreaBottom: CGFloat) -> CGFloat {
-        let tabBarClearance: CGFloat = safeAreaBottom > 0 ? 58 : 68
+        let tabBarClearance: CGFloat = safeAreaBottom > 0 ? 52 : 60
         return safeAreaBottom + tabBarClearance
     }
 

@@ -245,12 +245,13 @@ class BackupManager: NSObject, ObservableObject {
     }
     
     func restoreFromJSON(url: URL, modelContext: ModelContext) async throws {
-        let backup = try await Task.detached(priority: .userInitiated) {
-            let data = try Data(contentsOf: url)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            return try decoder.decode(FullBackupData.self, from: data)
+        let data = try await Task.detached(priority: .userInitiated) {
+            try Data(contentsOf: url)
         }.value
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let backup = try decoder.decode(FullBackupData.self, from: data)
 
         try await MainActor.run {
             try restoreDecodedBackup(backup, modelContext: modelContext)

@@ -41,6 +41,13 @@ class GeminiService {
     private let modelName = "gemini-flash-latest"
     
     private init() {}
+
+    func makeModel(name: String? = nil) throws -> GenerativeModel {
+        guard !apiKey.isEmpty else {
+            throw NSError(domain: "Gemini", code: 401, userInfo: [NSLocalizedDescriptionKey: "未設定 API Key。"])
+        }
+        return GenerativeModel(name: name ?? modelName, apiKey: apiKey)
+    }
     
     func analyzeReceipt(
         image: UIImage,
@@ -53,7 +60,7 @@ class GeminiService {
         }
         
         // 2. 初始化模型
-        let model = GenerativeModel(name: modelName, apiKey: apiKey)
+        let model = try makeModel()
         
         // 3. 壓縮圖片
         guard let processedImage = image.resized(to: 1024) else {

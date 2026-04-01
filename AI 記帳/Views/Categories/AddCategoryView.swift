@@ -5,6 +5,7 @@ struct AddCategoryView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \Category.name) private var categories: [Category]
+    let onSave: ((Category) -> Void)?
     
     // Form States
     @State private var name: String = ""
@@ -26,6 +27,10 @@ struct AddCategoryView: View {
         "FF3B30", "007AFF", "34C759", "FF9500",
         "AF52DE", "8E8E93", "FF2D55", "5AC8FA"
     ]
+
+    init(onSave: ((Category) -> Void)? = nil) {
+        self.onSave = onSave
+    }
 
     private var usedCategoryColorHexes: [String] {
         categories.map { Color.normalizedRGBHex($0.colorHex) }
@@ -166,6 +171,7 @@ struct AddCategoryView: View {
         )
         
         modelContext.insert(newCategory)
+        onSave?(newCategory)
         dismiss()
     }
 }

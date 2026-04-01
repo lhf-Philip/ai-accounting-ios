@@ -12,6 +12,7 @@ struct BudgetsView: View {
     @State private var budgetToEdit: CategoryMonthlyBudget?
     @State private var showingAddBudget = false
     @State private var showingOnlyAlerts = false
+    @State private var showingAISuggestions = false
     
     private var monthKey: String {
         BudgetService.monthKey(from: selectedMonthDate)
@@ -75,7 +76,14 @@ struct BudgetsView: View {
         }
         .navigationTitle("預算與超支提醒")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    showingAISuggestions = true
+                } label: {
+                    Image(systemName: "sparkles")
+                }
+                .disabled(availableExpenseCategories.isEmpty)
+
                 Button {
                     showingAddBudget = true
                 } label: {
@@ -99,6 +107,17 @@ struct BudgetsView: View {
                 allBudgets: budgets,
                 categories: availableExpenseCategories
             )
+        }
+        .sheet(isPresented: $showingAISuggestions) {
+            BudgetAISuggestionView(
+                selectedMonthDate: selectedMonthDate,
+                categories: categories,
+                budgets: budgets,
+                transactions: transactions,
+                currencyService: currencyService
+            ) { suggestions in
+                applyAISuggestions(suggestions)
+            }
         }
     }
     
@@ -146,6 +165,39 @@ struct BudgetsView: View {
     
     private func deleteBudget(_ budget: CategoryMonthlyBudget) {
         modelContext.delete(budget)
+    }
+
+    private func applyAISuggestions(_ suggestions: [BudgetSuggestionItem]) {
+        let targetMonthKey = BudgetService.monthKey(from: selectedMonthDate)
+
+        for suggestion in suggestions {
+            guard let category = availableExpenseCategories.first(where: { $0.id == suggestion.categoryId }) else {
+                continue
+            }
+
+            if let existing = budgets.first(where: {
+                $0.monthKey == targetMonthKey && $0.category?.id == category.id
+            }) {
+                existing.amount = currencyService.convert(
+                    amount: suggestion.suggestedAmount,
+                    from: suggestion.currencyCode,
+                    to: existing.currencyCode
+                )
+                existing.updatedAt = Date()
+                existing.isEnabled = true
+            } else {
+                let budget = CategoryMonthlyBudget(
+                    monthKey: targetMonthKey,
+                    amount: suggestion.suggestedAmount,
+                    currencyCode: suggestion.currencyCode,
+                    isEnabled: true,
+                    category: category
+                )
+                modelContext.insert(budget)
+            }
+        }
+
+        try? modelContext.save()
     }
 }
 
