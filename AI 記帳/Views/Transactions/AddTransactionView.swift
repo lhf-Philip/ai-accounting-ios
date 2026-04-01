@@ -177,7 +177,12 @@ struct AddTransactionView: View {
                 }
             }
             .sheet(isPresented: $showingAddCategory) {
-                AddCategoryView()
+                AddCategoryView { newCategory in
+                    if newCategory.kind.supports(selectedType) {
+                        selectedCategory = newCategory
+                    }
+                    showingAddCategory = false
+                }
             }
             .alert("新增標籤", isPresented: $showingAddTag) {
                 TextField("標籤名稱", text: $newTagName)

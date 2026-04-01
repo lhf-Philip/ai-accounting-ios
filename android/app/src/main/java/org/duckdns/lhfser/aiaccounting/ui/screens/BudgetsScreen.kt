@@ -1,12 +1,16 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
 import android.app.DatePickerDialog
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,6 +18,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -41,8 +47,16 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.duckdns.lhfser.aiaccounting.core.ai.BudgetSuggestionItem
+import org.duckdns.lhfser.aiaccounting.core.ai.BudgetSuggestionRequest
+import org.duckdns.lhfser.aiaccounting.core.ai.BudgetSuggestionService
+import org.duckdns.lhfser.aiaccounting.core.ai.GeminiSettingsStore
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
+import org.duckdns.lhfser.aiaccounting.data.backup.BackupJsonAdapter
+import org.duckdns.lhfser.aiaccounting.data.backup.FullBackupData
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
@@ -70,6 +84,10 @@ fun BudgetsScreen() {
     val repository = LocalRepository.current
     val currencyService = LocalCurrencyService.current
     val context = LocalContext.current
+    val geminiSettingsStore = remember(context) { GeminiSettingsStore(context) }
+    val budgetSuggestionService = remember(context, currencyService) {
+        BudgetSuggestionService(geminiSettingsStore, currencyService)
+    }
     val scope = rememberCoroutineScope()
 
     val budgets by repository.budgets.collectAsState(initial = emptyList())
@@ -87,6 +105,36 @@ fun BudgetsScreen() {
     var editingBudget by remember { mutableStateOf<CategoryMonthlyBudgetEntity?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var budgetToDelete by remember { mutableStateOf<CategoryMonthlyBudgetEntity?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var aiStartDate by remember { mutableStateOf(LocalDate.now().minusMonths(3).withDayOfMonth(1)) }
+    var includeIncomeContext by remember { mutableStateOf(false) }
+    var uploadedBackup by remember { mutableStateOf<FullBackupData?>(null) }
+    var uploadedBackupName by remember { mutableStateOf<String?>(null) }
+    var isAnalyzingSuggestions by remember { mutableStateOf(false) }
+    var aiSuggestions by remember { mutableStateOf<List<BudgetSuggestionItem>>(emptyList()) }
+    var selectedSuggestionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    val backupImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        scope.launch {
+            runCatching {
+                val text = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                }.orEmpty()
+                require(text.isNotBlank()) { "備份檔內容為空。" }
+                BackupJsonAdapter.gson.fromJson(text, FullBackupData::class.java)
+            }.onSuccess { backup ->
+                uploadedBackup = backup
+                uploadedBackupName = uri.lastPathSegment ?: "Backup.json"
+                message = "已載入補充資料。"
+            }.onFailure { error ->
+                message = "讀取 JSON 備份失敗：${error.message}"
+            }
+        }
+    }
 
     val monthKey = monthKeyFromDate(selectedMonthDate)
     val statuses = remember(budgets, transactions, categories, currencyService, monthKey) {
@@ -216,6 +264,231 @@ fun BudgetsScreen() {
                         if (editingBudget != null) {
                             TextButton(onClick = { editingBudget = null }) {
                                 Text("取消編輯")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(AppSpacing.card),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("AI 建議本月預算", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "會先讀目前帳本資料，也可額外上傳 JSON 備份作補充。AI 只會建議支出分類預算。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(onClick = {
+                        showDatePicker(context, aiStartDate) { picked ->
+                            aiStartDate = picked
+                        }
+                    }) {
+                        Text("分析起始日：${aiStartDate.format(DateTimeFormatter.ISO_LOCAL_DATE)}")
+                    }
+                    Text(
+                        "分析截至現在，目標月份為 ${formatMonth(selectedMonthDate)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("加入收入資料", style = MaterialTheme.typography.titleSmall)
+                            Text("讓 AI 在建議支出預算時能參考收入波動", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = includeIncomeContext, onCheckedChange = { includeIncomeContext = it })
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Button(onClick = { backupImportLauncher.launch(arrayOf("application/json")) }) {
+                            Text(if (uploadedBackup == null) "上傳 JSON 備份" else "更換補充資料")
+                        }
+                        if (uploadedBackup != null) {
+                            TextButton(onClick = {
+                                uploadedBackup = null
+                                uploadedBackupName = null
+                            }) {
+                                Text("移除")
+                            }
+                        }
+                    }
+                    if (uploadedBackupName != null) {
+                        Text(
+                            "已附加：$uploadedBackupName",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                isAnalyzingSuggestions = true
+                                runCatching {
+                                    budgetSuggestionService.suggestBudgets(
+                                        BudgetSuggestionRequest(
+                                            startDate = aiStartDate,
+                                            endInstant = Instant.now(),
+                                            targetMonthDate = selectedMonthDate,
+                                            includeIncomeContext = includeIncomeContext,
+                                            mainCurrency = currencyService.mainCurrency,
+                                            transactions = transactions,
+                                            budgets = budgets,
+                                            targetCategories = expenseCategories,
+                                            backupData = uploadedBackup
+                                        )
+                                    )
+                                }.onSuccess { suggestions ->
+                                    aiSuggestions = suggestions
+                                    selectedSuggestionIds = suggestions.map { it.categoryId }.toSet()
+                                    message = if (suggestions.isEmpty()) {
+                                        "AI 沒有回傳可套用的預算建議。"
+                                    } else {
+                                        "AI 建議已產生，請先審核後再套用。"
+                                    }
+                                }.onFailure { error ->
+                                    message = error.message ?: "AI 分析失敗。"
+                                }
+                                isAnalyzingSuggestions = false
+                            }
+                        },
+                        enabled = !isAnalyzingSuggestions && expenseCategories.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isAnalyzingSuggestions) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.height(18.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("開始 AI 分析")
+                        }
+                    }
+                    if (message != null) {
+                        Text(
+                            message ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        if (aiSuggestions.isNotEmpty()) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(AppSpacing.card),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("AI 建議結果", style = MaterialTheme.typography.titleSmall)
+                        aiSuggestions.forEach { suggestion ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Checkbox(
+                                    checked = selectedSuggestionIds.contains(suggestion.categoryId),
+                                    onCheckedChange = { checked ->
+                                        selectedSuggestionIds = if (checked == true) {
+                                            selectedSuggestionIds + suggestion.categoryId
+                                        } else {
+                                            selectedSuggestionIds - suggestion.categoryId
+                                        }
+                                    }
+                                )
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        expenseCategories.firstOrNull { it.id.toString() == suggestion.categoryId }?.name ?: "未分類",
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                    Text(
+                                        suggestion.suggestedAmount.asCurrencyText(suggestion.currencyCode),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        suggestion.reason,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        val selectedItems = aiSuggestions.filter { selectedSuggestionIds.contains(it.categoryId) }
+                                        val now = Instant.now()
+                                        selectedItems.forEach { suggestion ->
+                                            val categoryId = runCatching { UUID.fromString(suggestion.categoryId) }.getOrNull() ?: return@forEach
+                                            val existing = budgets.firstOrNull {
+                                                it.monthKey == monthKey && it.categoryId == categoryId
+                                            }
+                                            if (existing != null) {
+                                                repository.upsertBudget(
+                                                    existing.copy(
+                                                        amount = currencyService.convert(
+                                                            suggestion.suggestedAmount,
+                                                            suggestion.currencyCode,
+                                                            existing.currencyCode
+                                                        ),
+                                                        isEnabled = true,
+                                                        updatedAt = now
+                                                    )
+                                                )
+                                            } else {
+                                                repository.upsertBudget(
+                                                    CategoryMonthlyBudgetEntity(
+                                                        id = UUID.randomUUID(),
+                                                        monthKey = monthKey,
+                                                        amount = suggestion.suggestedAmount,
+                                                        currencyCode = suggestion.currencyCode,
+                                                        isEnabled = true,
+                                                        createdAt = now,
+                                                        updatedAt = now,
+                                                        categoryId = categoryId
+                                                    )
+                                                )
+                                            }
+                                        }
+                                        aiSuggestions = emptyList()
+                                        selectedSuggestionIds = emptySet()
+                                        message = "已套用選取的 AI 預算建議。"
+                                    }
+                                },
+                                enabled = selectedSuggestionIds.isNotEmpty(),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("套用所選")
+                            }
+                            TextButton(onClick = {
+                                selectedSuggestionIds = aiSuggestions.map { it.categoryId }.toSet()
+                            }) {
+                                Text("全選")
+                            }
+                            TextButton(onClick = {
+                                aiSuggestions = emptyList()
+                                selectedSuggestionIds = emptySet()
+                            }) {
+                                Text("清除")
                             }
                         }
                     }
@@ -420,6 +693,18 @@ private fun showMonthPicker(context: android.content.Context, initial: LocalDate
         initial.year,
         initial.monthValue - 1,
         1
+    ).show()
+}
+
+private fun showDatePicker(context: android.content.Context, initial: LocalDate, onPicked: (LocalDate) -> Unit) {
+    DatePickerDialog(
+        context,
+        { _, year, month, day ->
+            onPicked(LocalDate.of(year, month + 1, day))
+        },
+        initial.year,
+        initial.monthValue - 1,
+        initial.dayOfMonth
     ).show()
 }
 

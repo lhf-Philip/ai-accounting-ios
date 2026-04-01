@@ -524,7 +524,7 @@ struct AddAdvanceCaseView: View {
     @Query(sort: \Category.name) private var categories: [Category]
     @Query(sort: \Tag.name) private var tags: [Tag]
     
-    private struct ParticipantDraft: Identifiable {
+    fileprivate struct ParticipantDraft: Identifiable {
         let id = UUID()
         var debtAccount: Account?
         var amountString: String = ""
@@ -654,30 +654,16 @@ struct AddAdvanceCaseView: View {
                             .font(.caption)
                             .foregroundStyle(.red)
                     } else {
-                        ForEach($participantDrafts) { $draft in
-                            VStack(spacing: 10) {
-                                Picker("對象", selection: $draft.debtAccount) {
-                                    Text("選擇對象").tag(nil as Account?)
-                                    ForEach(debtAccounts) { account in
-                                        Text(account.name).tag(account as Account?)
-                                    }
-                                }
-                                
-                                TextField("代墊金額", text: Binding(
-                                    get: { draft.amountString },
-                                    set: { draft.amountString = sanitizePositiveDecimalInput($0) }
-                                ))
-                                .keyboardType(.decimalPad)
-                                
-                                if participantDrafts.count > 1 {
-                                    Button(role: .destructive) {
-                                        participantDrafts.removeAll { $0.id == draft.id }
-                                    } label: {
-                                        Text("移除此對象")
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 4)
+                        ForEach(participantDrafts) { draft in
+                            AdvanceParticipantDraftRow(
+                                draft: binding(for: draft),
+                                debtAccounts: debtAccounts,
+                                canRemove: participantDrafts.count > 1,
+                                onRemove: {
+                                    participantDrafts.removeAll { $0.id == draft.id }
+                                },
+                                sanitizeAmount: sanitizePositiveDecimalInput
+                            )
                         }
                         
                         Button {
@@ -846,6 +832,18 @@ struct AddAdvanceCaseView: View {
         }
         participantDrafts.append(ParticipantDraft(debtAccount: account))
     }
+
+    private func binding(for draft: ParticipantDraft) -> Binding<ParticipantDraft> {
+        Binding(
+            get: {
+                participantDrafts.first(where: { $0.id == draft.id }) ?? draft
+            },
+            set: { updatedDraft in
+                guard let index = participantDrafts.firstIndex(where: { $0.id == draft.id }) else { return }
+                participantDrafts[index] = updatedDraft
+            }
+        )
+    }
     
     private func sanitizePositiveDecimalInput(_ value: String) -> String {
         let allowed = value.filter { "0123456789.".contains($0) }
@@ -866,6 +864,40 @@ struct AddAdvanceCaseView: View {
     private func showError(_ message: String) {
         errorMessage = message
         showingError = true
+    }
+}
+
+private struct AdvanceParticipantDraftRow: View {
+    @Binding var draft: AddAdvanceCaseView.ParticipantDraft
+    let debtAccounts: [Account]
+    let canRemove: Bool
+    let onRemove: () -> Void
+    let sanitizeAmount: (String) -> String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Picker("對象", selection: $draft.debtAccount) {
+                Text("選擇對象").tag(nil as Account?)
+                ForEach(debtAccounts) { account in
+                    Text(account.name).tag(account as Account?)
+                }
+            }
+
+            TextField("代墊金額", text: Binding(
+                get: { draft.amountString },
+                set: { draft.amountString = sanitizeAmount($0) }
+            ))
+            .keyboardType(.decimalPad)
+
+            if canRemove {
+                Button(role: .destructive, action: onRemove) {
+                    Text("移除此對象")
+                }
+                .buttonStyle(.borderless)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

@@ -19,6 +19,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.duckdns.lhfser.aiaccounting.core.ai.GeminiSettingsStore
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
@@ -53,6 +55,7 @@ fun SettingsScreen(
     val repository = LocalRepository.current
     val currencyService = LocalCurrencyService.current
     val context = LocalContext.current
+    val geminiSettingsStore = remember(context) { GeminiSettingsStore(context) }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
@@ -60,6 +63,7 @@ fun SettingsScreen(
     var message by remember { mutableStateOf<String?>(null) }
     var mainCurrency by remember { mutableStateOf(currencyService.mainCurrency) }
     var currencyMenuExpanded by remember { mutableStateOf(false) }
+    var apiKey by remember { mutableStateOf(geminiSettingsStore.apiKey) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -128,6 +132,15 @@ fun SettingsScreen(
                     }
                 }
             }
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = {
+                    apiKey = it
+                    geminiSettingsStore.apiKey = it
+                },
+                label = { Text("Gemini API Key（可選）") },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         Text("資料與工具", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)

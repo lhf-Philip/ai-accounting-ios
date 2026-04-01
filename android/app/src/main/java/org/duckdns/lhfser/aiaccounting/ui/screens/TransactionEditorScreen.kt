@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
+import org.duckdns.lhfser.aiaccounting.core.model.CategoryKind
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
@@ -91,6 +92,11 @@ fun TransactionEditorScreen(
     var selectedCurrency by remember { mutableStateOf("HKD") }
     var date by remember { mutableStateOf(Instant.now()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showCreateCategoryDialog by remember { mutableStateOf(false) }
+    var newCategoryName by remember { mutableStateOf("") }
+    var newCategoryIcon by remember { mutableStateOf("square.grid.2x2") }
+    var newCategoryColorHex by remember { mutableStateOf("#90A4AE") }
+    var newCategoryKind by remember { mutableStateOf(defaultCategoryKindFor(transactionType)) }
 
     var splitLegs by remember { mutableStateOf(listOf(SplitLeg())) }
     var mergeLegs by remember { mutableStateOf(listOf(MergeLeg())) }
@@ -126,6 +132,9 @@ fun TransactionEditorScreen(
     LaunchedEffect(transactionType, filteredCategories) {
         if (selectedCategory != null && filteredCategories.none { it.id == selectedCategory?.id }) {
             selectedCategory = null
+        }
+        if (!newCategoryKind.supports(transactionType)) {
+            newCategoryKind = defaultCategoryKindFor(transactionType)
         }
     }
 
@@ -234,6 +243,13 @@ fun TransactionEditorScreen(
                 selected = selectedCategory,
                 onSelect = { selectedCategory = it }
             )
+            TextButton(onClick = {
+                newCategoryKind = defaultCategoryKindFor(transactionType)
+                newCategoryColorHex = autoPickDistinctColor(categories.map { it.colorHex })
+                showCreateCategoryDialog = true
+            }) {
+                Text("新增分類")
+            }
 
             TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
         }
@@ -303,6 +319,75 @@ fun TransactionEditorScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+            }
+        )
+    }
+
+    if (showCreateCategoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateCategoryDialog = false },
+            title = { Text("新增分類") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = newCategoryName,
+                        onValueChange = { newCategoryName = it },
+                        label = { Text("分類名稱") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = newCategoryIcon,
+                        onValueChange = { newCategoryIcon = it },
+                        label = { Text("圖示（SF Symbol 名稱）") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = newCategoryColorHex,
+                            onValueChange = { newCategoryColorHex = it },
+                            label = { Text("顏色 Hex") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = {
+                            newCategoryColorHex = autoPickDistinctColor(categories.map { it.colorHex })
+                        }) {
+                            Text("自動選色")
+                        }
+                    }
+                    KindPicker(kind = newCategoryKind, onChange = { newCategoryKind = it })
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            val category = CategoryEntity(
+                                id = UUID.randomUUID(),
+                                name = newCategoryName.trim(),
+                                icon = newCategoryIcon.ifBlank { "square.grid.2x2" },
+                                colorHex = normalizeCategoryColor(newCategoryColorHex),
+                                kind = newCategoryKind
+                            )
+                            repository.upsertCategory(category)
+                            if (category.kind.supports(transactionType)) {
+                                selectedCategory = category
+                            }
+                            newCategoryName = ""
+                            newCategoryIcon = "square.grid.2x2"
+                            newCategoryColorHex = "#90A4AE"
+                            newCategoryKind = defaultCategoryKindFor(transactionType)
+                            showCreateCategoryDialog = false
+                        }
+                    },
+                    enabled = newCategoryName.trim().isNotEmpty()
+                ) {
+                    Text("新增")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateCategoryDialog = false }) {
+                    Text("取消")
+                }
             }
         )
     }
@@ -528,6 +613,55 @@ private fun sanitizeAmount(input: String): String {
         result.append(char)
     }
     return result.toString()
+}
+
+@Composable
+private fun KindPicker(kind: CategoryKind, onChange: (CategoryKind) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("分類類型", style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CategoryKind.entries.forEach { item ->
+                FilterChip(
+                    selected = kind == item,
+                    onClick = { onChange(item) },
+                    label = { Text(item.rawValue) }
+                )
+            }
+        }
+    }
+}
+
+private fun defaultCategoryKindFor(type: TransactionType): CategoryKind {
+    return when (type) {
+        TransactionType.Expense -> CategoryKind.Expense
+        TransactionType.Income -> CategoryKind.Income
+        TransactionType.Transfer -> CategoryKind.Both
+    }
+}
+
+private fun normalizeCategoryColor(input: String): String {
+    val trimmed = input.trim().removePrefix("#")
+    val normalized = trimmed.uppercase().take(6)
+    return "#${normalized.ifEmpty { "90A4AE" }}"
+}
+
+private fun autoPickDistinctColor(existing: List<String>): String {
+    val palette = listOf(
+        "#EF5350",
+        "#EC407A",
+        "#AB47BC",
+        "#7E57C2",
+        "#5C6BC0",
+        "#42A5F5",
+        "#26A69A",
+        "#66BB6A",
+        "#FFCA28",
+        "#FFA726",
+        "#8D6E63",
+        "#78909C"
+    )
+    return palette.firstOrNull { color -> existing.none { it.equals(color, ignoreCase = true) } }
+        ?: palette.random()
 }
 
 private fun parsePositive(input: String): BigDecimal? {

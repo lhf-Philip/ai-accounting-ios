@@ -21,6 +21,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -141,17 +142,24 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
         Text(if (direction == AdvanceDirection.IAdvanceOthers) "代墊對象" else "借款對象", style = MaterialTheme.typography.titleMedium)
         SectionCard {
             participants.forEachIndexed { index, participant ->
-                ParticipantEditor(
-                    index = index,
-                    participant = participant,
-                    debtAccounts = debtAccounts,
-                    onUpdate = { updated ->
-                        participants = participants.toMutableList().also { it[index] = updated }
-                    },
-                    onRemove = if (participants.size > 1) {
-                        { participants = participants.toMutableList().also { it.removeAt(index) } }
-                    } else null
-                )
+                key(participant.id) {
+                    ParticipantEditor(
+                        index = index,
+                        participant = participant,
+                        debtAccounts = debtAccounts,
+                        onUpdate = { updated ->
+                            participants = participants.toMutableList().also { list ->
+                                val targetIndex = list.indexOfFirst { it.id == participant.id }
+                                if (targetIndex >= 0) {
+                                    list[targetIndex] = updated
+                                }
+                            }
+                        },
+                        onRemove = if (participants.size > 1) {
+                            { participants = participants.filterNot { it.id == participant.id } }
+                        } else null
+                    )
+                }
             }
             TextButton(onClick = { participants = participants + ParticipantDraft() }) {
                 Text("新增對象")
