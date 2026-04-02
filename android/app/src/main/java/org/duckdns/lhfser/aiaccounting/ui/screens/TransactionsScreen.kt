@@ -1,16 +1,16 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
 import android.app.DatePickerDialog
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -18,19 +18,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,21 +42,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.ExperimentalFoundationApi
-import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
-import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
-import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
-import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
-import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
-import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
-import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
-import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
-import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
-import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
+import androidx.compose.ui.unit.sp
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
@@ -65,6 +51,24 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.launch
+import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
+import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
+import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
+import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
+import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
+import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityFilterCapsule
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySearchField
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySelectionSheetRow
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySheetHandle
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityStatusPill
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
+import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
+import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
+import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
+import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 
 private enum class DateFilterType(val label: String) {
     Month("本月"),
@@ -88,13 +92,9 @@ private sealed interface LedgerItem {
 }
 
 private data class DailySection(val date: LocalDate, val items: List<LedgerItem>)
-private val LedgerFilterShape = RoundedCornerShape(18.dp)
-private val ShortcutTileWidth = 76.dp
-private val ShortcutTileHeight = 88.dp
-private val ShortcutIconContainerSize = 46.dp
 
 @Composable
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 fun TransactionsScreen(
     onEdit: (String) -> Unit,
     onEditTransfer: (String) -> Unit,
@@ -147,89 +147,75 @@ fun TransactionsScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = AppSpacing.screenHorizontal, vertical = 10.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                modifier = Modifier.clickable { showFilterDialog = true },
-                shape = LedgerFilterShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(Icons.Default.DateRange, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text(
-                        filterLabel(filterType, selectedDate, customStartDate, customEndDate),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-        }
-
-        HorizontalDivider()
-
-        ShortcutsBar(
-            modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal),
-            shortcuts = shortcuts,
-            onAddShortcut = onAddShortcut,
-            onShortcutTap = {
-                pendingShortcut = it
-                showShortcutConfirm = true
-            },
-            onShortcutLongPress = {
-                shortcutToDelete = it
-                showShortcutDeleteConfirm = true
-            }
+        ParityTopSection(
+            title = "帳目明細",
+            modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = 4.dp),
+            subtitle = "搜尋、篩選、編輯所有交易與代墊摘要。"
         )
 
-        HorizontalDivider()
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = AppSpacing.screenHorizontal, vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ParityFilterCapsule(
+                    label = filterLabel(filterType, selectedDate, customStartDate, customEndDate),
+                    icon = Icons.Default.DateRange,
+                    onClick = { showFilterDialog = true }
+                )
+            }
+
+            HorizontalDivider()
+
+            ShortcutsBar(
+                modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal),
+                shortcuts = shortcuts,
+                onAddShortcut = onAddShortcut,
+                onShortcutTap = {
+                    pendingShortcut = it
+                    showShortcutConfirm = true
+                },
+                onShortcutLongPress = {
+                    shortcutToDelete = it
+                    showShortcutDeleteConfirm = true
+                }
+            )
+
+            HorizontalDivider()
+
+            ParitySearchField(
+                value = searchText,
+                onValueChange = { searchText = it },
+                placeholder = "搜尋備註、分類、標籤、金額",
+                modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = 12.dp)
+            )
+
+            HorizontalDivider()
+        }
 
         LazyColumn(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(
-                horizontal = AppSpacing.screenHorizontal,
-                vertical = AppSpacing.screenVertical
+                start = AppSpacing.screenHorizontal,
+                end = AppSpacing.screenHorizontal,
+                top = AppSpacing.screenVertical,
+                bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
             ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.item)
         ) {
-            item {
-                OutlinedTextField(
-                    value = searchText,
-                    onValueChange = { searchText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("搜尋備註、分類、標籤、金額") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (searchText.isNotBlank()) {
-                            IconButton(onClick = { searchText = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "清除")
-                            }
-                        }
-                    },
-                    singleLine = true
-                )
-            }
-
             if (ledgerItems.isEmpty()) {
                 item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text("沒有符合條件的帳目", style = MaterialTheme.typography.bodyMedium)
-                    }
+                    ParityEmptyState(
+                        title = if (searchText.isBlank()) "還沒有帳目" else "沒有符合條件的帳目",
+                        message = if (searchText.isBlank()) {
+                            "先新增一筆交易，或切換日期區間看看。"
+                        } else {
+                            "可以調整搜尋關鍵字或日期篩選，再試一次。"
+                        }
+                    )
                 }
             } else {
                 dailySections.forEach { section ->
@@ -240,12 +226,9 @@ fun TransactionsScreen(
                         ) {
                             Text(
                                 text = formatHeaderDate(section.date),
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(
-                                    horizontal = AppSpacing.screenHorizontal,
-                                    vertical = 10.dp
-                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(vertical = 8.dp),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -398,39 +381,148 @@ fun TransactionsScreen(
     }
 
     if (showFilterDialog) {
-        AlertDialog(
-            onDismissRequest = { showFilterDialog = false },
-            title = { Text("篩選區間") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DateFilterType.values().forEach { type ->
-                        TextButton(onClick = {
-                            filterType = type
-                        }) {
-                            Text(type.label)
-                        }
-                    }
-                    if (filterType == DateFilterType.Custom) {
-                        Spacer(modifier = Modifier.padding(top = 4.dp))
-                        Text("開始日期", style = MaterialTheme.typography.labelMedium)
-                        TextButton(onClick = {
-                            showDatePicker(context, customStartDate) { customStartDate = it }
-                        }) {
-                            Text(customStartDate.format(DateTimeFormatter.ISO_DATE))
-                        }
-                        Text("結束日期", style = MaterialTheme.typography.labelMedium)
-                        TextButton(onClick = {
-                            showDatePicker(context, customEndDate) { customEndDate = it }
-                        }) {
-                            Text(customEndDate.format(DateTimeFormatter.ISO_DATE))
+        TransactionFilterSheet(
+            filterType = filterType,
+            selectedDate = selectedDate,
+            customStartDate = customStartDate,
+            customEndDate = customEndDate,
+            onSelectFilterType = { filterType = it },
+            onPickSelectedDate = {
+                showDatePicker(context, selectedDate) { selectedDate = it }
+            },
+            onPickCustomStart = {
+                showDatePicker(context, customStartDate) { customStartDate = it }
+            },
+            onPickCustomEnd = {
+                showDatePicker(context, customEndDate) { customEndDate = it }
+            },
+            onDismiss = { showFilterDialog = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TransactionFilterSheet(
+    filterType: DateFilterType,
+    selectedDate: LocalDate,
+    customStartDate: LocalDate,
+    customEndDate: LocalDate,
+    onSelectFilterType: (DateFilterType) -> Unit,
+    onPickSelectedDate: () -> Unit,
+    onPickCustomStart: () -> Unit,
+    onPickCustomEnd: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.background,
+        dragHandle = { ParitySheetHandle() }
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("篩選區間", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "選擇要在帳目頁固定顯示的日期範圍。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            DateFilterType.values().forEach { type ->
+                ParitySelectionSheetRow(
+                    title = type.label,
+                    subtitle = transactionFilterSubtitle(type),
+                    selected = filterType == type,
+                    onClick = { onSelectFilterType(type) }
+                )
+            }
+
+            when (filterType) {
+                DateFilterType.Month, DateFilterType.Year -> {
+                    PressableCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onPickSelectedDate,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        pressedContainerColor = MaterialTheme.colorScheme.surface
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("基準日期", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    if (filterType == DateFilterType.Year) {
+                                        "${selectedDate.year}年"
+                                    } else {
+                                        selectedDate.format(DateTimeFormatter.ofPattern("yyyy年 M月"))
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text("調整", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showFilterDialog = false }) { Text("完成") }
+                DateFilterType.Custom -> {
+                    PressableCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onPickCustomStart,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        pressedContainerColor = MaterialTheme.colorScheme.surface
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("開始日期", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(customStartDate.format(DateTimeFormatter.ISO_DATE), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Text("選擇", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    PressableCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onPickCustomEnd,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        pressedContainerColor = MaterialTheme.colorScheme.surface
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("結束日期", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(customEndDate.format(DateTimeFormatter.ISO_DATE), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Text("選擇", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
             }
-        )
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("完成") }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
+
+private fun transactionFilterSubtitle(type: DateFilterType): String {
+    return when (type) {
+        DateFilterType.Month -> "聚焦本月帳目與代墊摘要"
+        DateFilterType.Year -> "查看本年累積的收支紀錄"
+        DateFilterType.Custom -> "自訂開始與結束日期"
     }
 }
 
@@ -480,7 +572,10 @@ private fun TransactionRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Column(horizontalAlignment = Alignment.End) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
                 Text(
                     amountText,
                     color = amountColor,
@@ -488,7 +583,7 @@ private fun TransactionRow(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    item.transaction.currencyCode,
+                    "${transactionTypeLabel(item.transaction.type)} · ${item.transaction.currencyCode}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -520,11 +615,20 @@ private fun AdvanceSummaryRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    item.advanceCase.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        item.advanceCase.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    ParityStatusPill(
+                        text = "代墊",
+                        tint = Color(0xFFEF6C00)
+                    )
+                }
                 Text(
                     "${item.participants.size} 人 · $payerText",
                     style = MaterialTheme.typography.labelMedium,
@@ -567,7 +671,7 @@ private fun ShortcutsBar(
     ) {
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(vertical = 10.dp)
+            contentPadding = PaddingValues(vertical = 12.dp)
         ) {
             item {
                 AddShortcutTile(onClick = onAddShortcut)
@@ -587,8 +691,8 @@ private fun ShortcutsBar(
 private fun AddShortcutTile(onClick: () -> Unit) {
     PressableCard(
         modifier = Modifier
-            .width(ShortcutTileWidth)
-            .height(ShortcutTileHeight)
+            .width(ParityTokens.ShortcutTileWidth)
+            .height(ParityTokens.ShortcutTileHeight)
             .padding(vertical = 2.dp),
         onClick = onClick,
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -604,7 +708,7 @@ private fun AddShortcutTile(onClick: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Surface(
-                modifier = Modifier.size(ShortcutIconContainerSize),
+                modifier = Modifier.size(ParityTokens.ShortcutIconSize),
                 shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
             ) {
@@ -636,8 +740,8 @@ private fun ShortcutTile(
 ) {
     PressableCard(
         modifier = Modifier
-            .width(ShortcutTileWidth)
-            .height(ShortcutTileHeight)
+            .width(ParityTokens.ShortcutTileWidth)
+            .height(ParityTokens.ShortcutTileHeight)
             .padding(vertical = 2.dp),
         onClick = onClick,
         onLongClick = onLongClick,
@@ -654,7 +758,7 @@ private fun ShortcutTile(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Surface(
-                modifier = Modifier.size(ShortcutIconContainerSize),
+                modifier = Modifier.size(ParityTokens.ShortcutIconSize),
                 shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.surface
             ) {
@@ -810,4 +914,10 @@ private fun formatHeaderDate(date: LocalDate): String {
         today.minusDays(1) -> "昨天"
         else -> date.format(DateTimeFormatter.ofPattern("yyyy/MM/dd"))
     }
+}
+
+private fun transactionTypeLabel(type: TransactionType): String = when (type) {
+    TransactionType.Income -> "收入"
+    TransactionType.Expense -> "支出"
+    TransactionType.Transfer -> "轉帳"
 }

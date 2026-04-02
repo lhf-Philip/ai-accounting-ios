@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 
 @Composable
@@ -102,18 +104,22 @@ fun PressableCard(
     var isPressed by remember { mutableStateOf(false) }
     val animatedScale by animateFloatAsState(
         targetValue = if (isPressed) scaleOnPress else 1f,
+        animationSpec = spring(dampingRatio = 0.88f, stiffness = 720f),
         label = "pressScale"
     )
     val animatedElevation by animateDpAsState(
         targetValue = if (isPressed) pressedElevation else elevation,
+        animationSpec = spring(dampingRatio = 0.92f, stiffness = 560f),
         label = "pressElevation"
     )
     val animatedContainer by animateColorAsState(
         targetValue = if (isPressed) pressedContainerColor else containerColor,
+        animationSpec = tween(durationMillis = 140),
         label = "pressContainer"
     )
     val animatedBorder by animateColorAsState(
         targetValue = if (isPressed) pressedBorderColor else borderColor,
+        animationSpec = tween(durationMillis = 140),
         label = "pressBorder"
     )
 

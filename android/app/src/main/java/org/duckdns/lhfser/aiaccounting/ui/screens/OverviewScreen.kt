@@ -1,8 +1,6 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
 import android.app.DatePickerDialog
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,22 +11,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
-import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,7 +37,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -52,9 +45,14 @@ import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityFilterCapsule
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySegmentedControl
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySummaryCard
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
-import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
+import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 
 private enum class OverviewFilterType(val label: String) {
     All("全部"),
@@ -62,8 +60,6 @@ private enum class OverviewFilterType(val label: String) {
     Month("本月"),
     Day("今日")
 }
-
-private val OverviewFilterShape = RoundedCornerShape(18.dp)
 
 @Composable
 fun OverviewScreen(
@@ -111,52 +107,30 @@ fun OverviewScreen(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(scrollState)
-            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
+            .padding(
+                start = AppSpacing.screenHorizontal,
+                end = AppSpacing.screenHorizontal,
+                top = AppSpacing.screenVertical,
+                bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
+            ),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.tight)) {
-            Text("歡迎使用 AI 記帳", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(
-                "今天是 ${LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年 M月d日"))}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                "${filterDisplayString(filterType, selectedDate)}已記錄 $recordCount 筆收入/支出",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        ParityTopSection(
+            title = "總覽",
+            subtitle = "今天是 ${LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年 M月d日"))} · ${filterDisplayString(filterType, selectedDate)}已記錄 $recordCount 筆收入/支出"
+        )
 
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Surface(
-                modifier = Modifier.clickable { showFilterDialog = true },
-                shape = OverviewFilterShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        filterDisplayString(filterType, selectedDate),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OverviewFilterType.values().forEach { type ->
-                    FilterChip(
-                        selected = filterType == type,
-                        onClick = { filterType = type },
-                        label = { Text(type.label) }
-                    )
-                }
-            }
+        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
+            ParityFilterCapsule(
+                label = filterDisplayString(filterType, selectedDate),
+                onClick = { showFilterDialog = true }
+            )
+            ParitySegmentedControl(
+                options = OverviewFilterType.values().toList(),
+                selected = filterType,
+                label = { it.label },
+                onSelect = { filterType = it }
+            )
         }
 
         PressableCard(
@@ -165,8 +139,18 @@ fun OverviewScreen(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
             pressedContainerColor = MaterialTheme.colorScheme.surface
         ) {
-            Column(modifier = Modifier.padding(AppSpacing.card), verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
-                Text("快速開始", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Column(
+                modifier = Modifier.padding(AppSpacing.card),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    androidx.compose.material3.Text("快速開始", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    androidx.compose.material3.Text(
+                        "先記一筆，或直接打開教學頁快速熟悉主要流程。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
                         onClick = onQuickAdd,
@@ -177,7 +161,7 @@ fun OverviewScreen(
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("新增記錄")
+                        androidx.compose.material3.Text("新增記錄")
                     }
                     Button(
                         onClick = onOpenGuide,
@@ -188,14 +172,14 @@ fun OverviewScreen(
                     ) {
                         Icon(Icons.Default.Book, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("使用教學")
+                        androidx.compose.material3.Text("使用教學")
                     }
                 }
             }
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
-            Text(
+            androidx.compose.material3.Text(
                 "${filterDisplayString(filterType, selectedDate)}重點（$baseCurrency）",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold
@@ -211,7 +195,7 @@ fun OverviewScreen(
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
-            Text("功能入口", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            androidx.compose.material3.Text("功能入口", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             EntryButton(
                 icon = Icons.AutoMirrored.Filled.List,
                 title = "查看帳目明細",
@@ -249,24 +233,12 @@ fun OverviewScreen(
 
 @Composable
 private fun SummaryTile(label: String, value: String, tint: Color, modifier: Modifier = Modifier) {
-    PressableCard(
+    ParitySummaryCard(
+        title = label,
+        value = value,
         modifier = modifier,
-        onClick = {},
-        containerColor = tint.copy(alpha = 0.08f),
-        pressedContainerColor = tint.copy(alpha = 0.12f),
-        borderColor = tint.copy(alpha = 0.12f),
-        pressedBorderColor = tint.copy(alpha = 0.2f)
-    ) {
-        Column(modifier = Modifier.padding(AppSpacing.card), verticalArrangement = Arrangement.spacedBy(AppSpacing.tight)) {
-            Text(
-                label,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = tint)
-        }
-    }
+        accent = tint
+    )
 }
 
 @Composable
@@ -287,17 +259,41 @@ private fun EntryButton(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                modifier = Modifier.size(22.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            androidx.compose.material3.Surface(
+                modifier = Modifier.size(40.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(modifier = Modifier.weight(1f)) {
+                androidx.compose.material3.Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                androidx.compose.material3.Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            androidx.compose.material3.Surface(
+                modifier = Modifier.size(28.dp),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                }
+            }
         }
     }
 }

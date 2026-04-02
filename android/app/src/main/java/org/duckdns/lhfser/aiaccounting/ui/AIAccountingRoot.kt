@@ -1,5 +1,6 @@
 package org.duckdns.lhfser.aiaccounting.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -9,24 +10,26 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountBalanceWallet
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,6 +45,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityActionSheetRow
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityBottomBar
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityBottomBarItem
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityFloatingAddButton
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySheetHandle
+import org.duckdns.lhfser.aiaccounting.ui.screens.AccountDetailScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.AccountEditorScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.AccountsScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.AddAdvanceCaseScreen
@@ -52,7 +61,9 @@ import org.duckdns.lhfser.aiaccounting.ui.screens.BudgetsScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.CategoriesScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.CategoryEditorScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.DataHealthScreen
+import org.duckdns.lhfser.aiaccounting.ui.screens.DebtEntryScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.OverviewScreen
+import org.duckdns.lhfser.aiaccounting.ui.screens.ReceiptScanScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.ReportsScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.SettingsScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.ShortcutEditorScreen
@@ -81,6 +92,10 @@ private sealed class AppDestination(
     data object TransferEdit : AppDestination("transfer/edit/{groupId}", "編輯轉帳")
     data object AdvanceAdd : AppDestination("advance/add", "新增代墊")
     data object AdvanceDetail : AppDestination("advance/{caseId}", "代墊明細")
+    data object ReceiptScan : AppDestination("receipt/scan", "掃描單據")
+    data object DebtAdd : AppDestination("debt/add", "借貸管理")
+    data object AccountDetail : AppDestination("accounts/{accountId}", "帳戶明細")
+    data object Guide : AppDestination("guide", "使用教學")
 
     data object Categories : AppDestination("categories", "分類管理")
     data object CategoryEdit : AppDestination("categories/edit/{categoryId}", "編輯分類")
@@ -114,14 +129,8 @@ fun AIAccountingRoot(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val topLevelRoutes = remember { topLevelDestinations.map { it.route }.toSet() }
-    val showBars = currentRoute in topLevelRoutes
-
-    LaunchedEffect(startOnOverview) {
-        val startDestination = if (startOnOverview) AppDestination.Overview.route else AppDestination.Transactions.route
-        navController.navigate(startDestination) {
-            popUpTo(0)
-        }
-    }
+    val showTopLevelChrome = currentRoute in topLevelRoutes
+    val startDestination = if (startOnOverview) AppDestination.Overview.route else AppDestination.Transactions.route
 
     LaunchedEffect(currencyService.mainCurrency) {
         currencyService.fetchRates()
@@ -130,76 +139,69 @@ fun AIAccountingRoot(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            val title = if (showBars) {
-                topLevelDestinations.firstOrNull { it.route == currentRoute }?.label ?: "AI 記帳"
-            } else {
-                resolveTitle(backStackEntry)
-            }
-            TopAppBar(
-                title = { Text(text = title, style = MaterialTheme.typography.titleLarge) },
-                navigationIcon = {
-                    if (!showBars && navController.previousBackStackEntry != null) {
-                        IconButton(onClick = { navController.popBackStack() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                        }
-                    }
-                },
-                actions = {
-                    when (currentRoute) {
-                        AppDestination.Categories.route -> {
-                            IconButton(onClick = {
-                                navController.navigate("categories/edit/${UUID.randomUUID()}")
-                            }) {
-                                Icon(Icons.Default.Add, contentDescription = "新增分類")
+            if (!showTopLevelChrome && currentRoute != null) {
+                TopAppBar(
+                    title = { Text(text = resolveTitle(backStackEntry), style = MaterialTheme.typography.titleLarge) },
+                    navigationIcon = {
+                        if (navController.previousBackStackEntry != null) {
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                             }
                         }
-                        AppDestination.Tags.route -> {
-                            IconButton(onClick = {
-                                navController.navigate("tags/edit/${UUID.randomUUID()}")
-                            }) {
-                                Icon(Icons.Default.Add, contentDescription = "新增標籤")
+                    },
+                    actions = {
+                        when {
+                            currentRoute == AppDestination.Categories.route -> {
+                                TextButton(onClick = { navController.navigate("categories/edit/${UUID.randomUUID()}") }) {
+                                    Text("新增")
+                                }
+                            }
+                            currentRoute == AppDestination.Tags.route -> {
+                                TextButton(onClick = { navController.navigate("tags/edit/${UUID.randomUUID()}") }) {
+                                    Text("新增")
+                                }
                             }
                         }
-                    }
-                },
-                windowInsets = TopAppBarDefaults.windowInsets,
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                    },
+                    windowInsets = TopAppBarDefaults.windowInsets,
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
                 )
-            )
+            }
         },
         bottomBar = {
-            if (showBars) {
-                NavigationBar {
+            if (showTopLevelChrome) {
+                ParityBottomBar {
                     topLevelDestinations.forEach { destination ->
-                        NavigationBarItem(
+                        ParityBottomBarItem(
+                            modifier = Modifier.weight(1f),
                             selected = currentRoute == destination.route,
+                            label = destination.label,
+                            icon = destination.icon ?: return@forEach,
                             onClick = {
                                 navController.navigate(destination.route) {
                                     launchSingleTop = true
                                     popUpTo(navController.graph.startDestinationId) { saveState = true }
                                     restoreState = true
                                 }
-                            },
-                            icon = { destination.icon?.let { Icon(it, contentDescription = null) } },
-                            label = { Text(destination.label) }
+                            }
                         )
                     }
                 }
             }
         },
         floatingActionButton = {
-            if (showBars) {
-                FloatingActionButton(onClick = { showAddSheet = true }) {
-                    Icon(Icons.Default.Add, contentDescription = "新增")
-                }
+            if (showTopLevelChrome) {
+                ParityFloatingAddButton(
+                    modifier = Modifier.padding(bottom = 6.dp),
+                    onClick = { showAddSheet = true }
+                )
             }
         },
         contentWindowInsets = WindowInsets.safeDrawing
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = AppDestination.Transactions.route,
+            startDestination = startDestination,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -240,11 +242,15 @@ fun AIAccountingRoot(
                 )
             }
             composable(AppDestination.Reports.route) { ReportsScreen() }
-            composable(AppDestination.Accounts.route) { AccountsScreen(onEdit = { id ->
-                navController.navigate("accounts/edit/$id")
-            }) }
+            composable(AppDestination.Accounts.route) {
+                AccountsScreen(
+                    onOpenDetail = { id -> navController.navigate("accounts/$id") },
+                    onAddAccount = { navController.navigate("accounts/edit/${UUID.randomUUID()}") }
+                )
+            }
             composable(AppDestination.Settings.route) {
                 SettingsScreen(
+                    onOpenGuide = { navController.navigate(AppDestination.Guide.route) },
                     onOpenCategories = { navController.navigate(AppDestination.Categories.route) },
                     onOpenTags = { navController.navigate(AppDestination.Tags.route) },
                     onOpenBudgets = { navController.navigate(AppDestination.Budgets.route) },
@@ -280,10 +286,14 @@ fun AIAccountingRoot(
             composable(AppDestination.AdvanceAdd.route) {
                 AddAdvanceCaseScreen(onDone = { navController.popBackStack() })
             }
+            composable(AppDestination.ReceiptScan.route) {
+                ReceiptScanScreen(onDone = { navController.popBackStack() })
+            }
+            composable(AppDestination.DebtAdd.route) {
+                DebtEntryScreen(onDone = { navController.popBackStack() })
+            }
             composable("advances") {
-                AdvancesScreen(onOpenCase = { caseId ->
-                    navController.navigate("advance/$caseId")
-                })
+                AdvancesScreen(onOpenCase = { caseId -> navController.navigate("advance/$caseId") })
             }
             composable(
                 AppDestination.AdvanceDetail.route,
@@ -292,9 +302,7 @@ fun AIAccountingRoot(
                 AdvanceDetailScreen(caseId = entry.arguments?.getString("caseId"))
             }
             composable(AppDestination.Categories.route) {
-                CategoriesScreen(onEdit = { id ->
-                    navController.navigate("categories/edit/$id")
-                })
+                CategoriesScreen(onEdit = { id -> navController.navigate("categories/edit/$id") })
             }
             composable(
                 AppDestination.CategoryEdit.route,
@@ -329,6 +337,17 @@ fun AIAccountingRoot(
                 )
             }
             composable(
+                AppDestination.AccountDetail.route,
+                arguments = listOf(navArgument("accountId") { type = NavType.StringType })
+            ) { entry ->
+                AccountDetailScreen(
+                    accountId = entry.arguments?.getString("accountId"),
+                    onEditAccount = { id -> navController.navigate("accounts/edit/$id") },
+                    onEditTransaction = { id -> navController.navigate("transaction/edit/$id") },
+                    onEditTransfer = { groupId -> navController.navigate("transfer/edit/$groupId") }
+                )
+            }
+            composable(
                 AppDestination.ShortcutEdit.route,
                 arguments = listOf(navArgument("shortcutId") { type = NavType.StringType })
             ) { entry ->
@@ -336,6 +355,15 @@ fun AIAccountingRoot(
                     shortcutId = entry.arguments?.getString("shortcutId"),
                     onDone = { navController.popBackStack() }
                 )
+            }
+            composable(AppDestination.Guide.route) {
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                    UserGuideScreen(
+                        onDone = { navController.popBackStack() },
+                        isFirstLaunch = false
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
             }
         }
     }
@@ -351,14 +379,19 @@ fun AIAccountingRoot(
     }
 
     if (showGuide) {
+        val guideSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             onDismissRequest = {
                 showGuide = false
                 onGuideSeen()
-            }
+            },
+            sheetState = guideSheetState,
+            containerColor = MaterialTheme.colorScheme.background,
+            dragHandle = { ParitySheetHandle() }
         ) {
-            Column(modifier = Modifier.padding(24.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
                 UserGuideScreen(
+                    isFirstLaunch = true,
                     onDone = {
                         showGuide = false
                         onGuideSeen()
@@ -376,23 +409,47 @@ private fun AddActionSheet(
     onDismiss: () -> Unit,
     onAction: (String) -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-            Text("新增內容", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(16.dp))
-            AddActionRow(label = "記一筆（收入/支出）") { onAction(AppDestination.TransactionAdd.route) }
-            AddActionRow(label = "轉帳") { onAction(AppDestination.TransferAdd.route) }
-            AddActionRow(label = "新增代墊單") { onAction(AppDestination.AdvanceAdd.route) }
-            AddActionRow(label = "新增帳戶") { onAction("accounts/edit/${UUID.randomUUID()}") }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.background,
+        dragHandle = { ParitySheetHandle() }
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("新增內容", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            Text("選擇現在想建立的記錄類型。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(4.dp))
+            ParityActionSheetRow(
+                title = "記一筆（收入/支出）",
+                subtitle = "快速新增收入或支出交易",
+                icon = Icons.Default.Description
+            ) { onAction(AppDestination.TransactionAdd.route) }
+            ParityActionSheetRow(
+                title = "掃描收據（AI）",
+                subtitle = "上傳照片後由 AI 分析帳單內容",
+                icon = Icons.Default.QrCodeScanner
+            ) { onAction(AppDestination.ReceiptScan.route) }
+            ParityActionSheetRow(
+                title = "轉帳",
+                subtitle = "處理帳戶之間的資金移動",
+                icon = Icons.Default.SwapHoriz
+            ) { onAction(AppDestination.TransferAdd.route) }
+            ParityActionSheetRow(
+                title = "借貸（借入/還款）",
+                subtitle = "建立借貸或記錄還款流向",
+                icon = Icons.Default.AccountBalanceWallet
+            ) { onAction(AppDestination.DebtAdd.route) }
+            ParityActionSheetRow(
+                title = "新增代墊單（多人分帳）",
+                subtitle = "建立多人代墊並追蹤後續還款",
+                icon = Icons.Default.Group
+            ) { onAction(AppDestination.AdvanceAdd.route) }
             Spacer(modifier = Modifier.height(12.dp))
         }
-    }
-}
-
-@Composable
-private fun AddActionRow(label: String, onClick: () -> Unit) {
-    androidx.compose.material3.TextButton(onClick = onClick, modifier = Modifier.padding(vertical = 4.dp)) {
-        Text(label)
     }
 }
 
@@ -402,6 +459,8 @@ private fun resolveTitle(backStackEntry: NavBackStackEntry?): String {
         route.startsWith("transaction/edit") -> "編輯記帳"
         route == AppDestination.TransactionAdd.route -> "記一筆"
         route == AppDestination.TransferAdd.route -> "轉帳"
+        route == AppDestination.ReceiptScan.route -> "掃描單據"
+        route == AppDestination.DebtAdd.route -> "借貸管理"
         route == AppDestination.AdvanceAdd.route -> "新增代墊"
         route.startsWith("advance/") -> "代墊明細"
         route == AppDestination.Categories.route -> "分類"
@@ -411,7 +470,9 @@ private fun resolveTitle(backStackEntry: NavBackStackEntry?): String {
         route == AppDestination.Budgets.route -> "預算與提醒"
         route == AppDestination.DataHealth.route -> "資料健康檢查"
         route.startsWith("accounts/edit") -> "編輯帳戶"
+        route.startsWith("accounts/") -> "帳戶明細"
         route.startsWith("shortcuts/edit") -> "捷徑"
+        route == AppDestination.Guide.route -> "使用教學"
         else -> "AI 記帳"
     }
 }

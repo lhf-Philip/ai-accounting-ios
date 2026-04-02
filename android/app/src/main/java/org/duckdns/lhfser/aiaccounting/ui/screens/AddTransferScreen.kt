@@ -11,7 +11,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -31,6 +30,10 @@ import org.duckdns.lhfser.aiaccounting.data.repository.TransferLeg
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityMenuField
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySegmentedControl
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import java.math.BigDecimal
@@ -81,24 +84,32 @@ fun AddTransferScreen(onDone: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
+            .padding(
+                start = AppSpacing.screenHorizontal,
+                top = AppSpacing.screenVertical,
+                end = AppSpacing.screenHorizontal,
+                bottom = ParityTokens.FloatingContentBottomPadding
+            )
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("轉帳模式", style = MaterialTheme.typography.titleMedium)
+        ParitySectionHeader(
+            title = "轉帳模式",
+            detail = "一般、分拆與合併都會對齊 iOS 的轉帳建立方式。"
+        )
         SectionCard {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AddTransferMode.values().forEach { item ->
-                    FilterChip(
-                        selected = mode == item,
-                        onClick = { mode = item },
-                        label = { Text(item.label) }
-                    )
-                }
-            }
+            ParitySegmentedControl(
+                options = AddTransferMode.values().toList(),
+                selected = mode,
+                label = { it.label },
+                onSelect = { mode = it }
+            )
         }
 
-        Text("轉帳內容", style = MaterialTheme.typography.titleMedium)
+        ParitySectionHeader(
+            title = "轉帳內容",
+            detail = "先決定來源與目的，再補每個分錄的實際金額。"
+        )
         SectionCard {
             when (mode) {
                 AddTransferMode.OneToOne -> {
@@ -189,7 +200,10 @@ fun AddTransferScreen(onDone: () -> Unit) {
             }
         }
 
-        Text("備註", style = MaterialTheme.typography.titleMedium)
+        ParitySectionHeader(
+            title = "備註",
+            detail = "可補充用途、匯率或這次轉帳的背景。"
+        )
         SectionCard {
             OutlinedTextField(
                 value = note,
@@ -259,7 +273,8 @@ fun AddTransferScreen(onDone: () -> Unit) {
                     }
                     onDone()
                 }
-            }
+            },
+            modifier = Modifier.fillMaxWidth()
         ) {
             Text("儲存")
         }
@@ -276,10 +291,12 @@ private fun AccountPicker(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { expanded = true }) {
-            Text(selected?.name ?: "選擇帳戶")
-        }
+        ParityMenuField(
+            label = label,
+            value = selected?.name.orEmpty(),
+            placeholder = "選擇帳戶",
+            onClick = { expanded = true }
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             accounts.forEach { account ->
                 DropdownMenuItem(
@@ -334,7 +351,10 @@ private fun TransferLegEditor(
     onRemove: (() -> Unit)?
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall)
+        ParitySectionHeader(
+            title = title,
+            detail = "可用不同帳戶與幣別拆分這次轉帳。"
+        )
         AccountPicker(label = "帳戶", accounts = accounts, selected = leg.account) { acc ->
             onUpdate(leg.copy(account = acc, currency = acc?.currency ?: leg.currency))
         }

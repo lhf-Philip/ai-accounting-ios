@@ -1,27 +1,28 @@
 package org.duckdns.lhfser.aiaccounting.ui.theme
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.material3.Typography
-import androidx.compose.material3.Shapes
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 private val LightColors = lightColorScheme(
     primary = Color(0xFF006C4C),
     secondary = Color(0xFF3E6472),
     tertiary = Color(0xFF56643B),
-    background = Color(0xFFF2F2F7),
+    background = Color(0xFFF3F4F7),
     surface = Color(0xFFFFFFFF),
     surfaceVariant = Color(0xFFF7F8FA),
-    outline = Color(0xFFE1E4E8)
+    outline = Color(0xFFDDE2E8),
+    onSurfaceVariant = Color(0xFF69727D)
 )
 
 private val DarkColors = darkColorScheme(
@@ -32,26 +33,38 @@ private val DarkColors = darkColorScheme(
 
 private val AppShapes = Shapes(
     small = RoundedCornerShape(10.dp),
-    medium = RoundedCornerShape(14.dp),
-    large = RoundedCornerShape(18.dp)
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(22.dp)
 )
 
 private val AppTypography = Typography(
+    headlineMedium = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Bold,
+        fontSize = 31.sp,
+        lineHeight = 36.sp
+    ),
+    headlineSmall = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Bold,
+        fontSize = 26.sp,
+        lineHeight = 30.sp
+    ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 23.sp,
+        fontSize = 24.sp,
         lineHeight = 30.sp
     ),
     titleMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 19.sp,
+        fontSize = 20.sp,
         lineHeight = 26.sp
     ),
     titleSmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 16.sp,
         lineHeight = 22.sp
     ),
@@ -73,11 +86,23 @@ private val AppTypography = Typography(
         fontSize = 12.sp,
         lineHeight = 18.sp
     ),
+    labelLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 14.sp,
+        lineHeight = 18.sp
+    ),
+    labelMedium = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Medium,
+        fontSize = 12.sp,
+        lineHeight = 16.sp
+    ),
     labelSmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
+        fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
-        lineHeight = 16.sp
+        lineHeight = 14.sp
     )
 )
 

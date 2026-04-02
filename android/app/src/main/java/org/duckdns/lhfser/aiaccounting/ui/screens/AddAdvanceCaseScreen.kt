@@ -35,6 +35,10 @@ import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceParticipantInput
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityMenuField
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySegmentedControl
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
@@ -88,27 +92,32 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
+            .padding(
+                start = AppSpacing.screenHorizontal,
+                top = AppSpacing.screenVertical,
+                end = AppSpacing.screenHorizontal,
+                bottom = ParityTokens.FloatingContentBottomPadding
+            )
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("基本資料", style = MaterialTheme.typography.titleMedium)
+        ParitySectionHeader(
+            title = "基本資料",
+            detail = "先決定方向、標題與主要付款帳戶。"
+        )
         SectionCard {
             Text("方向", style = MaterialTheme.typography.titleSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AdvanceDirection.values().forEach { mode ->
-                    FilterChip(
-                        selected = direction == mode,
-                        onClick = {
-                            direction = mode
-                            if (expenseCategory != null && flowCategories.none { it.id == expenseCategory?.id }) {
-                                expenseCategory = null
-                            }
-                        },
-                        label = { Text(mode.label) }
-                    )
+            ParitySegmentedControl(
+                options = AdvanceDirection.values().toList(),
+                selected = direction,
+                label = { it.label },
+                onSelect = { mode ->
+                    direction = mode
+                    if (expenseCategory != null && flowCategories.none { it.id == expenseCategory?.id }) {
+                        expenseCategory = null
+                    }
                 }
-            }
+            )
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
@@ -119,15 +128,18 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
                 payerAccount = acc
                 if (acc != null) currency = acc.currency
             }
-        AmountRow(
-            label = "自己的份額",
-            amount = myShare,
-            onAmountChange = { myShare = sanitizeAmount(it) },
-            currency = currency
-        )
+            AmountRow(
+                label = "自己的份額",
+                amount = myShare,
+                onAmountChange = { myShare = sanitizeAmount(it) },
+                currency = currency
+            )
         }
 
-        Text("分類與標籤", style = MaterialTheme.typography.titleMedium)
+        ParitySectionHeader(
+            title = "分類與標籤",
+            detail = "這會決定帳目歸類、報表與之後的預算分析。"
+        )
         SectionCard {
             CategoryPicker(
                 categories = flowCategories,
@@ -139,7 +151,12 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
             TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
         }
 
-        Text(if (direction == AdvanceDirection.IAdvanceOthers) "代墊對象" else "借款對象", style = MaterialTheme.typography.titleMedium)
+        ParitySectionHeader(
+            title = if (direction == AdvanceDirection.IAdvanceOthers) "代墊對象" else "借款對象",
+            detail = "每位對象都會保留獨立的金額與後續還款追蹤。",
+            actionLabel = "新增對象",
+            onAction = { participants = participants + ParticipantDraft() }
+        )
         SectionCard {
             participants.forEachIndexed { index, participant ->
                 key(participant.id) {
@@ -161,15 +178,15 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
                     )
                 }
             }
-            TextButton(onClick = { participants = participants + ParticipantDraft() }) {
-                Text("新增對象")
-            }
             TextButton(onClick = { showCreateDebtDialog = true }) {
                 Text("新增債務人物")
             }
         }
 
-        Text("備註", style = MaterialTheme.typography.titleMedium)
+        ParitySectionHeader(
+            title = "備註",
+            detail = "可補充這次代墊的場景、用途或之後追蹤要注意的事情。"
+        )
         SectionCard {
             OutlinedTextField(
                 value = note,
@@ -204,7 +221,8 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
                     )
                     onDone()
                 }
-            }
+            },
+            modifier = Modifier.fillMaxWidth()
         ) {
             Text("儲存")
         }
@@ -274,7 +292,10 @@ private fun ParticipantEditor(
     onRemove: (() -> Unit)?
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("對象 ${index + 1}", style = MaterialTheme.typography.titleSmall)
+        ParitySectionHeader(
+            title = "對象 ${index + 1}",
+            detail = "可先選債務人物，再填這位對應的金額。"
+        )
         AccountPicker(label = "欠款帳戶", accounts = debtAccounts, selected = participant.debtAccount) { acc ->
             onUpdate(participant.copy(debtAccount = acc))
         }
@@ -299,10 +320,12 @@ private fun AccountPicker(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { expanded = true }) {
-            Text(selected?.name ?: "選擇帳戶")
-        }
+        ParityMenuField(
+            label = label,
+            value = selected?.name.orEmpty(),
+            placeholder = "選擇帳戶",
+            onClick = { expanded = true }
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             accounts.forEach { account ->
                 DropdownMenuItem(text = { Text(account.name) }, onClick = {
@@ -348,10 +371,12 @@ private fun CategoryPicker(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { expanded = true }) {
-            Text(selected?.name ?: "無分類")
-        }
+        ParityMenuField(
+            label = label,
+            value = selected?.name.orEmpty(),
+            placeholder = "無分類",
+            onClick = { expanded = true }
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
                 text = { Text("無分類") },
