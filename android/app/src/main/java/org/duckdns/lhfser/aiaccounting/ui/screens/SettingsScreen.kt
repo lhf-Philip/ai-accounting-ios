@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,7 +39,9 @@ import kotlinx.coroutines.withContext
 import org.duckdns.lhfser.aiaccounting.core.ai.GeminiSettingsStore
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySettingRow
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
@@ -106,7 +110,12 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(scrollState)
-            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
+            .padding(
+                start = AppSpacing.screenHorizontal,
+                end = AppSpacing.screenHorizontal,
+                top = AppSpacing.screenVertical,
+                bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
+            ),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
     ) {
         ParityTopSection(
@@ -115,7 +124,7 @@ fun SettingsScreen(
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
-            Text("新手與支援", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            ParitySectionHeader(title = "新手與支援")
             SectionCard {
                 ParitySettingRow(
                     title = "使用教學",
@@ -131,13 +140,17 @@ fun SettingsScreen(
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
-            Text("偏好設定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            ParitySectionHeader(title = "偏好設定", detail = "和 iOS 一樣集中管理主幣別與 AI 設定")
             SectionCard {
                 ParitySettingRow(
                     title = "主要貨幣",
                     subtitle = "總覽與報表會優先以此幣別顯示",
                     trailing = {
-                        Button(onClick = { currencyMenuExpanded = true }, modifier = Modifier.height(42.dp)) {
+                        Button(
+                            onClick = { currencyMenuExpanded = true },
+                            modifier = Modifier.height(42.dp),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
                             Text(mainCurrency)
                         }
                         DropdownMenu(expanded = currencyMenuExpanded, onDismissRequest = { currencyMenuExpanded = false }) {
@@ -163,13 +176,14 @@ fun SettingsScreen(
                     },
                     label = { Text("Gemini API Key（可選）") },
                     placeholder = { Text("輸入後可使用 AI 預算與掃描功能") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp)
                 )
             }
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
-            Text("資料與工具", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            ParitySectionHeader(title = "資料與工具")
             SectionCard {
                 ParitySettingRow("分類管理", "支援收入 / 支出 / 兩者", onClick = onOpenCategories)
                 ParitySettingRow("標籤管理", "用於快速篩選與統計", onClick = onOpenTags)
@@ -180,24 +194,27 @@ fun SettingsScreen(
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
-            Text("資料安全", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            ParitySectionHeader(title = "資料安全", detail = "匯入、匯出與覆蓋策略都放在同一區")
             SectionCard {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("匯入時覆蓋現有資料", style = MaterialTheme.typography.titleSmall)
-                        Text("開啟後會以匯入檔案為準", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                ParitySettingRow(
+                    title = "匯入時覆蓋現有資料",
+                    subtitle = "開啟後會以匯入檔案為準",
+                    trailing = {
+                        Switch(checked = replaceExisting, onCheckedChange = { replaceExisting = it })
                     }
-                    Switch(checked = replaceExisting, onCheckedChange = { replaceExisting = it })
-                }
+                )
                 Button(
                     onClick = { exportLauncher.launch("Backup.json") },
-                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(18.dp)
                 ) {
                     Text("匯出 JSON 備份")
                 }
                 Button(
                     onClick = { importLauncher.launch(arrayOf("application/json")) },
-                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
                 ) {
                     Text("匯入 JSON 備份")
                 }
@@ -208,7 +225,7 @@ fun SettingsScreen(
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
-            Text("偵錯與測試版資訊", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            ParitySectionHeader(title = "偵錯與測試版資訊")
             SectionCard {
                 ParitySettingRow(
                     title = "版本",

@@ -65,9 +65,11 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityFilterCapsule
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySelectionSheetRow
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySegmentedControl
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySheetHandle
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
@@ -208,8 +210,10 @@ fun ReportsScreen() {
         LazyColumn(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(
-                horizontal = AppSpacing.screenHorizontal,
-                vertical = AppSpacing.screenVertical
+                start = AppSpacing.screenHorizontal,
+                end = AppSpacing.screenHorizontal,
+                top = AppSpacing.screenVertical,
+                bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
             ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.item)
         ) {
@@ -282,27 +286,14 @@ fun ReportsScreen() {
     }
 
     if (showFilterDialog) {
-        AlertDialog(
-            onDismissRequest = { showFilterDialog = false },
-            title = { Text("選擇區間") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ReportFilterType.values().forEach { type ->
-                        TextButton(onClick = { filterType = type }) {
-                            Text(type.label)
-                        }
-                    }
-                    Spacer(modifier = Modifier.size(6.dp))
-                    TextButton(onClick = {
-                        showDatePicker(context, selectedDate) { selectedDate = it }
-                    }) {
-                        Text(selectedDate.format(DateTimeFormatter.ISO_DATE))
-                    }
-                }
+        ReportFilterSheet(
+            filterType = filterType,
+            selectedDate = selectedDate,
+            onSelectFilterType = { filterType = it },
+            onPickDate = {
+                showDatePicker(context, selectedDate) { selectedDate = it }
             },
-            confirmButton = {
-                TextButton(onClick = { showFilterDialog = false }) { Text("完成") }
-            }
+            onDismiss = { showFilterDialog = false }
         )
     }
 
@@ -316,6 +307,78 @@ fun ReportsScreen() {
         ) {
             ReportDetailSheet(detail = reportDetail ?: return@ModalBottomSheet)
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReportFilterSheet(
+    filterType: ReportFilterType,
+    selectedDate: LocalDate,
+    onSelectFilterType: (ReportFilterType) -> Unit,
+    onPickDate: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.background,
+        dragHandle = { ParitySheetHandle() }
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("選擇區間", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "切換報表統計區間，日期選擇維持和 iOS 一樣的片段化流程。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            ReportFilterType.values().forEach { type ->
+                ParitySelectionSheetRow(
+                    title = type.label,
+                    subtitle = reportFilterSubtitle(type),
+                    selected = filterType == type,
+                    onClick = { onSelectFilterType(type) }
+                )
+            }
+
+            PressableCard(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onPickDate,
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                pressedContainerColor = MaterialTheme.colorScheme.surface
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("基準日期", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(selectedDate.format(DateTimeFormatter.ISO_DATE), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text("調整", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("完成") }
+            }
+            Spacer(modifier = Modifier.size(8.dp))
+        }
+    }
+}
+
+private fun reportFilterSubtitle(type: ReportFilterType): String {
+    return when (type) {
+        ReportFilterType.All -> "查看所有時間的累積統計"
+        ReportFilterType.Year -> "聚焦本年收入與支出"
+        ReportFilterType.Month -> "查看本月分類與標籤分佈"
+        ReportFilterType.Day -> "只看當日收支"
     }
 }
 

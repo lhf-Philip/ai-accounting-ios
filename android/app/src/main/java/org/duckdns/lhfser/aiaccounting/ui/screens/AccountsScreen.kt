@@ -37,6 +37,7 @@ import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityStatusPill
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySummaryCard
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
@@ -78,8 +79,10 @@ fun AccountsScreen(
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            horizontal = AppSpacing.screenHorizontal,
-            vertical = AppSpacing.screenVertical
+            start = AppSpacing.screenHorizontal,
+            end = AppSpacing.screenHorizontal,
+            top = AppSpacing.screenVertical,
+            bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
         ),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
     ) {
@@ -180,6 +183,16 @@ fun AccountsScreen(
                 )
             }
         } else {
+            item {
+                ParitySectionHeader(
+                    title = if (showArchived) "所有帳戶" else "活動帳戶",
+                    detail = if (showArchived) {
+                        "包含可還原的已歸檔帳戶"
+                    } else {
+                        "點擊後可查看該帳戶的完整明細"
+                    }
+                )
+            }
             items(visibleSummaries, key = { it.account.id }) { row ->
                 PressableCard(
                     modifier = Modifier.fillMaxWidth(),

@@ -22,11 +22,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -57,6 +60,8 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityFilterCapsule
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySearchField
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySelectionSheetRow
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySheetHandle
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityStatusPill
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
@@ -89,7 +94,7 @@ private sealed interface LedgerItem {
 private data class DailySection(val date: LocalDate, val items: List<LedgerItem>)
 
 @Composable
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 fun TransactionsScreen(
     onEdit: (String) -> Unit,
     onEditTransfer: (String) -> Unit,
@@ -194,8 +199,10 @@ fun TransactionsScreen(
         LazyColumn(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(
-                horizontal = AppSpacing.screenHorizontal,
-                vertical = AppSpacing.screenVertical
+                start = AppSpacing.screenHorizontal,
+                end = AppSpacing.screenHorizontal,
+                top = AppSpacing.screenVertical,
+                bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
             ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.item)
         ) {
@@ -374,37 +381,148 @@ fun TransactionsScreen(
     }
 
     if (showFilterDialog) {
-        AlertDialog(
-            onDismissRequest = { showFilterDialog = false },
-            title = { Text("篩選區間") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DateFilterType.values().forEach { type ->
-                        TextButton(onClick = { filterType = type }) {
-                            Text(type.label)
-                        }
-                    }
-                    if (filterType == DateFilterType.Custom) {
-                        Spacer(modifier = Modifier.padding(top = 4.dp))
-                        Text("開始日期", style = MaterialTheme.typography.labelMedium)
-                        TextButton(onClick = {
-                            showDatePicker(context, customStartDate) { customStartDate = it }
-                        }) {
-                            Text(customStartDate.format(DateTimeFormatter.ISO_DATE))
-                        }
-                        Text("結束日期", style = MaterialTheme.typography.labelMedium)
-                        TextButton(onClick = {
-                            showDatePicker(context, customEndDate) { customEndDate = it }
-                        }) {
-                            Text(customEndDate.format(DateTimeFormatter.ISO_DATE))
+        TransactionFilterSheet(
+            filterType = filterType,
+            selectedDate = selectedDate,
+            customStartDate = customStartDate,
+            customEndDate = customEndDate,
+            onSelectFilterType = { filterType = it },
+            onPickSelectedDate = {
+                showDatePicker(context, selectedDate) { selectedDate = it }
+            },
+            onPickCustomStart = {
+                showDatePicker(context, customStartDate) { customStartDate = it }
+            },
+            onPickCustomEnd = {
+                showDatePicker(context, customEndDate) { customEndDate = it }
+            },
+            onDismiss = { showFilterDialog = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TransactionFilterSheet(
+    filterType: DateFilterType,
+    selectedDate: LocalDate,
+    customStartDate: LocalDate,
+    customEndDate: LocalDate,
+    onSelectFilterType: (DateFilterType) -> Unit,
+    onPickSelectedDate: () -> Unit,
+    onPickCustomStart: () -> Unit,
+    onPickCustomEnd: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.background,
+        dragHandle = { ParitySheetHandle() }
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("篩選區間", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "選擇要在帳目頁固定顯示的日期範圍。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            DateFilterType.values().forEach { type ->
+                ParitySelectionSheetRow(
+                    title = type.label,
+                    subtitle = transactionFilterSubtitle(type),
+                    selected = filterType == type,
+                    onClick = { onSelectFilterType(type) }
+                )
+            }
+
+            when (filterType) {
+                DateFilterType.Month, DateFilterType.Year -> {
+                    PressableCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onPickSelectedDate,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        pressedContainerColor = MaterialTheme.colorScheme.surface
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("基準日期", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    if (filterType == DateFilterType.Year) {
+                                        "${selectedDate.year}年"
+                                    } else {
+                                        selectedDate.format(DateTimeFormatter.ofPattern("yyyy年 M月"))
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text("調整", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showFilterDialog = false }) { Text("完成") }
+                DateFilterType.Custom -> {
+                    PressableCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onPickCustomStart,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        pressedContainerColor = MaterialTheme.colorScheme.surface
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("開始日期", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(customStartDate.format(DateTimeFormatter.ISO_DATE), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Text("選擇", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    PressableCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onPickCustomEnd,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        pressedContainerColor = MaterialTheme.colorScheme.surface
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("結束日期", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(customEndDate.format(DateTimeFormatter.ISO_DATE), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Text("選擇", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
             }
-        )
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("完成") }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
+
+private fun transactionFilterSubtitle(type: DateFilterType): String {
+    return when (type) {
+        DateFilterType.Month -> "聚焦本月帳目與代墊摘要"
+        DateFilterType.Year -> "查看本年累積的收支紀錄"
+        DateFilterType.Custom -> "自訂開始與結束日期"
     }
 }
 

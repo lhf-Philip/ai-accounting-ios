@@ -84,3 +84,9 @@
 - Tighten microinteractions with softer spring press feedback, clearer sheet handles, and more polished add-sheet presentation.
 - Refine Overview entry rows and Floating Add Button emphasis so primary actions feel closer to iOS weight and disclosure rhythm.
 - Improve Reports chart legibility with a softer track ring, clearer totals, rounded progress bars, and parity-styled drill-down sheets.
+
+## Wave 5 Refinements
+- Convert Android ledger and report range pickers from plain dialogs into parity-styled bottom sheets so filter selection feels closer to iOS.
+- Add extra floating-action safe clearance and navigation-bar-aware bottom chrome to reduce crowding on devices like Samsung A53.
+- Tighten Overview, Accounts, and Settings bottom rhythm so the final rows do not compete with the FAB or bottom tab hit area.
+- Use section headers and denser utility grouping in Settings to better mirror the iOS information architecture.

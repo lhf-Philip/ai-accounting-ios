@@ -191,7 +191,10 @@ fun AIAccountingRoot(
         },
         floatingActionButton = {
             if (showTopLevelChrome) {
-                ParityFloatingAddButton(onClick = { showAddSheet = true })
+                ParityFloatingAddButton(
+                    modifier = Modifier.padding(bottom = 6.dp),
+                    onClick = { showAddSheet = true }
+                )
             }
         },
         contentWindowInsets = WindowInsets.safeDrawing
