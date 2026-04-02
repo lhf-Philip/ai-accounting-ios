@@ -358,7 +358,10 @@ fun AIAccountingRoot(
             }
             composable(AppDestination.Guide.route) {
                 Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                    UserGuideScreen(onDone = { navController.popBackStack() })
+                    UserGuideScreen(
+                        onDone = { navController.popBackStack() },
+                        isFirstLaunch = false
+                    )
                     Spacer(modifier = Modifier.height(20.dp))
                 }
             }
@@ -388,6 +391,7 @@ fun AIAccountingRoot(
         ) {
             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
                 UserGuideScreen(
+                    isFirstLaunch = true,
                     onDone = {
                         showGuide = false
                         onGuideSeen()

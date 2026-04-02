@@ -95,3 +95,7 @@
 - Bring deeper Android flows closer to iOS by reusing parity-style picker fields in debt entry and receipt scan review.
 - Add floating-action safe clearance to account detail, debt, and receipt flows so deeper pages no longer feel tighter than the iOS source of truth.
 - Tighten section hierarchy in debt entry, receipt scan, and account detail so the detailed flows match the same product voice as the top-level screens.
+
+## Wave 7 Refinements
+- Upgrade the Android user guide from a placeholder checklist to a full parity-style onboarding page with the same five-step structure and product emphasis as iOS.
+- Keep first-launch and settings-entry guide flows aligned by using the same guide content with only the closing CTA label changing by context.
