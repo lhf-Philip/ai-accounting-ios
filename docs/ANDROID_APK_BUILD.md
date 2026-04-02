@@ -14,16 +14,18 @@
 2. 已安裝 Android SDK
 3. 專案內已有 `android/local.properties`
 
-目前你的機器預設可用設定如下：
+`local.properties` 屬於本機設定，不應提交到 git。
+
+本機設定通常會像這樣：
 
 ```properties
-sdk.dir=/Users/lhf/Library/Android/sdk
+sdk.dir=$HOME/Library/Android/sdk
 ```
 
 檔案位置：
 
 ```text
-/Users/lhf/Documents/AI 記帳/android/local.properties
+<repo>/android/local.properties
 ```
 
 ## 最簡單流程：建 `debug` APK
@@ -31,14 +33,20 @@ sdk.dir=/Users/lhf/Library/Android/sdk
 在專案根目錄執行：
 
 ```bash
-cd '/Users/lhf/Documents/AI 記帳/android'
+cd android
 ./gradlew assembleDebug
 ```
 
 如果成功，APK 會在這裡：
 
 ```text
-/Users/lhf/Documents/AI 記帳/android/app/build/outputs/apk/debug/app-debug.apk
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+如果你想複製到 `Downloads`：
+
+```bash
+cp app/build/outputs/apk/debug/app-debug.apk "$HOME/Downloads/app-debug.apk"
 ```
 
 ## 建完後如何安裝到手機
@@ -46,7 +54,7 @@ cd '/Users/lhf/Documents/AI 記帳/android'
 如果手機已開啟 USB 偵錯，並且 `adb` 能看到裝置：
 
 ```bash
-cd '/Users/lhf/Documents/AI 記帳/android'
+cd android
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
@@ -60,7 +68,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 如果你想先確認目前 Android 端核心邏輯沒壞，再 build：
 
 ```bash
-cd '/Users/lhf/Documents/AI 記帳/android'
+cd android
 ./gradlew testDebugUnitTest
 ./gradlew assembleDebug
 ```
@@ -70,14 +78,14 @@ cd '/Users/lhf/Documents/AI 記帳/android'
 ### 1. 只建 APK
 
 ```bash
-cd '/Users/lhf/Documents/AI 記帳/android'
+cd android
 ./gradlew assembleDebug
 ```
 
 ### 2. 先測試再建 APK
 
 ```bash
-cd '/Users/lhf/Documents/AI 記帳/android'
+cd android
 ./gradlew testDebugUnitTest
 ./gradlew assembleDebug
 ```
@@ -87,7 +95,7 @@ cd '/Users/lhf/Documents/AI 記帳/android'
 如果遇到奇怪快取問題：
 
 ```bash
-cd '/Users/lhf/Documents/AI 記帳/android'
+cd android
 ./gradlew clean assembleDebug
 ```
 
@@ -105,10 +113,10 @@ cd '/Users/lhf/Documents/AI 記帳/android'
 1. 檢查 `android/local.properties` 是否存在
 2. 確認裡面的 `sdk.dir` 指向正確路徑
 
-目前你的正確路徑應該是：
+常見寫法：
 
 ```properties
-sdk.dir=/Users/lhf/Library/Android/sdk
+sdk.dir=$HOME/Library/Android/sdk
 ```
 
 ### JDK 版本不對
@@ -126,7 +134,7 @@ java -version
 執行：
 
 ```bash
-cd '/Users/lhf/Documents/AI 記帳/android'
+cd android
 chmod +x gradlew
 ./gradlew assembleDebug
 ```
@@ -158,7 +166,7 @@ adb devices
 如果只是自用，優先用這條：
 
 ```bash
-cd '/Users/lhf/Documents/AI 記帳/android'
+cd android
 ./gradlew testDebugUnitTest
 ./gradlew assembleDebug
 ```
@@ -166,5 +174,5 @@ cd '/Users/lhf/Documents/AI 記帳/android'
 然後直接安裝：
 
 ```bash
-adb install -r /Users/lhf/Documents/AI 記帳/android/app/build/outputs/apk/debug/app-debug.apk
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
