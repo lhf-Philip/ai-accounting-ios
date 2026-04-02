@@ -99,3 +99,8 @@
 ## Wave 7 Refinements
 - Upgrade the Android user guide from a placeholder checklist to a full parity-style onboarding page with the same five-step structure and product emphasis as iOS.
 - Keep first-launch and settings-entry guide flows aligned by using the same guide content with only the closing CTA label changing by context.
+
+## Wave 8 Refinements
+- Bring the highest-traffic Android editor flows closer to iOS by replacing plain section titles with parity section headers and adding the same floating-action safe clearance used elsewhere.
+- Tighten transaction, transfer, and advance creation screens around parity segmented controls and parity picker fields so their form rhythm no longer falls back to generic Material defaults.
+- Keep deep editing flows in the same product voice as the top-level parity screens, especially for mode switching, account/category picking, and bottom CTA spacing.

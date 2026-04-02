@@ -17,7 +17,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -43,6 +42,10 @@ import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityMenuField
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySegmentedControl
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
@@ -141,17 +144,28 @@ fun TransactionEditorScreen(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
+            .padding(
+                start = AppSpacing.screenHorizontal,
+                top = AppSpacing.screenVertical,
+                end = AppSpacing.screenHorizontal,
+                bottom = ParityTokens.FloatingContentBottomPadding
+            )
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("交易模式", style = MaterialTheme.typography.titleMedium)
+        ParitySectionHeader(
+            title = "交易模式",
+            detail = "先選記帳方式，再決定這筆是收入還是支出。"
+        )
         SectionCard {
             ModePicker(entryMode = entryMode, onModeChange = { entryMode = it })
             TypePicker(type = transactionType, onChange = { transactionType = it })
         }
 
-        Text("交易內容", style = MaterialTheme.typography.titleMedium)
+        ParitySectionHeader(
+            title = "交易內容",
+            detail = "帳戶、金額與拆分方式會跟著模式一起保存。"
+        )
         SectionCard {
             when (entryMode) {
                 EntryMode.Normal -> {
@@ -225,7 +239,10 @@ fun TransactionEditorScreen(
             }
         }
 
-        Text("日期", style = MaterialTheme.typography.titleMedium)
+        ParitySectionHeader(
+            title = "日期",
+            detail = "預設使用現在時間，也可以改成過去或未來的日期。"
+        )
         SectionCard {
             TextButton(onClick = {
                 showDatePicker(context, date) { picked ->
@@ -236,7 +253,10 @@ fun TransactionEditorScreen(
             }
         }
 
-        Text("分類與標籤", style = MaterialTheme.typography.titleMedium)
+        ParitySectionHeader(
+            title = "分類與標籤",
+            detail = "分類會影響報表與預算，標籤則方便之後再查。"
+        )
         SectionCard {
             CategoryPicker(
                 categories = filteredCategories,
@@ -254,7 +274,10 @@ fun TransactionEditorScreen(
             TagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
         }
 
-        Text("備註", style = MaterialTheme.typography.titleMedium)
+        ParitySectionHeader(
+            title = "備註",
+            detail = "補充這筆交易的背景，之後搜尋和回看會更清楚。"
+        )
         SectionCard {
             OutlinedTextField(
                 value = note,
@@ -291,7 +314,8 @@ fun TransactionEditorScreen(
                 selectedAccount = selectedAccount,
                 splitLegs = splitLegs,
                 mergeLegs = mergeLegs
-            )
+            ),
+            modifier = Modifier.fillMaxWidth()
         ) {
             Text("儲存")
         }
@@ -398,34 +422,24 @@ fun TransactionEditorScreen(
 private fun ModePicker(entryMode: EntryMode, onModeChange: (EntryMode) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("記帳模式", style = MaterialTheme.typography.titleSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EntryMode.values().forEach { mode ->
-                FilterChip(
-                    selected = entryMode == mode,
-                    onClick = { onModeChange(mode) },
-                    label = { Text(mode.label) }
-                )
-            }
-        }
+        ParitySegmentedControl(
+            options = EntryMode.values().toList(),
+            selected = entryMode,
+            label = { it.label },
+            onSelect = onModeChange
+        )
     }
 }
 
 @Composable
 private fun TypePicker(type: TransactionType, onChange: (TransactionType) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("類型", style = MaterialTheme.typography.titleSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = type == TransactionType.Expense,
-                onClick = { onChange(TransactionType.Expense) },
-                label = { Text("支出") }
-            )
-            FilterChip(
-                selected = type == TransactionType.Income,
-                onClick = { onChange(TransactionType.Income) },
-                label = { Text("收入") }
-            )
-        }
+        ParitySegmentedControl(
+            options = listOf(TransactionType.Expense, TransactionType.Income),
+            selected = type,
+            label = { if (it == TransactionType.Expense) "支出" else "收入" },
+            onSelect = onChange
+        )
     }
 }
 
@@ -460,10 +474,12 @@ private fun AccountPicker(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { expanded = true }) {
-            Text(selected?.name ?: "選擇帳戶")
-        }
+        ParityMenuField(
+            label = label,
+            value = selected?.name.orEmpty(),
+            placeholder = "選擇帳戶",
+            onClick = { expanded = true }
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             accounts.forEach { account ->
                 DropdownMenuItem(
@@ -486,10 +502,12 @@ private fun CategoryPicker(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("分類", style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { expanded = true }) {
-            Text(selected?.name ?: "無分類")
-        }
+        ParityMenuField(
+            label = "分類",
+            value = selected?.name.orEmpty(),
+            placeholder = "無分類",
+            onClick = { expanded = true }
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
                 text = { Text("無分類") },
@@ -557,7 +575,10 @@ private fun SplitLegEditor(
     onRemove: (() -> Unit)?
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("分拆項 ${index + 1}", style = MaterialTheme.typography.titleSmall)
+        ParitySectionHeader(
+            title = "分拆項 ${index + 1}",
+            detail = "每一項都會變成獨立帳目，方便之後分開追蹤。"
+        )
         AccountPicker(
             label = "帳戶",
             accounts = accounts,
@@ -587,7 +608,10 @@ private fun MergeLegEditor(
     onRemove: (() -> Unit)?
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("合併項 ${index + 1}", style = MaterialTheme.typography.titleSmall)
+        ParitySectionHeader(
+            title = "合併項 ${index + 1}",
+            detail = "先填各來源金額，最後一起合併進目標帳戶。"
+        )
         AmountRow(
             label = "金額",
             amount = leg.amount,
