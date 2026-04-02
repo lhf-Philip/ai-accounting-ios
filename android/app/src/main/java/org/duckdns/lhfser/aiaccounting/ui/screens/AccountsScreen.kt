@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -18,10 +20,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -30,6 +32,9 @@ import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityStatusPill
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySummaryCard
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
@@ -72,14 +77,21 @@ fun AccountsScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            horizontal = AppSpacing.screenHorizontal,
+            vertical = AppSpacing.screenVertical
+        ),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.section)) {
                 ParityTopSection(
                     title = "帳戶",
-                    subtitle = if (showArchived) "目前顯示所有帳戶，包含已歸檔項目。" else "總資產與幣別持有只計入未歸檔帳戶。",
+                    subtitle = if (showArchived) {
+                        "目前顯示所有帳戶，包含已歸檔項目。"
+                    } else {
+                        "總資產與幣別持有只計入未歸檔帳戶。"
+                    },
                     accessory = {
                         TextButton(onClick = { showArchived = !showArchived }) {
                             Text(if (showArchived) "隱藏歸檔" else "顯示歸檔")
@@ -98,16 +110,15 @@ fun AccountsScreen(
                     )
 
                     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
-                        Text(
-                            "各幣種持有總額",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
+                        ParitySectionHeader(
+                            title = "各幣種持有總額",
+                            detail = if (currencyHoldings.isEmpty()) null else "${currencyHoldings.size} 種幣別"
                         )
                         if (currencyHoldings.isEmpty()) {
-                            Text(
-                                "目前沒有活動帳戶餘額",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            ParityEmptyState(
+                                title = "暫時沒有持有總額",
+                                message = "活動帳戶目前沒有可計算的餘額。",
+                                icon = Icons.Default.AccountBalanceWallet
                             )
                         } else {
                             Row(
@@ -118,13 +129,16 @@ fun AccountsScreen(
                             ) {
                                 currencyHoldings.forEach { holding ->
                                     Surface(
-                                        modifier = Modifier.width(156.dp),
+                                        modifier = Modifier.width(168.dp),
                                         shape = MaterialTheme.shapes.large,
                                         color = MaterialTheme.colorScheme.surfaceVariant,
-                                        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                                        border = BorderStroke(
+                                            0.6.dp,
+                                            MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+                                        )
                                     ) {
                                         Column(
-                                            modifier = Modifier.padding(AppSpacing.card),
+                                            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 14.dp),
                                             verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Text(
@@ -137,7 +151,11 @@ fun AccountsScreen(
                                                 holding.amount.asCurrencyText(holding.currency),
                                                 style = MaterialTheme.typography.titleSmall,
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = if (holding.amount.signum() >= 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error
+                                                color = if (holding.amount.signum() >= 0) {
+                                                    MaterialTheme.colorScheme.onSurface
+                                                } else {
+                                                    MaterialTheme.colorScheme.error
+                                                }
                                             )
                                         }
                                     }
@@ -151,36 +169,48 @@ fun AccountsScreen(
 
         if (visibleSummaries.isEmpty()) {
             item {
-                Text(
-                    if (showArchived) "目前沒有任何帳戶。" else "目前沒有活動帳戶。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                ParityEmptyState(
+                    title = if (showArchived) "沒有已歸檔帳戶" else "尚未建立帳戶",
+                    message = if (showArchived) {
+                        "切回活動帳戶，或先把現有帳戶歸檔後再回來查看。"
+                    } else {
+                        "先新增一個帳戶，之後就能記錄資產、轉帳與日常交易。"
+                    },
+                    icon = Icons.Default.AccountBalanceWallet
                 )
             }
         } else {
             items(visibleSummaries, key = { it.account.id }) { row ->
                 PressableCard(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = { onOpenDetail(row.account.id.toString()) }
+                    onClick = { onOpenDetail(row.account.id.toString()) },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    pressedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                    pressedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.48f)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 15.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Column(
                             modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(row.account.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    row.account.name,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                                 if (row.account.isArchived) {
-                                    Text(
-                                        "已歸檔",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    ParityStatusPill(
+                                        text = "已歸檔",
+                                        tint = MaterialTheme.colorScheme.tertiary
                                     )
                                 }
                             }
@@ -190,33 +220,64 @@ fun AccountsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            if (row.balances.isEmpty()) {
-                                Text("0.00", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            } else if (row.balances.size == 1) {
-                                val balance = row.balances.first()
-                                Text(
-                                    balance.amount.asCurrencyText(balance.currency),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (balance.amount.signum() >= 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error
-                                )
-                            } else {
-                                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    row.balances.take(2).forEach { balance ->
-                                        Text(
-                                            balance.amount.asCurrencyText(balance.currency),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = if (balance.amount.signum() >= 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error
-                                        )
-                                    }
-                                    if (row.balances.size > 2) {
-                                        Text("...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            when {
+                                row.balances.isEmpty() -> {
+                                    Text(
+                                        BigDecimal.ZERO.asCurrencyText(row.account.currency),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                row.balances.size == 1 -> {
+                                    val balance = row.balances.first()
+                                    Text(
+                                        balance.amount.asCurrencyText(balance.currency),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (balance.amount.signum() >= 0) {
+                                            MaterialTheme.colorScheme.onSurface
+                                        } else {
+                                            MaterialTheme.colorScheme.error
+                                        }
+                                    )
+                                }
+                                else -> {
+                                    Column(
+                                        horizontalAlignment = Alignment.End,
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        row.balances.take(2).forEach { balance ->
+                                            Text(
+                                                balance.amount.asCurrencyText(balance.currency),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (balance.amount.signum() >= 0) {
+                                                    MaterialTheme.colorScheme.onSurface
+                                                } else {
+                                                    MaterialTheme.colorScheme.error
+                                                }
+                                            )
+                                        }
+                                        if (row.balances.size > 2) {
+                                            Text(
+                                                "共 ${row.balances.size} 種幣別",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
                             }
-                            Text("查看明細", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                "查看明細",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }

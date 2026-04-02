@@ -73,3 +73,9 @@
 - Keep ledger filter, shortcut rail, and search field visually distinct but rhythmically aligned with iOS.
 - Use parity-styled add sheet rows with supporting descriptions instead of bare text buttons.
 - Tighten Reports chart card, list rows, and Settings section density toward the iOS source of truth.
+
+## Wave 3 Refinements
+- Add shared parity empty states and compact status pills so empty/list/detail views no longer fall back to plain text.
+- Tighten Accounts and Account Detail rhythm toward iOS with clearer summary hierarchy, archived badges, and softer disclosure emphasis.
+- Refine Reports drill-down sheets and budget alert cards so bottom-sheet detail and empty states feel closer to the iOS information density.
+- Keep Ledger rows visually lightweight while improving empty-state guidance and advance-summary labeling.

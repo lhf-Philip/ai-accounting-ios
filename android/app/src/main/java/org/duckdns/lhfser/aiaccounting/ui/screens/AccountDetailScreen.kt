@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -23,6 +25,9 @@ import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityStatusPill
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySummaryCard
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
@@ -47,8 +52,18 @@ fun AccountDetailScreen(
     val account = remember(accounts, resolvedId) { accounts.firstOrNull { it.id == resolvedId } }
 
     if (account == null) {
-        Column(modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)) {
+        Column(
+            modifier = Modifier.padding(
+                horizontal = AppSpacing.screenHorizontal,
+                vertical = AppSpacing.screenVertical
+            )
+        ) {
             ParityTopSection(title = "帳戶明細", subtitle = "找不到這個帳戶")
+            ParityEmptyState(
+                title = "找不到帳戶",
+                message = "這個帳戶可能已刪除、尚未同步，或目前沒有可顯示的資料。",
+                icon = Icons.Default.AccountBalanceWallet
+            )
         }
         return
     }
@@ -62,22 +77,24 @@ fun AccountDetailScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
+        contentPadding = PaddingValues(
+            horizontal = AppSpacing.screenHorizontal,
+            vertical = AppSpacing.screenVertical
+        ),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.section)) {
                 ParityTopSection(
                     title = account.name,
-                    subtitle = buildString {
-                        append(account.type.rawValue)
-                        append(" · ")
-                        append(account.currency)
-                        if (account.isArchived) {
-                            append(" · 已歸檔")
-                        }
-                    },
+                    subtitle = "${account.type.rawValue} · ${account.currency}",
                     accessory = {
+                        if (account.isArchived) {
+                            ParityStatusPill(
+                                text = "已歸檔",
+                                tint = MaterialTheme.colorScheme.tertiary
+                            )
+                        }
                         TextButton(onClick = { onEditAccount(account.id.toString()) }) {
                             Text("編輯")
                         }
@@ -96,7 +113,11 @@ fun AccountDetailScreen(
                                 title = if (balances.size == 1) "目前餘額" else "${balance.currency} 餘額",
                                 value = balance.amount.asCurrencyText(balance.currency),
                                 supporting = "含初始餘額與所有已記錄交易",
-                                accent = if (balance.amount.signum() >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                accent = if (balance.amount.signum() >= 0) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                }
                             )
                         }
                     }
@@ -105,30 +126,18 @@ fun AccountDetailScreen(
         }
 
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "帳戶明細",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = "${accountTransactions.size} 筆",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            ParitySectionHeader(
+                title = "交易紀錄",
+                detail = "${accountTransactions.size} 筆"
+            )
         }
 
         if (accountTransactions.isEmpty()) {
             item {
-                Text(
-                    text = "這個帳戶還沒有任何交易。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                ParityEmptyState(
+                    title = "還沒有交易",
+                    message = "這個帳戶目前只有初始資料，還沒有新增任何收入、支出或轉帳。",
+                    icon = Icons.Default.AccountBalanceWallet
                 )
             }
         } else {
@@ -160,9 +169,19 @@ private fun AccountTransactionRow(
         transaction.amount.signum() < 0 -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurface
     }
+    val categoryText = item.category?.name ?: defaultTransactionTitle(transaction.type)
+    val metaText = listOfNotNull(categoryText, item.account?.name)
+        .distinct()
+        .joinToString(" · ")
+        .ifBlank { "未分類" }
+
     PressableCard(
         modifier = Modifier.fillMaxWidth(),
-        onClick = onClick
+        onClick = onClick,
+        containerColor = MaterialTheme.colorScheme.surface,
+        pressedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+        pressedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.48f)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 14.dp),
@@ -173,40 +192,42 @@ private fun AccountTransactionRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Text(
-                        text = item.category?.name ?: defaultTransactionTitle(transaction.type),
+                        text = transaction.note.ifBlank { categoryText },
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = transaction.note.ifBlank { "無備註" },
-                        style = MaterialTheme.typography.bodySmall,
+                        text = metaText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = transaction.date.toDateTimeText(),
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Text(
-                    text = transaction.amount.asCurrencyText(transaction.currencyCode),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = amountColor,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = transaction.date.toDateTimeText(),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = if (transaction.type == TransactionType.Transfer) "編輯轉帳" else "查看 / 編輯",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = transaction.amount.asCurrencyText(transaction.currencyCode),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = amountColor,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = if (transaction.type == TransactionType.Transfer) "編輯轉帳" else "查看 / 編輯",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }

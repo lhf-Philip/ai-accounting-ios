@@ -54,8 +54,10 @@ import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityFilterCapsule
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySearchField
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityStatusPill
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
@@ -199,14 +201,14 @@ fun TransactionsScreen(
         ) {
             if (ledgerItems.isEmpty()) {
                 item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text("沒有符合條件的帳目", style = MaterialTheme.typography.bodyMedium)
-                    }
+                    ParityEmptyState(
+                        title = if (searchText.isBlank()) "還沒有帳目" else "沒有符合條件的帳目",
+                        message = if (searchText.isBlank()) {
+                            "先新增一筆交易，或切換日期區間看看。"
+                        } else {
+                            "可以調整搜尋關鍵字或日期篩選，再試一次。"
+                        }
+                    )
                 }
             } else {
                 dailySections.forEach { section ->
@@ -452,7 +454,10 @@ private fun TransactionRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Column(horizontalAlignment = Alignment.End) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
                 Text(
                     amountText,
                     color = amountColor,
@@ -460,7 +465,7 @@ private fun TransactionRow(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    item.transaction.currencyCode,
+                    "${transactionTypeLabel(item.transaction.type)} · ${item.transaction.currencyCode}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -492,11 +497,20 @@ private fun AdvanceSummaryRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    item.advanceCase.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        item.advanceCase.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    ParityStatusPill(
+                        text = "代墊",
+                        tint = Color(0xFFEF6C00)
+                    )
+                }
                 Text(
                     "${item.participants.size} 人 · $payerText",
                     style = MaterialTheme.typography.labelMedium,
@@ -782,4 +796,10 @@ private fun formatHeaderDate(date: LocalDate): String {
         today.minusDays(1) -> "昨天"
         else -> date.format(DateTimeFormatter.ofPattern("yyyy/MM/dd"))
     }
+}
+
+private fun transactionTypeLabel(type: TransactionType): String = when (type) {
+    TransactionType.Income -> "收入"
+    TransactionType.Expense -> "支出"
+    TransactionType.Transfer -> "轉帳"
 }
