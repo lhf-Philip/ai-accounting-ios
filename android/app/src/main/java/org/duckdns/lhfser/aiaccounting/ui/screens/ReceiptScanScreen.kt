@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -51,8 +52,11 @@ import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityMenuField
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySummaryCard
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import java.math.BigDecimal
@@ -110,7 +114,12 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(scrollState)
-            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
+            .padding(
+                start = AppSpacing.screenHorizontal,
+                end = AppSpacing.screenHorizontal,
+                top = AppSpacing.screenVertical,
+                bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
+            ),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
     ) {
         ParityTopSection(
@@ -119,6 +128,10 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
         )
 
         SectionCard {
+            ParitySectionHeader(
+                title = "上傳單據",
+                detail = "你可以先挑圖片，再決定是否補充備註給 AI"
+            )
             if (imageBytes == null) {
                 Surface(
                     modifier = Modifier
@@ -157,7 +170,13 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
                             .height(240.dp)
                     )
                 }
-                Button(onClick = { imagePicker.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { imagePicker.launch("image/*") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
                     Text("更換單據圖片")
                 }
             }
@@ -194,7 +213,10 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
                         isAnalyzing = false
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(18.dp),
                 enabled = imageBytes != null && !isAnalyzing
             ) {
                 Text(if (isAnalyzing) "AI 分析中..." else "開始智能識別")
@@ -217,30 +239,38 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
             )
 
             SectionCard {
+                ParitySectionHeader(
+                    title = "確認與調整",
+                    detail = "金額、帳戶、分類、日期時間都可以在儲存前修改"
+                )
                 OutlinedTextField(
                     value = amountInput,
                     onValueChange = { amountInput = sanitizeDecimal(it) },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("金額") }
+                    label = { Text("金額") },
+                    shape = RoundedCornerShape(18.dp)
                 )
                 CurrencyPicker(selected = currencyCode, onSelect = { currencyCode = it }, buttonStyle = CurrencyButtonStyle.Text)
                 OutlinedTextField(
                     value = dateInput,
                     onValueChange = { dateInput = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("日期（YYYY-MM-DD）") }
+                    label = { Text("日期（YYYY-MM-DD）") },
+                    shape = RoundedCornerShape(18.dp)
                 )
                 OutlinedTextField(
                     value = timeInput,
                     onValueChange = { timeInput = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("時間（HH:mm，可選）") }
+                    label = { Text("時間（HH:mm，可選）") },
+                    shape = RoundedCornerShape(18.dp)
                 )
                 OutlinedTextField(
                     value = noteInput,
                     onValueChange = { noteInput = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("商戶 / 備註") }
+                    label = { Text("商戶 / 備註") },
+                    shape = RoundedCornerShape(18.dp)
                 )
                 EntityPicker(
                     label = "帳戶",
@@ -281,7 +311,11 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
                             onDone()
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     enabled = selectedAccount != null && amountInput.toBigDecimalOrNull() != null
                 ) {
                     Text("儲存為支出")
@@ -301,21 +335,11 @@ private fun <T> EntityPicker(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = true },
-            shape = RoundedCornerShape(14.dp),
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-        ) {
-            Text(
-                text = selected?.let(optionLabel) ?: "請選擇",
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
+        ParityMenuField(
+            label = label,
+            value = selected?.let(optionLabel).orEmpty(),
+            onClick = { expanded = true }
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
                 DropdownMenuItem(

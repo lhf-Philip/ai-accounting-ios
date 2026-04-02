@@ -90,3 +90,8 @@
 - Add extra floating-action safe clearance and navigation-bar-aware bottom chrome to reduce crowding on devices like Samsung A53.
 - Tighten Overview, Accounts, and Settings bottom rhythm so the final rows do not compete with the FAB or bottom tab hit area.
 - Use section headers and denser utility grouping in Settings to better mirror the iOS information architecture.
+
+## Wave 6 Refinements
+- Bring deeper Android flows closer to iOS by reusing parity-style picker fields in debt entry and receipt scan review.
+- Add floating-action safe clearance to account detail, debt, and receipt flows so deeper pages no longer feel tighter than the iOS source of truth.
+- Tighten section hierarchy in debt entry, receipt scan, and account detail so the detailed flows match the same product voice as the top-level screens.

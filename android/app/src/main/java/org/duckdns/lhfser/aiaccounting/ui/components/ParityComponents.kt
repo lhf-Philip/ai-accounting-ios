@@ -421,6 +421,63 @@ fun ParitySelectionSheetRow(
 }
 
 @Composable
+fun ParityMenuField(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    placeholder: String = "請選擇",
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        PressableCard(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onClick,
+            containerColor = MaterialTheme.colorScheme.surface,
+            pressedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f),
+            pressedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.40f),
+            shape = RoundedCornerShape(16.dp),
+            scaleOnPress = 0.994f,
+            pressedElevation = 1.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = value.ifBlank { placeholder },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (value.isBlank()) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun ParitySheetHandle(modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier

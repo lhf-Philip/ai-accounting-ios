@@ -30,6 +30,7 @@ import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityStatusPill
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySummaryCard
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
@@ -78,8 +79,10 @@ fun AccountDetailScreen(
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(
-            horizontal = AppSpacing.screenHorizontal,
-            vertical = AppSpacing.screenVertical
+            start = AppSpacing.screenHorizontal,
+            end = AppSpacing.screenHorizontal,
+            top = AppSpacing.screenVertical,
+            bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
         ),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
     ) {
@@ -128,7 +131,7 @@ fun AccountDetailScreen(
         item {
             ParitySectionHeader(
                 title = "交易紀錄",
-                detail = "${accountTransactions.size} 筆"
+                detail = "${accountTransactions.size} 筆 · 點擊即可查看或編輯"
             )
         }
 

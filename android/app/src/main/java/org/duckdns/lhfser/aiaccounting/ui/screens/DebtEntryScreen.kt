@@ -5,10 +5,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -33,9 +35,13 @@ import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityMenuField
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySegmentedControl
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySummaryCard
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
@@ -104,7 +110,12 @@ fun DebtEntryScreen(onDone: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(scrollState)
-            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
+            .padding(
+                start = AppSpacing.screenHorizontal,
+                end = AppSpacing.screenHorizontal,
+                top = AppSpacing.screenVertical,
+                bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
+            ),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
     ) {
         ParityTopSection(
@@ -113,6 +124,10 @@ fun DebtEntryScreen(onDone: () -> Unit) {
         )
 
         SectionCard {
+            ParitySectionHeader(
+                title = "借貸方式",
+                detail = "先選操作，再決定一般 / 分拆 / 合併模式"
+            )
             ParitySegmentedControl(
                 options = DebtMode.values().toList(),
                 selected = mode,
@@ -127,29 +142,44 @@ fun DebtEntryScreen(onDone: () -> Unit) {
             )
         }
 
-        SectionCard {
-            AccountMenuPicker(
-                label = if (mode == DebtMode.Borrow) "跟誰借" else "還給誰",
-                options = debtAccounts,
-                selected = selectedDebtAccount,
-                onSelect = { selectedDebtAccount = it }
+        if (debtAccounts.isEmpty()) {
+            ParityEmptyState(
+                title = "還沒有借貸對象",
+                message = "先到帳戶頁建立類型為借貸的帳戶，之後才能記錄借入與還款流程。"
             )
-            if (entryMode != DebtEntryMode.Split) {
-                AccountMenuPicker(
-                    label = if (mode == DebtMode.Borrow) "存入帳戶" else "付款帳戶",
-                    options = myAccounts,
-                    selected = selectedMyAccount,
-                    onSelect = {
-                        selectedMyAccount = it
-                        if (it != null) {
-                            selectedCurrency = it.currency
-                        }
-                    }
+        } else {
+            SectionCard {
+                ParitySectionHeader(
+                    title = "帳戶與對象",
+                    detail = "選擇借貸對象與你的實際資金帳戶"
                 )
+                AccountMenuPicker(
+                    label = if (mode == DebtMode.Borrow) "跟誰借" else "還給誰",
+                    options = debtAccounts,
+                    selected = selectedDebtAccount,
+                    onSelect = { selectedDebtAccount = it }
+                )
+                if (entryMode != DebtEntryMode.Split) {
+                    AccountMenuPicker(
+                        label = if (mode == DebtMode.Borrow) "存入帳戶" else "付款帳戶",
+                        options = myAccounts,
+                        selected = selectedMyAccount,
+                        onSelect = {
+                            selectedMyAccount = it
+                            if (it != null) {
+                                selectedCurrency = it.currency
+                            }
+                        }
+                    )
+                }
             }
         }
 
         SectionCard {
+            ParitySectionHeader(
+                title = "金額與時間",
+                detail = "這裡的資料會直接影響之後產生的轉帳分錄"
+            )
             when (entryMode) {
                 DebtEntryMode.Normal -> {
                     AmountCurrencyRow(
@@ -262,7 +292,11 @@ fun DebtEntryScreen(onDone: () -> Unit) {
                     onDone()
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             enabled = debtAccounts.isNotEmpty() && myAccounts.isNotEmpty()
         ) {
             Text("確認")
@@ -279,10 +313,11 @@ private fun AccountMenuPicker(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-        TextButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(selected?.name ?: "請選擇")
-        }
+        ParityMenuField(
+            label = label,
+            value = selected?.name.orEmpty(),
+            onClick = { expanded = true }
+        )
         androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { account ->
                 androidx.compose.material3.DropdownMenuItem(
