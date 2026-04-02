@@ -3,6 +3,7 @@ package org.duckdns.lhfser.aiaccounting.ui.screens
 import android.app.DatePickerDialog
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -64,6 +66,7 @@ import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityFilterCapsule
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySegmentedControl
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySheetHandle
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
@@ -307,7 +310,9 @@ fun ReportsScreen() {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             onDismissRequest = { reportDetail = null },
-            sheetState = sheetState
+            sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.background,
+            dragHandle = { ParitySheetHandle() }
         ) {
             ReportDetailSheet(detail = reportDetail ?: return@ModalBottomSheet)
         }
@@ -365,7 +370,9 @@ private fun ReportRow(
                 progress = { progress },
                 color = item.color,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(999.dp))
             )
         }
     }
@@ -374,6 +381,7 @@ private fun ReportRow(
 @Composable
 private fun DonutChart(data: List<ReportSlice>, baseCurrency: String, title: String) {
     val total = totalAmount(data)
+    val trackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -391,6 +399,15 @@ private fun DonutChart(data: List<ReportSlice>, baseCurrency: String, title: Str
                     val diameter = minOf(size.width, size.height)
                     val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
                     val rect = Rect(topLeft, Size(diameter, diameter))
+                    drawArc(
+                        color = trackColor,
+                        startAngle = 0f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        topLeft = rect.topLeft,
+                        size = rect.size,
+                        style = stroke
+                    )
                     var startAngle = -90f
                     data.forEach { slice ->
                         val sweep = if (total > BigDecimal.ZERO) {
@@ -416,6 +433,11 @@ private fun DonutChart(data: List<ReportSlice>, baseCurrency: String, title: Str
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                         textAlign = TextAlign.Center
+                    )
+                    Text(
+                        "${data.size} 個項目",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

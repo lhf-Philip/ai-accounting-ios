@@ -79,3 +79,8 @@
 - Tighten Accounts and Account Detail rhythm toward iOS with clearer summary hierarchy, archived badges, and softer disclosure emphasis.
 - Refine Reports drill-down sheets and budget alert cards so bottom-sheet detail and empty states feel closer to the iOS information density.
 - Keep Ledger rows visually lightweight while improving empty-state guidance and advance-summary labeling.
+
+## Wave 4 Refinements
+- Tighten microinteractions with softer spring press feedback, clearer sheet handles, and more polished add-sheet presentation.
+- Refine Overview entry rows and Floating Add Button emphasis so primary actions feel closer to iOS weight and disclosure rhythm.
+- Improve Reports chart legibility with a softer track ring, clearer totals, rounded progress bars, and parity-styled drill-down sheets.

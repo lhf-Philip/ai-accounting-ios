@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,6 +49,7 @@ import org.duckdns.lhfser.aiaccounting.ui.components.ParityActionSheetRow
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityBottomBar
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityBottomBarItem
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityFloatingAddButton
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySheetHandle
 import org.duckdns.lhfser.aiaccounting.ui.screens.AccountDetailScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.AccountEditorScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.AccountsScreen
@@ -371,13 +373,17 @@ fun AIAccountingRoot(
     }
 
     if (showGuide) {
+        val guideSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             onDismissRequest = {
                 showGuide = false
                 onGuideSeen()
-            }
+            },
+            sheetState = guideSheetState,
+            containerColor = MaterialTheme.colorScheme.background,
+            dragHandle = { ParitySheetHandle() }
         ) {
-            Column(modifier = Modifier.padding(24.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
                 UserGuideScreen(
                     onDone = {
                         showGuide = false
@@ -396,7 +402,13 @@ private fun AddActionSheet(
     onDismiss: () -> Unit,
     onAction: (String) -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.background,
+        dragHandle = { ParitySheetHandle() }
+    ) {
         Column(
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)

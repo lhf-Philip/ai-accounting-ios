@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
@@ -303,19 +304,22 @@ fun ParityActionSheetRow(
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
         pressedContainerColor = MaterialTheme.colorScheme.surface,
         borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.24f),
-        pressedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.38f)
+        pressedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.38f),
+        pressedElevation = 2.dp,
+        scaleOnPress = 0.988f,
+        shape = RoundedCornerShape(22.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 18.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (icon != null) {
                 Surface(
-                    modifier = Modifier.size(42.dp),
-                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.size(44.dp),
+                    shape = RoundedCornerShape(15.dp),
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -327,8 +331,25 @@ fun ParityActionSheetRow(
                 Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
+}
+
+@Composable
+fun ParitySheetHandle(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier
+            .padding(top = 8.dp, bottom = 4.dp)
+            .size(width = 38.dp, height = 5.dp),
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.18f)
+    ) {}
 }
 
 @Composable
@@ -338,7 +359,8 @@ fun ParityFloatingAddButton(onClick: () -> Unit, modifier: Modifier = Modifier) 
         onClick = onClick,
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primary,
-        shadowElevation = 8.dp
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.08f)),
+        shadowElevation = 10.dp
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
