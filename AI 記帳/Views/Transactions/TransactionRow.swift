@@ -8,6 +8,7 @@ struct TransactionRow: View {
     private enum AdvanceTransferKind {
         case created
         case repayment
+        case debtForgiveness
         case none
     }
     
@@ -30,6 +31,9 @@ struct TransactionRow: View {
         if compacted.contains("(還款至") || compacted.contains("(還款給") {
             return .repayment
         }
+        if TransactionSemantics.isDebtForgiveness(note: transaction.note) {
+            return .debtForgiveness
+        }
         return .none
     }
 
@@ -43,6 +47,8 @@ struct TransactionRow: View {
             return "person.2.fill"
         case .repayment:
             return "arrow.down.circle.fill"
+        case .debtForgiveness:
+            return "scissors.circle.fill"
         case .none:
             return "arrow.left.arrow.right"
         }
@@ -54,6 +60,8 @@ struct TransactionRow: View {
             return "代墊建立"
         case .repayment:
             return "代墊還款"
+        case .debtForgiveness:
+            return "免除債務"
         case .none:
             return "轉帳"
         }
@@ -65,6 +73,8 @@ struct TransactionRow: View {
             return .orange
         case .repayment:
             return .teal
+        case .debtForgiveness:
+            return .purple
         case .none:
             return .blue
         }
@@ -99,8 +109,12 @@ struct TransactionRow: View {
                 let mainText = transaction.note.isEmpty ?
                     (transaction.category?.name ?? (transaction.type == .transfer ? transferBadgeText : "未分類"))
                     : transaction.note
+
+                let displayText = advanceTransferKind == .debtForgiveness
+                    ? TransactionSemantics.debtForgivenessDisplayTitle(note: mainText)
+                    : mainText
                 
-                Text(mainText)
+                Text(displayText)
                     .font(.body).bold()
                     .lineLimit(1)
                 

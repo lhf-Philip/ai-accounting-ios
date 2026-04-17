@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
+import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutEntity
@@ -48,14 +49,13 @@ fun ShortcutEditorScreen(shortcutId: String?, onDone: () -> Unit) {
     val tags by repository.tags.collectAsState(initial = emptyList())
     val scrollState = rememberScrollState()
 
-    val availableAccounts = accounts.filter { !it.isArchived }
-
     var name by remember { mutableStateOf("") }
     var icon by remember { mutableStateOf("⚡") }
     var amount by remember { mutableStateOf("") }
     var currency by remember { mutableStateOf("HKD") }
     var type by remember { mutableStateOf(TransactionType.Expense) }
     var note by remember { mutableStateOf("") }
+    val availableAccounts = TransactionSemantics.allowedAccounts(type, accounts)
     var selectedAccount by remember { mutableStateOf<AccountEntity?>(null) }
     var selectedCategory by remember { mutableStateOf<CategoryEntity?>(null) }
     var selectedTags by remember { mutableStateOf<List<TagEntity>>(emptyList()) }
@@ -83,9 +83,13 @@ fun ShortcutEditorScreen(shortcutId: String?, onDone: () -> Unit) {
         }
     }
 
-    LaunchedEffect(type, filteredCategories) {
+    LaunchedEffect(type, filteredCategories, availableAccounts) {
         if (selectedCategory != null && filteredCategories.none { it.id == selectedCategory?.id }) {
             selectedCategory = null
+        }
+        if (selectedAccount != null && availableAccounts.none { it.id == selectedAccount?.id }) {
+            selectedAccount = availableAccounts.firstOrNull()
+            selectedAccount?.let { currency = it.currency }
         }
     }
 

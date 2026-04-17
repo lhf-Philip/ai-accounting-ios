@@ -96,7 +96,7 @@ struct AccountsView: View {
             headerSection
 
             if !assetAccounts.isEmpty {
-                Section("一般帳戶") {
+                Section("自己的賬戶") {
                     ForEach(assetAccounts) { account in
                         accountRow(account)
                     }

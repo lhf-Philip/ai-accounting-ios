@@ -8,6 +8,8 @@ import org.duckdns.lhfser.aiaccounting.data.db.AdvanceRepaymentEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
+import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
+import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.Locale
@@ -41,7 +43,8 @@ data class DataHealthSnapshot(
     val budgets: List<CategoryMonthlyBudgetEntity>,
     val advanceCases: List<AdvanceCaseWithDetails>,
     val advanceParticipants: List<AdvanceParticipantEntity>,
-    val advanceRepayments: List<AdvanceRepaymentEntity>
+    val advanceRepayments: List<AdvanceRepaymentEntity>,
+    val shortcuts: List<ShortcutWithDetails>
 )
 
 object DataHealthChecker {
@@ -49,6 +52,7 @@ object DataHealthChecker {
         val issues = mutableListOf<HealthIssue>()
 
         checkTransactionBasics(snapshot.transactions, now, issues)
+        checkLegacyDebtIncome(snapshot.transactions, snapshot.shortcuts, issues)
         checkLinkedTransfers(snapshot.transactions, issues)
         checkTransferGroups(snapshot.transactions, issues)
         checkCategories(snapshot.categories, snapshot.transactions, snapshot.budgets, snapshot.advanceCases, issues)
@@ -134,6 +138,32 @@ object DataHealthChecker {
                 title = "交易日期在未來",
                 detail = "共有 ${futureTransactions.size} 筆交易日期晚於現在 24 小時以上。",
                 recommendation = "請確認是否誤設日期。"
+            )
+        }
+    }
+
+    private fun checkLegacyDebtIncome(
+        transactions: List<TransactionWithDetails>,
+        shortcuts: List<ShortcutWithDetails>,
+        issues: MutableList<HealthIssue>
+    ) {
+        val legacyTransactions = transactions.filter { TransactionSemantics.isLegacyDebtIncome(it) }
+        if (legacyTransactions.isNotEmpty()) {
+            issues += HealthIssue(
+                severity = HealthSeverity.Warning,
+                title = "收入交易記到了借貸帳戶",
+                detail = "共有 ${legacyTransactions.size} 筆收入交易仍記在借貸帳戶，建議改為債務管理或免除債務。",
+                recommendation = "請逐筆檢查這些舊資料，避免收入與債務語義混在一起。"
+            )
+        }
+
+        val legacyShortcuts = shortcuts.filter { TransactionSemantics.isLegacyDebtIncome(it) }
+        if (legacyShortcuts.isNotEmpty()) {
+            issues += HealthIssue(
+                severity = HealthSeverity.Warning,
+                title = "收入捷徑綁到了借貸帳戶",
+                detail = "共有 ${legacyShortcuts.size} 個收入捷徑仍綁定借貸帳戶。",
+                recommendation = "建議改綁自己的帳戶，或改由債務管理入口處理。"
             )
         }
     }

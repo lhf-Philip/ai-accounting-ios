@@ -12,7 +12,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -33,10 +32,16 @@ import org.duckdns.lhfser.aiaccounting.core.model.TransferSide
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.data.repository.TransferLeg
+import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
+import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyRateHint
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityMenuField
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
+import org.duckdns.lhfser.aiaccounting.ui.components.ParitySegmentedControl
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
+import org.duckdns.lhfser.aiaccounting.ui.components.TransferRateHint
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import java.math.BigDecimal
@@ -61,6 +66,7 @@ private data class TransferEditLegInput(
 @Composable
 fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
     val repository = LocalRepository.current
+    val currencyService = LocalCurrencyService.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val accounts by repository.accounts.collectAsState(initial = emptyList())
@@ -97,6 +103,10 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
         sourceLegs.mapNotNullTo(this) { it.account?.id }
     }
     val selectableAccounts = accounts.filter { !it.isArchived || it.id in selectableAccountIds }
+
+    LaunchedEffect(currencyService.mainCurrency) {
+        currencyService.fetchRates()
+    }
 
     LaunchedEffect(groupId, accounts) {
         val id = groupId?.let(UUID::fromString) ?: return@LaunchedEffect
@@ -158,21 +168,24 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("轉帳模式", style = MaterialTheme.typography.titleMedium)
         SectionCard {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TransferEditMode.values().forEach { item ->
-                    FilterChip(
-                        selected = mode == item,
-                        onClick = { mode = item },
-                        label = { Text(item.label) }
-                    )
-                }
-            }
+            ParitySectionHeader(
+                title = "轉帳模式",
+                detail = "一般、分拆與合併都可以直接在這裡重新調整。"
+            )
+            ParitySegmentedControl(
+                options = TransferEditMode.values().toList(),
+                selected = mode,
+                label = { it.label },
+                onSelect = { mode = it }
+            )
         }
 
-        Text("轉帳內容", style = MaterialTheme.typography.titleMedium)
         SectionCard {
+            ParitySectionHeader(
+                title = "轉帳內容",
+                detail = "跨幣種時會顯示輸入匯率與目前可用的參考匯率。"
+            )
             when (mode) {
                 TransferEditMode.OneToOne -> {
                     AccountPicker(label = "轉出帳戶", accounts = selectableAccounts, selected = fromAccount) { acc ->
@@ -187,7 +200,8 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                             if (currencyOut == currencyIn) amountIn = amountOut
                         },
                         currency = currencyOut,
-                        onCurrencyChange = { currencyOut = it }
+                        onCurrencyChange = { currencyOut = it },
+                        currencyService = currencyService
                     )
                     AccountPicker(label = "轉入帳戶", accounts = selectableAccounts, selected = toAccount) { acc ->
                         toAccount = acc
@@ -198,7 +212,15 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                         amount = amountIn,
                         onAmountChange = { amountIn = sanitizeAmount(it) },
                         currency = currencyIn,
-                        onCurrencyChange = { currencyIn = it }
+                        onCurrencyChange = { currencyIn = it },
+                        currencyService = currencyService
+                    )
+                    TransferRateHint(
+                        currencyService = currencyService,
+                        outgoingAmount = parsePositive(amountOut),
+                        outgoingCurrency = currencyOut,
+                        incomingAmount = parsePositive(amountIn),
+                        incomingCurrency = currencyIn
                     )
                 }
                 TransferEditMode.OneToMany -> {
@@ -211,13 +233,15 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                         amount = sourceAmount,
                         onAmountChange = { sourceAmount = sanitizeAmount(it) },
                         currency = sourceCurrency,
-                        onCurrencyChange = { sourceCurrency = it }
+                        onCurrencyChange = { sourceCurrency = it },
+                        currencyService = currencyService
                     )
                     destinationLegs.forEachIndexed { index, leg ->
                         TransferLegEditor(
                             title = "轉入帳戶 ${index + 1}",
                             leg = leg,
                             accounts = selectableAccounts.filter { it.id != sourceAccount?.id },
+                            currencyService = currencyService,
                             onUpdate = { updated ->
                                 destinationLegs = destinationLegs.toMutableList().also { it[index] = updated }
                             },
@@ -240,13 +264,15 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                         amount = destinationAmount,
                         onAmountChange = { destinationAmount = sanitizeAmount(it) },
                         currency = destinationCurrency,
-                        onCurrencyChange = { destinationCurrency = it }
+                        onCurrencyChange = { destinationCurrency = it },
+                        currencyService = currencyService
                     )
                     sourceLegs.forEachIndexed { index, leg ->
                         TransferLegEditor(
                             title = "轉出帳戶 ${index + 1}",
                             leg = leg,
                             accounts = selectableAccounts.filter { it.id != destinationAccount?.id },
+                            currencyService = currencyService,
                             onUpdate = { updated ->
                                 sourceLegs = sourceLegs.toMutableList().also { it[index] = updated }
                             },
@@ -262,8 +288,11 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
             }
         }
 
-        Text("日期", style = MaterialTheme.typography.titleMedium)
         SectionCard {
+            ParitySectionHeader(
+                title = "日期",
+                detail = "修改後會重新建立這組轉帳，日期與備註會一起套用。"
+            )
             TextButton(onClick = {
                 showDatePicker(context, date) { picked ->
                     date = picked
@@ -273,8 +302,11 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
             }
         }
 
-        Text("備註", style = MaterialTheme.typography.titleMedium)
         SectionCard {
+            ParitySectionHeader(
+                title = "備註",
+                detail = "可補充用途、手動匯率或這次修改的原因。"
+            )
             OutlinedTextField(
                 value = note,
                 onValueChange = { note = it },
@@ -386,10 +418,12 @@ private fun AccountPicker(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { expanded = true }) {
-            Text(selected?.name ?: "選擇帳戶")
-        }
+        ParityMenuField(
+            label = label,
+            value = selected?.name.orEmpty(),
+            placeholder = "選擇帳戶",
+            onClick = { expanded = true }
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             accounts.forEach { account ->
                 DropdownMenuItem(
@@ -410,7 +444,8 @@ private fun AmountRow(
     amount: String,
     onAmountChange: (String) -> Unit,
     currency: String,
-    onCurrencyChange: (String) -> Unit
+    onCurrencyChange: (String) -> Unit,
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label, style = MaterialTheme.typography.titleSmall)
@@ -423,6 +458,11 @@ private fun AmountRow(
                 modifier = Modifier.weight(1f)
             )
         }
+        CurrencyRateHint(
+            currencyService = currencyService,
+            amount = parsePositive(amount),
+            currencyCode = currency
+        )
     }
 }
 
@@ -440,11 +480,15 @@ private fun TransferLegEditor(
     title: String,
     leg: TransferEditLegInput,
     accounts: List<AccountEntity>,
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
     onUpdate: (TransferEditLegInput) -> Unit,
     onRemove: (() -> Unit)?
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall)
+        ParitySectionHeader(
+            title = title,
+            detail = "每個分錄都會用自己的幣別與金額計算。"
+        )
         AccountPicker(label = "帳戶", accounts = accounts, selected = leg.account) { acc ->
             onUpdate(leg.copy(account = acc, currency = acc?.currency ?: leg.currency))
         }
@@ -453,7 +497,8 @@ private fun TransferLegEditor(
             amount = leg.amount,
             onAmountChange = { onUpdate(leg.copy(amount = sanitizeAmount(it))) },
             currency = leg.currency,
-            onCurrencyChange = { onUpdate(leg.copy(currency = it)) }
+            onCurrencyChange = { onUpdate(leg.copy(currency = it)) },
+            currencyService = currencyService
         )
         if (onRemove != null) {
             TextButton(onClick = onRemove) { Text("移除") }

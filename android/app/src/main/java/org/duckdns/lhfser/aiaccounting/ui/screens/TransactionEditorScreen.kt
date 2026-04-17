@@ -41,7 +41,10 @@ import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
+import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyRateHint
+import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityMenuField
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySegmentedControl
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
@@ -79,14 +82,17 @@ private data class MergeLeg(
 @Composable
 fun TransactionEditorScreen(
     transactionId: String? = null,
+    initialType: TransactionType = TransactionType.Expense,
+    locksTransactionType: Boolean = false,
     onDone: () -> Unit
 ) {
     val repository = LocalRepository.current
+    val currencyService = LocalCurrencyService.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
     var entryMode by remember { mutableStateOf(EntryMode.Normal) }
-    var transactionType by remember { mutableStateOf(TransactionType.Expense) }
+    var transactionType by remember { mutableStateOf(initialType) }
     var amountInput by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var selectedAccount by remember { mutableStateOf<AccountEntity?>(null) }
@@ -112,7 +118,11 @@ fun TransactionEditorScreen(
         selectedAccount?.id?.let(::add)
         splitLegs.mapNotNullTo(this) { it.account?.id }
     }
-    val selectableAccounts = accounts.filter { !it.isArchived || it.id in selectableAccountIds }
+    val selectableAccounts = remember(accounts, selectableAccountIds, transactionType) {
+        val allowed = TransactionSemantics.allowedAccounts(transactionType, accounts)
+        val preserved = accounts.filter { it.id in selectableAccountIds }
+        (allowed + preserved).distinctBy { it.id }
+    }
 
     LaunchedEffect(transactionId, accounts, categories, tags) {
         if (transactionId == null) return@LaunchedEffect
@@ -132,13 +142,30 @@ fun TransactionEditorScreen(
 
     val filteredCategories = categories.filter { it.kind.supports(transactionType) }
 
-    LaunchedEffect(transactionType, filteredCategories) {
+    LaunchedEffect(transactionType, filteredCategories, selectableAccounts) {
         if (selectedCategory != null && filteredCategories.none { it.id == selectedCategory?.id }) {
             selectedCategory = null
         }
         if (!newCategoryKind.supports(transactionType)) {
             newCategoryKind = defaultCategoryKindFor(transactionType)
         }
+        if (selectedAccount != null && selectableAccounts.none { it.id == selectedAccount?.id }) {
+            selectedAccount = selectableAccounts.firstOrNull()
+            selectedAccount?.let { selectedCurrency = it.currency }
+        }
+        if (entryMode == EntryMode.Split) {
+            splitLegs = splitLegs.map { leg ->
+                if (leg.account != null && selectableAccounts.none { it.id == leg.account?.id }) {
+                    leg.copy(account = null)
+                } else {
+                    leg
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(currencyService.mainCurrency) {
+        currencyService.fetchRates()
     }
 
     Column(
@@ -159,7 +186,15 @@ fun TransactionEditorScreen(
         )
         SectionCard {
             ModePicker(entryMode = entryMode, onModeChange = { entryMode = it })
-            TypePicker(type = transactionType, onChange = { transactionType = it })
+            if (locksTransactionType) {
+                Text(
+                    text = if (transactionType == TransactionType.Expense) "支出" else "收入",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                )
+            } else {
+                TypePicker(type = transactionType, onChange = { transactionType = it })
+            }
         }
 
         ParitySectionHeader(
@@ -174,7 +209,8 @@ fun TransactionEditorScreen(
                         amount = amountInput,
                         onAmountChange = { amountInput = sanitizeAmount(it) },
                         currency = selectedCurrency,
-                        onCurrencyChange = { selectedCurrency = it }
+                        onCurrencyChange = { selectedCurrency = it },
+                        currencyService = currencyService
                     )
                     AccountPicker(
                         label = "帳戶",
@@ -194,6 +230,7 @@ fun TransactionEditorScreen(
                             index = index,
                             leg = leg,
                             accounts = selectableAccounts,
+                            currencyService = currencyService,
                             onUpdate = { updated ->
                                 splitLegs = splitLegs.toMutableList().also { it[index] = updated }
                             },
@@ -213,6 +250,7 @@ fun TransactionEditorScreen(
                         MergeLegEditor(
                             index = index,
                             leg = leg,
+                            currencyService = currencyService,
                             onUpdate = { updated ->
                                 mergeLegs = mergeLegs.toMutableList().also { it[index] = updated }
                             },
@@ -449,7 +487,8 @@ private fun AmountRow(
     amount: String,
     onAmountChange: (String) -> Unit,
     currency: String,
-    onCurrencyChange: (String) -> Unit
+    onCurrencyChange: (String) -> Unit,
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label, style = MaterialTheme.typography.titleSmall)
@@ -462,6 +501,11 @@ private fun AmountRow(
                 modifier = Modifier.weight(1f)
             )
         }
+        CurrencyRateHint(
+            currencyService = currencyService,
+            amount = parsePositive(amount),
+            currencyCode = currency
+        )
     }
 }
 
@@ -571,6 +615,7 @@ private fun SplitLegEditor(
     index: Int,
     leg: SplitLeg,
     accounts: List<AccountEntity>,
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
     onUpdate: (SplitLeg) -> Unit,
     onRemove: (() -> Unit)?
 ) {
@@ -592,7 +637,8 @@ private fun SplitLegEditor(
             amount = leg.amount,
             onAmountChange = { onUpdate(leg.copy(amount = sanitizeAmount(it))) },
             currency = leg.currency,
-            onCurrencyChange = { onUpdate(leg.copy(currency = it)) }
+            onCurrencyChange = { onUpdate(leg.copy(currency = it)) },
+            currencyService = currencyService
         )
         if (onRemove != null) {
             TextButton(onClick = onRemove) { Text("移除") }
@@ -604,6 +650,7 @@ private fun SplitLegEditor(
 private fun MergeLegEditor(
     index: Int,
     leg: MergeLeg,
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
     onUpdate: (MergeLeg) -> Unit,
     onRemove: (() -> Unit)?
 ) {
@@ -617,7 +664,8 @@ private fun MergeLegEditor(
             amount = leg.amount,
             onAmountChange = { onUpdate(leg.copy(amount = sanitizeAmount(it))) },
             currency = leg.currency,
-            onCurrencyChange = { onUpdate(leg.copy(currency = it)) }
+            onCurrencyChange = { onUpdate(leg.copy(currency = it)) },
+            currencyService = currencyService
         )
         if (onRemove != null) {
             TextButton(onClick = onRemove) { Text("移除") }

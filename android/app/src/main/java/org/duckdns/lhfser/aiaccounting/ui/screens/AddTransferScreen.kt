@@ -16,6 +16,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,14 +28,17 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.repository.TransferLeg
+import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
+import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyRateHint
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityMenuField
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySegmentedControl
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
+import org.duckdns.lhfser.aiaccounting.ui.components.TransferRateHint
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import java.math.BigDecimal
 import java.time.Instant
@@ -55,10 +59,15 @@ private data class AddTransferLegInput(
 @Composable
 fun AddTransferScreen(onDone: () -> Unit) {
     val repository = LocalRepository.current
+    val currencyService = LocalCurrencyService.current
     val scope = rememberCoroutineScope()
     val accounts by repository.accounts.collectAsState(initial = emptyList())
     val scrollState = rememberScrollState()
     val activeAccounts = accounts.filter { !it.isArchived }
+
+    LaunchedEffect(currencyService.mainCurrency) {
+        currencyService.fetchRates()
+    }
 
     var mode by remember { mutableStateOf(AddTransferMode.OneToOne) }
 
@@ -125,7 +134,8 @@ fun AddTransferScreen(onDone: () -> Unit) {
                             if (currencyOut == currencyIn) amountIn = amountOut
                         },
                         currency = currencyOut,
-                        onCurrencyChange = { currencyOut = it }
+                        onCurrencyChange = { currencyOut = it },
+                        currencyService = currencyService
                     )
                     AccountPicker(label = "轉入帳戶", accounts = activeAccounts, selected = toAccount) { acc ->
                         toAccount = acc
@@ -136,7 +146,15 @@ fun AddTransferScreen(onDone: () -> Unit) {
                         amount = amountIn,
                         onAmountChange = { amountIn = sanitizeAmount(it) },
                         currency = currencyIn,
-                        onCurrencyChange = { currencyIn = it }
+                        onCurrencyChange = { currencyIn = it },
+                        currencyService = currencyService
+                    )
+                    TransferRateHint(
+                        currencyService = currencyService,
+                        outgoingAmount = parsePositive(amountOut),
+                        outgoingCurrency = currencyOut,
+                        incomingAmount = parsePositive(amountIn),
+                        incomingCurrency = currencyIn
                     )
                 }
                 AddTransferMode.OneToMany -> {
@@ -149,13 +167,15 @@ fun AddTransferScreen(onDone: () -> Unit) {
                         amount = sourceAmount,
                         onAmountChange = { sourceAmount = sanitizeAmount(it) },
                         currency = sourceCurrency,
-                        onCurrencyChange = { sourceCurrency = it }
+                        onCurrencyChange = { sourceCurrency = it },
+                        currencyService = currencyService
                     )
                     destinationLegs.forEachIndexed { index, leg ->
                         TransferLegEditor(
                             title = "轉入帳戶 ${index + 1}",
                             leg = leg,
                             accounts = activeAccounts.filter { it.id != sourceAccount?.id },
+                            currencyService = currencyService,
                             onUpdate = { updated ->
                                 destinationLegs = destinationLegs.toMutableList().also { it[index] = updated }
                             },
@@ -178,13 +198,15 @@ fun AddTransferScreen(onDone: () -> Unit) {
                         amount = destinationAmount,
                         onAmountChange = { destinationAmount = sanitizeAmount(it) },
                         currency = destinationCurrency,
-                        onCurrencyChange = { destinationCurrency = it }
+                        onCurrencyChange = { destinationCurrency = it },
+                        currencyService = currencyService
                     )
                     sourceLegs.forEachIndexed { index, leg ->
                         TransferLegEditor(
                             title = "轉出帳戶 ${index + 1}",
                             leg = leg,
                             accounts = activeAccounts.filter { it.id != destinationAccount?.id },
+                            currencyService = currencyService,
                             onUpdate = { updated ->
                                 sourceLegs = sourceLegs.toMutableList().also { it[index] = updated }
                             },
@@ -317,7 +339,8 @@ private fun AmountRow(
     amount: String,
     onAmountChange: (String) -> Unit,
     currency: String,
-    onCurrencyChange: (String) -> Unit
+    onCurrencyChange: (String) -> Unit,
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label, style = MaterialTheme.typography.titleSmall)
@@ -330,6 +353,11 @@ private fun AmountRow(
                 modifier = Modifier.weight(1f)
             )
         }
+        CurrencyRateHint(
+            currencyService = currencyService,
+            amount = parsePositive(amount),
+            currencyCode = currency
+        )
     }
 }
 
@@ -347,6 +375,7 @@ private fun TransferLegEditor(
     title: String,
     leg: AddTransferLegInput,
     accounts: List<AccountEntity>,
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
     onUpdate: (AddTransferLegInput) -> Unit,
     onRemove: (() -> Unit)?
 ) {
@@ -363,7 +392,8 @@ private fun TransferLegEditor(
             amount = leg.amount,
             onAmountChange = { onUpdate(leg.copy(amount = sanitizeAmount(it))) },
             currency = leg.currency,
-            onCurrencyChange = { onUpdate(leg.copy(currency = it)) }
+            onCurrencyChange = { onUpdate(leg.copy(currency = it)) },
+            currencyService = currencyService
         )
         if (onRemove != null) {
             TextButton(onClick = onRemove) { Text("移除") }

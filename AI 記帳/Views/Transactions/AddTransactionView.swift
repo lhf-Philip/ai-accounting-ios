@@ -4,10 +4,14 @@ import SwiftData
 struct AddTransactionView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var currencyService = CurrencyService.shared
 
     @Query(sort: \Account.sortOrder) private var accounts: [Account]
     @Query(sort: \Category.name) private var categories: [Category]
     @Query(sort: \Tag.name) private var tags: [Tag]
+
+    private let initialType: TransactionType
+    private let locksTransactionType: Bool
 
     private enum EntryMode: String, CaseIterable, Identifiable {
         case normal
@@ -41,7 +45,7 @@ struct AddTransactionView: View {
     @State private var entryMode: EntryMode = .normal
 
     @State private var amountString = ""
-    @State private var selectedType: TransactionType = .expense
+    @State private var selectedType: TransactionType
     @State private var date = Date()
     @State private var note = ""
     @State private var selectedAccount: Account?
@@ -63,7 +67,13 @@ struct AddTransactionView: View {
     @FocusState private var isAmountFocused: Bool
 
     private var activeAccounts: [Account] {
-        accounts.filter { !$0.isArchived }
+        TransactionSemantics.allowedAccounts(for: selectedType, from: accounts)
+    }
+
+    init(initialType: TransactionType = .expense, locksTransactionType: Bool = false) {
+        self.initialType = initialType
+        self.locksTransactionType = locksTransactionType
+        _selectedType = State(initialValue: initialType)
     }
 
     var body: some View {
@@ -79,14 +89,30 @@ struct AddTransactionView: View {
                 }
 
                 Section("金額與類型") {
-                    Picker("類型", selection: $selectedType) {
-                        Text("支出").tag(TransactionType.expense)
-                        Text("收入").tag(TransactionType.income)
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: selectedType) { _, _ in
-                        if let current = selectedCategory, !current.kind.supports(selectedType) {
-                            selectedCategory = nil
+                    if locksTransactionType {
+                        LabeledContent("類型") {
+                            Text(selectedType == .expense ? "支出" : "收入")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Picker("類型", selection: $selectedType) {
+                            Text("支出").tag(TransactionType.expense)
+                            Text("收入").tag(TransactionType.income)
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: selectedType) { _, _ in
+                            if let current = selectedCategory, !current.kind.supports(selectedType) {
+                                selectedCategory = nil
+                            }
+                            selectedAccount = reconcileSelectedAccount(selectedAccount)
+                            splitLegs = splitLegs.map { leg in
+                                var updated = leg
+                                updated.account = reconcileSplitAccount(leg.account)
+                                if let account = updated.account {
+                                    updated.currency = account.currency
+                                }
+                                return updated
+                            }
                         }
                     }
 
@@ -195,14 +221,18 @@ struct AddTransactionView: View {
                 Text(validationMessage)
             }
             .onAppear {
-                if selectedAccount == nil, let firstAccount = activeAccounts.first {
-                    selectedAccount = firstAccount
-                    selectedCurrency = firstAccount.currency
+                selectedType = initialType
+                if selectedAccount == nil || !activeAccounts.contains(where: { $0.id == selectedAccount?.id }) {
+                    selectedAccount = activeAccounts.first
+                }
+                if let selectedAccount {
+                    selectedCurrency = selectedAccount.currency
                 }
                 if splitLegs.first?.account == nil, let firstAccount = activeAccounts.first {
                     splitLegs[0].account = firstAccount
                     splitLegs[0].currency = firstAccount.currency
                 }
+                Task { await currencyService.fetchRates() }
             }
         }
     }
@@ -224,22 +254,29 @@ struct AddTransactionView: View {
 
     @ViewBuilder
     private var normalAmountRow: some View {
-        HStack {
-            Picker("", selection: $selectedCurrency) {
-                ForEach(currencies, id: \.self) { code in
-                    Text(code).tag(code)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Picker("", selection: $selectedCurrency) {
+                    ForEach(currencies, id: \.self) { code in
+                        Text(code).tag(code)
+                    }
                 }
-            }
-            .labelsHidden()
-            .frame(width: 80)
+                .labelsHidden()
+                .frame(width: 80)
 
-            TextField("0", text: Binding(
-                get: { amountString },
-                set: { amountString = sanitizePositiveDecimalInput($0) }
-            ))
-            .font(.largeTitle)
-            .keyboardType(.decimalPad)
-            .focused($isAmountFocused)
+                TextField("0", text: Binding(
+                    get: { amountString },
+                    set: { amountString = sanitizePositiveDecimalInput($0) }
+                ))
+                .font(.largeTitle)
+                .keyboardType(.decimalPad)
+                .focused($isAmountFocused)
+            }
+            CurrencyRateHintView(
+                currencyService: currencyService,
+                amount: positiveDecimal(from: amountString),
+                currencyCode: selectedCurrency
+            )
         }
     }
 
@@ -275,6 +312,11 @@ struct AddTransactionView: View {
                     .keyboardType(.decimalPad)
                     .focused($isAmountFocused)
                 }
+                CurrencyRateHintView(
+                    currencyService: currencyService,
+                    amount: positiveDecimal(from: leg.amountString),
+                    currencyCode: leg.currency
+                )
 
                 if splitLegs.count > 1 {
                     Button(role: .destructive) {
@@ -313,6 +355,11 @@ struct AddTransactionView: View {
                 .keyboardType(.decimalPad)
                 .focused($isAmountFocused)
             }
+            CurrencyRateHintView(
+                currencyService: currencyService,
+                amount: positiveDecimal(from: leg.amountString),
+                currencyCode: leg.currency
+            )
 
             if mergeLegs.count > 1 {
                 Button(role: .destructive) {
@@ -482,5 +529,15 @@ struct AddTransactionView: View {
 
     private var filteredCategories: [Category] {
         categories.filter { $0.kind.supports(selectedType) }
+    }
+
+    private func reconcileSelectedAccount(_ account: Account?) -> Account? {
+        guard let account else { return activeAccounts.first }
+        return activeAccounts.first(where: { $0.id == account.id }) ?? activeAccounts.first
+    }
+
+    private func reconcileSplitAccount(_ account: Account?) -> Account? {
+        guard let account else { return activeAccounts.first }
+        return activeAccounts.first(where: { $0.id == account.id }) ?? activeAccounts.first
     }
 }

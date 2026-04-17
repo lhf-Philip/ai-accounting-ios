@@ -46,10 +46,13 @@ import org.duckdns.lhfser.aiaccounting.core.ai.GeminiSettingsStore
 import org.duckdns.lhfser.aiaccounting.core.ai.ReceiptInfo
 import org.duckdns.lhfser.aiaccounting.core.ai.ReceiptScanService
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
+import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
+import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyRateHint
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityMenuField
@@ -74,11 +77,12 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
     val repository = LocalRepository.current
     val scope = rememberCoroutineScope()
     val service = remember(context) { ReceiptScanService(GeminiSettingsStore(context)) }
+    val currencyService = LocalCurrencyService.current
     val scrollState = rememberScrollState()
 
     val accounts by repository.accounts.collectAsState(initial = emptyList())
     val categories by repository.categories.collectAsState(initial = emptyList())
-    val activeAccounts = remember(accounts) { accounts.filter { !it.isArchived } }
+    val activeAccounts = remember(accounts) { TransactionSemantics.ownAccounts(accounts) }
     val expenseCategories = remember(categories) { categories.filter { it.kind.supports(TransactionType.Expense) } }
 
     var imageBytes by remember { mutableStateOf<ByteArray?>(null) }
@@ -105,9 +109,13 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
     }
 
     LaunchedEffect(activeAccounts) {
-        if (selectedAccount == null) {
+        if (selectedAccount == null || activeAccounts.none { it.id == selectedAccount?.id }) {
             selectedAccount = activeAccounts.firstOrNull()
         }
+    }
+
+    LaunchedEffect(currencyService.mainCurrency) {
+        currencyService.fetchRates()
     }
 
     Column(
@@ -251,6 +259,11 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
                     shape = RoundedCornerShape(18.dp)
                 )
                 CurrencyPicker(selected = currencyCode, onSelect = { currencyCode = it }, buttonStyle = CurrencyButtonStyle.Text)
+                CurrencyRateHint(
+                    currencyService = currencyService,
+                    amount = amountInput.toBigDecimalOrNull(),
+                    currencyCode = currencyCode
+                )
                 OutlinedTextField(
                     value = dateInput,
                     onValueChange = { dateInput = it },
@@ -277,7 +290,12 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
                     options = activeAccounts,
                     selected = selectedAccount,
                     optionLabel = { it.name },
-                    onSelect = { selectedAccount = it }
+                    onSelect = {
+                        selectedAccount = it
+                        if (it != null && amountInput.isBlank()) {
+                            currencyCode = it.currency
+                        }
+                    }
                 )
                 EntityPicker(
                     label = "分類",

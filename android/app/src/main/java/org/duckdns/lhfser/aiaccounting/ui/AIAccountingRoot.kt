@@ -86,7 +86,8 @@ private sealed class AppDestination(
     data object Accounts : AppDestination("accounts", "帳戶", Icons.Default.AccountBalanceWallet)
     data object Settings : AppDestination("settings", "設定", Icons.Default.Settings)
 
-    data object TransactionAdd : AppDestination("transaction/add", "記一筆")
+    data object ExpenseAdd : AppDestination("transaction/add/expense", "新增支出")
+    data object IncomeAdd : AppDestination("transaction/add/income", "新增收入")
     data object TransactionEdit : AppDestination("transaction/edit/{transactionId}", "編輯記帳")
     data object TransferAdd : AppDestination("transfer/add", "轉帳")
     data object TransferEdit : AppDestination("transfer/edit/{groupId}", "編輯轉帳")
@@ -237,6 +238,7 @@ fun AIAccountingRoot(
                 TransactionsScreen(
                     onEdit = { id -> navController.navigate("transaction/edit/$id") },
                     onEditTransfer = { groupId -> navController.navigate("transfer/edit/$groupId") },
+                    onEditDebt = { id -> navController.navigate("debt/edit/$id") },
                     onOpenAdvanceCase = { caseId -> navController.navigate("advance/$caseId") },
                     onAddShortcut = { navController.navigate("shortcuts/edit/${UUID.randomUUID()}") }
                 )
@@ -259,8 +261,19 @@ fun AIAccountingRoot(
                 )
             }
 
-            composable(AppDestination.TransactionAdd.route) {
-                TransactionEditorScreen(onDone = { navController.popBackStack() })
+            composable(AppDestination.ExpenseAdd.route) {
+                TransactionEditorScreen(
+                    initialType = org.duckdns.lhfser.aiaccounting.core.model.TransactionType.Expense,
+                    locksTransactionType = true,
+                    onDone = { navController.popBackStack() }
+                )
+            }
+            composable(AppDestination.IncomeAdd.route) {
+                TransactionEditorScreen(
+                    initialType = org.duckdns.lhfser.aiaccounting.core.model.TransactionType.Income,
+                    locksTransactionType = true,
+                    onDone = { navController.popBackStack() }
+                )
             }
             composable(
                 AppDestination.TransactionEdit.route,
@@ -291,6 +304,15 @@ fun AIAccountingRoot(
             }
             composable(AppDestination.DebtAdd.route) {
                 DebtEntryScreen(onDone = { navController.popBackStack() })
+            }
+            composable(
+                "debt/edit/{transactionId}",
+                arguments = listOf(navArgument("transactionId") { type = NavType.StringType })
+            ) { entry ->
+                DebtEntryScreen(
+                    transactionId = entry.arguments?.getString("transactionId"),
+                    onDone = { navController.popBackStack() }
+                )
             }
             composable("advances") {
                 AdvancesScreen(onOpenCase = { caseId -> navController.navigate("advance/$caseId") })
@@ -344,7 +366,8 @@ fun AIAccountingRoot(
                     accountId = entry.arguments?.getString("accountId"),
                     onEditAccount = { id -> navController.navigate("accounts/edit/$id") },
                     onEditTransaction = { id -> navController.navigate("transaction/edit/$id") },
-                    onEditTransfer = { groupId -> navController.navigate("transfer/edit/$groupId") }
+                    onEditTransfer = { groupId -> navController.navigate("transfer/edit/$groupId") },
+                    onEditDebt = { id -> navController.navigate("debt/edit/$id") }
                 )
             }
             composable(
@@ -424,10 +447,15 @@ private fun AddActionSheet(
             Text("選擇現在想建立的記錄類型。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(4.dp))
             ParityActionSheetRow(
-                title = "記一筆（收入/支出）",
-                subtitle = "快速新增收入或支出交易",
+                title = "支出",
+                subtitle = "只記錄自己的帳戶支出",
                 icon = Icons.Default.Description
-            ) { onAction(AppDestination.TransactionAdd.route) }
+            ) { onAction(AppDestination.ExpenseAdd.route) }
+            ParityActionSheetRow(
+                title = "收入",
+                subtitle = "只記錄自己的帳戶收入",
+                icon = Icons.Default.Description
+            ) { onAction(AppDestination.IncomeAdd.route) }
             ParityActionSheetRow(
                 title = "掃描收據（AI）",
                 subtitle = "上傳照片後由 AI 分析帳單內容",
@@ -439,8 +467,8 @@ private fun AddActionSheet(
                 icon = Icons.Default.SwapHoriz
             ) { onAction(AppDestination.TransferAdd.route) }
             ParityActionSheetRow(
-                title = "借貸（借入/還款）",
-                subtitle = "建立借貸或記錄還款流向",
+                title = "債務管理",
+                subtitle = "借入、還款或免除債務",
                 icon = Icons.Default.AccountBalanceWallet
             ) { onAction(AppDestination.DebtAdd.route) }
             ParityActionSheetRow(
@@ -457,10 +485,12 @@ private fun resolveTitle(backStackEntry: NavBackStackEntry?): String {
     val route = backStackEntry?.destination?.route ?: return "AI 記帳"
     return when {
         route.startsWith("transaction/edit") -> "編輯記帳"
-        route == AppDestination.TransactionAdd.route -> "記一筆"
+        route == AppDestination.ExpenseAdd.route -> "新增支出"
+        route == AppDestination.IncomeAdd.route -> "新增收入"
         route == AppDestination.TransferAdd.route -> "轉帳"
         route == AppDestination.ReceiptScan.route -> "掃描單據"
         route == AppDestination.DebtAdd.route -> "借貸管理"
+        route.startsWith("debt/edit") -> "編輯免除債務"
         route == AppDestination.AdvanceAdd.route -> "新增代墊"
         route.startsWith("advance/") -> "代墊明細"
         route == AppDestination.Categories.route -> "分類"

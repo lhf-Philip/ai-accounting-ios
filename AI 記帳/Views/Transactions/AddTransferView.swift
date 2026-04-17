@@ -5,16 +5,17 @@ import UIKit
 struct AddTransferView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    
+    @StateObject private var currencyService = CurrencyService.shared
+
     @Query(sort: \Account.name) private var accounts: [Account]
-    
+
     private enum TransferMode: String, CaseIterable, Identifiable {
         case oneToOne
         case oneToMany
         case manyToOne
-        
+
         var id: String { rawValue }
-        
+
         var title: String {
             switch self {
             case .oneToOne: return "一般 (1 -> 1)"
@@ -23,16 +24,16 @@ struct AddTransferView: View {
             }
         }
     }
-    
+
     private struct TransferLegInput: Identifiable {
         let id = UUID()
         var account: Account?
         var currency: String = "HKD"
         var amountString: String = ""
     }
-    
+
     @State private var mode: TransferMode = .oneToOne
-    
+
     // 1 -> 1
     @State private var fromAccount: Account?
     @State private var toAccount: Account?
@@ -40,30 +41,30 @@ struct AddTransferView: View {
     @State private var currencyIn: String = "HKD"
     @State private var amountOutString: String = ""
     @State private var amountInString: String = ""
-    
+
     // 1 -> many
     @State private var sourceAccount: Account?
     @State private var sourceCurrency: String = "HKD"
     @State private var sourceAmountString: String = ""
     @State private var destinationLegs: [TransferLegInput] = [TransferLegInput()]
-    
+
     // many -> 1
     @State private var destinationAccount: Account?
     @State private var destinationCurrency: String = "HKD"
     @State private var destinationAmountString: String = ""
     @State private var sourceLegs: [TransferLegInput] = [TransferLegInput()]
-    
+
     @State private var date: Date = Date()
     @State private var note: String = ""
     @State private var showingValidationAlert = false
     @State private var validationMessage = ""
-    
+
     private let currencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
-    
+
     private var activeAccounts: [Account] {
         accounts.filter { !$0.isArchived }
     }
-    
+
     private var canSubmit: Bool {
         switch mode {
         case .oneToOne:
@@ -90,7 +91,7 @@ struct AddTransferView: View {
             }
         }
     }
-    
+
     var body: some View {
         NavigationStack {
             Form {
@@ -105,7 +106,7 @@ struct AddTransferView: View {
                         dismissKeyboard()
                     }
                 }
-                
+
                 switch mode {
                 case .oneToOne:
                     oneToOneSections
@@ -114,7 +115,7 @@ struct AddTransferView: View {
                 case .manyToOne:
                     manyToOneSections
                 }
-                
+
                 Section("其他") {
                     DatePicker("日期", selection: $date, displayedComponents: [.date, .hourAndMinute])
                     TextField("備註", text: $note)
@@ -139,9 +140,12 @@ struct AddTransferView: View {
                     Button("完成") { dismissKeyboard() }
                 }
             }
+            .onAppear {
+                Task { await currencyService.fetchRates() }
+            }
         }
     }
-    
+
     @ViewBuilder
     private var oneToOneSections: some View {
         Section("轉出方 (支出)") {
@@ -159,32 +163,39 @@ struct AddTransferView: View {
                     }
                 }
             }
-            
+
             if fromAccount != nil {
-                HStack {
-                    Picker("", selection: $currencyOut) {
-                        ForEach(currencies, id: \.self) { code in
-                            Text(code).tag(code)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 80)
-                    
-                    TextField("轉出金額", text: Binding(
-                        get: { amountOutString },
-                        set: { newValue in
-                            let sanitized = sanitizePositiveDecimalInput(newValue)
-                            amountOutString = sanitized
-                            if currencyOut == currencyIn {
-                                amountInString = sanitized
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Picker("", selection: $currencyOut) {
+                            ForEach(currencies, id: \.self) { code in
+                                Text(code).tag(code)
                             }
                         }
-                    ))
-                    .keyboardType(.decimalPad)
+                        .labelsHidden()
+                        .frame(width: 80)
+
+                        TextField("轉出金額", text: Binding(
+                            get: { amountOutString },
+                            set: { newValue in
+                                let sanitized = sanitizePositiveDecimalInput(newValue)
+                                amountOutString = sanitized
+                                if currencyOut == currencyIn {
+                                    amountInString = sanitized
+                                }
+                            }
+                        ))
+                        .keyboardType(.decimalPad)
+                    }
+                    CurrencyRateHintView(
+                        currencyService: currencyService,
+                        amount: positiveDecimal(from: amountOutString),
+                        currencyCode: currencyOut
+                    )
                 }
             }
         }
-        
+
         Section("轉入方 (收入)") {
             Picker("到帳戶", selection: $toAccount) {
                 Text("選擇帳戶").tag(nil as Account?)
@@ -200,24 +211,39 @@ struct AddTransferView: View {
                     }
                 }
             }
-            
+
             if toAccount != nil {
-                HStack {
-                    Picker("", selection: $currencyIn) {
-                        ForEach(currencies, id: \.self) { code in
-                            Text(code).tag(code)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Picker("", selection: $currencyIn) {
+                            ForEach(currencies, id: \.self) { code in
+                                Text(code).tag(code)
+                            }
                         }
+                        .labelsHidden()
+                        .frame(width: 80)
+
+                        TextField("轉入金額 (實收)", text: Binding(
+                            get: { amountInString },
+                            set: { amountInString = sanitizePositiveDecimalInput($0) }
+                        ))
+                        .keyboardType(.decimalPad)
                     }
-                    .labelsHidden()
-                    .frame(width: 80)
-                    
-                    TextField("轉入金額 (實收)", text: Binding(
-                        get: { amountInString },
-                        set: { amountInString = sanitizePositiveDecimalInput($0) }
-                    ))
-                    .keyboardType(.decimalPad)
+                    CurrencyRateHintView(
+                        currencyService: currencyService,
+                        amount: positiveDecimal(from: amountInString),
+                        currencyCode: currencyIn
+                    )
                 }
-                
+
+                TransferRateHintView(
+                    currencyService: currencyService,
+                    outgoingAmount: positiveDecimal(from: amountOutString),
+                    outgoingCurrency: currencyOut,
+                    incomingAmount: positiveDecimal(from: amountInString),
+                    incomingCurrency: currencyIn
+                )
+
                 if currencyOut == currencyIn {
                     Text("幣種相同，金額自動對應")
                         .font(.caption)
@@ -226,7 +252,7 @@ struct AddTransferView: View {
             }
         }
     }
-    
+
     @ViewBuilder
     private var oneToManySections: some View {
         Section("單一轉出") {
@@ -246,24 +272,31 @@ struct AddTransferView: View {
                     }
                 }
             }
-            
-            HStack {
-                Picker("", selection: $sourceCurrency) {
-                    ForEach(currencies, id: \.self) { code in
-                        Text(code).tag(code)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Picker("", selection: $sourceCurrency) {
+                        ForEach(currencies, id: \.self) { code in
+                            Text(code).tag(code)
+                        }
                     }
+                    .labelsHidden()
+                    .frame(width: 80)
+
+                    TextField("轉出總額", text: Binding(
+                        get: { sourceAmountString },
+                        set: { sourceAmountString = sanitizePositiveDecimalInput($0) }
+                    ))
+                    .keyboardType(.decimalPad)
                 }
-                .labelsHidden()
-                .frame(width: 80)
-                
-                TextField("轉出總額", text: Binding(
-                    get: { sourceAmountString },
-                    set: { sourceAmountString = sanitizePositiveDecimalInput($0) }
-                ))
-                .keyboardType(.decimalPad)
+                CurrencyRateHintView(
+                    currencyService: currencyService,
+                    amount: positiveDecimal(from: sourceAmountString),
+                    currencyCode: sourceCurrency
+                )
             }
         }
-        
+
         Section("分拆轉入") {
             ForEach($destinationLegs) { $leg in
                 VStack(spacing: 10) {
@@ -278,23 +311,30 @@ struct AddTransferView: View {
                             leg.currency = acc.currency
                         }
                     }
-                    
-                    HStack {
-                        Picker("", selection: $leg.currency) {
-                            ForEach(currencies, id: \.self) { code in
-                                Text(code).tag(code)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Picker("", selection: $leg.currency) {
+                                ForEach(currencies, id: \.self) { code in
+                                    Text(code).tag(code)
+                                }
                             }
+                            .labelsHidden()
+                            .frame(width: 80)
+
+                            TextField("轉入金額", text: Binding(
+                                get: { leg.amountString },
+                                set: { leg.amountString = sanitizePositiveDecimalInput($0) }
+                            ))
+                            .keyboardType(.decimalPad)
                         }
-                        .labelsHidden()
-                        .frame(width: 80)
-                        
-                        TextField("轉入金額", text: Binding(
-                            get: { leg.amountString },
-                            set: { leg.amountString = sanitizePositiveDecimalInput($0) }
-                        ))
-                        .keyboardType(.decimalPad)
+                        CurrencyRateHintView(
+                            currencyService: currencyService,
+                            amount: positiveDecimal(from: leg.amountString),
+                            currencyCode: leg.currency
+                        )
                     }
-                    
+
                     if destinationLegs.count > 1 {
                         Button(role: .destructive) {
                             destinationLegs.removeAll { $0.id == leg.id }
@@ -305,7 +345,7 @@ struct AddTransferView: View {
                 }
                 .padding(.vertical, 4)
             }
-            
+
             Button {
                 destinationLegs.append(TransferLegInput(currency: sourceCurrency))
             } label: {
@@ -313,7 +353,7 @@ struct AddTransferView: View {
             }
         }
     }
-    
+
     @ViewBuilder
     private var manyToOneSections: some View {
         Section("多個轉出") {
@@ -330,23 +370,30 @@ struct AddTransferView: View {
                             leg.currency = acc.currency
                         }
                     }
-                    
-                    HStack {
-                        Picker("", selection: $leg.currency) {
-                            ForEach(currencies, id: \.self) { code in
-                                Text(code).tag(code)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Picker("", selection: $leg.currency) {
+                                ForEach(currencies, id: \.self) { code in
+                                    Text(code).tag(code)
+                                }
                             }
+                            .labelsHidden()
+                            .frame(width: 80)
+
+                            TextField("轉出金額", text: Binding(
+                                get: { leg.amountString },
+                                set: { leg.amountString = sanitizePositiveDecimalInput($0) }
+                            ))
+                            .keyboardType(.decimalPad)
                         }
-                        .labelsHidden()
-                        .frame(width: 80)
-                        
-                        TextField("轉出金額", text: Binding(
-                            get: { leg.amountString },
-                            set: { leg.amountString = sanitizePositiveDecimalInput($0) }
-                        ))
-                        .keyboardType(.decimalPad)
+                        CurrencyRateHintView(
+                            currencyService: currencyService,
+                            amount: positiveDecimal(from: leg.amountString),
+                            currencyCode: leg.currency
+                        )
                     }
-                    
+
                     if sourceLegs.count > 1 {
                         Button(role: .destructive) {
                             sourceLegs.removeAll { $0.id == leg.id }
@@ -357,14 +404,14 @@ struct AddTransferView: View {
                 }
                 .padding(.vertical, 4)
             }
-            
+
             Button {
                 sourceLegs.append(TransferLegInput(currency: destinationCurrency))
             } label: {
                 Label("新增轉出帳戶", systemImage: "plus.circle")
             }
         }
-        
+
         Section("單一轉入") {
             Picker("到帳戶", selection: $destinationAccount) {
                 Text("選擇帳戶").tag(nil as Account?)
@@ -382,25 +429,32 @@ struct AddTransferView: View {
                     }
                 }
             }
-            
-            HStack {
-                Picker("", selection: $destinationCurrency) {
-                    ForEach(currencies, id: \.self) { code in
-                        Text(code).tag(code)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Picker("", selection: $destinationCurrency) {
+                        ForEach(currencies, id: \.self) { code in
+                            Text(code).tag(code)
+                        }
                     }
+                    .labelsHidden()
+                    .frame(width: 80)
+
+                    TextField("轉入總額", text: Binding(
+                        get: { destinationAmountString },
+                        set: { destinationAmountString = sanitizePositiveDecimalInput($0) }
+                    ))
+                    .keyboardType(.decimalPad)
                 }
-                .labelsHidden()
-                .frame(width: 80)
-                
-                TextField("轉入總額", text: Binding(
-                    get: { destinationAmountString },
-                    set: { destinationAmountString = sanitizePositiveDecimalInput($0) }
-                ))
-                .keyboardType(.decimalPad)
+                CurrencyRateHintView(
+                    currencyService: currencyService,
+                    amount: positiveDecimal(from: destinationAmountString),
+                    currencyCode: destinationCurrency
+                )
             }
         }
     }
-    
+
     private func saveTransfer() {
         switch mode {
         case .oneToOne:
@@ -411,7 +465,7 @@ struct AddTransferView: View {
             saveManyToOneTransfer()
         }
     }
-    
+
     private func saveOneToOneTransfer() {
         guard let from = fromAccount, let to = toAccount else { return }
         guard from.id != to.id else {
@@ -422,7 +476,7 @@ struct AddTransferView: View {
             showValidation("請輸入大於 0 的轉出金額。")
             return
         }
-        
+
         var amountIn = amountOut
         if currencyOut != currencyIn {
             guard let customIn = positiveDecimal(from: amountInString) else {
@@ -431,12 +485,12 @@ struct AddTransferView: View {
             }
             amountIn = customIn
         }
-        
+
         let txID1 = UUID()
         let txID2 = UUID()
         let transferGroupID = UUID()
         let memo = note.isEmpty ? "轉帳" : note
-        
+
         let outTx = FinancialTransaction(
             id: txID1,
             amount: -abs(amountOut),
@@ -449,7 +503,7 @@ struct AddTransferView: View {
             transferSide: .outgoing,
             account: from
         )
-        
+
         let inTx = FinancialTransaction(
             id: txID2,
             amount: abs(amountIn),
@@ -462,12 +516,12 @@ struct AddTransferView: View {
             transferSide: .incoming,
             account: to
         )
-        
+
         modelContext.insert(outTx)
         modelContext.insert(inTx)
         saveContextAndDismiss()
     }
-    
+
     private func saveOneToManyTransfer() {
         guard let source = sourceAccount else {
             showValidation("請選擇轉出帳戶。")
@@ -477,7 +531,7 @@ struct AddTransferView: View {
             showValidation("請輸入大於 0 的轉出總額。")
             return
         }
-        
+
         let parsedLegs = destinationLegs.enumerated().compactMap { index, leg -> (index: Int, account: Account, currency: String, amount: Decimal)? in
             guard let account = leg.account,
                   let amount = positiveDecimal(from: leg.amountString) else {
@@ -485,12 +539,12 @@ struct AddTransferView: View {
             }
             return (index + 1, account, leg.currency, amount)
         }
-        
+
         if parsedLegs.count != destinationLegs.count || parsedLegs.isEmpty {
             showValidation("請完整填寫每一個轉入帳戶與金額。")
             return
         }
-        
+
         var accountIDs = Set<UUID>()
         for leg in parsedLegs {
             if leg.account.id == source.id {
@@ -503,7 +557,7 @@ struct AddTransferView: View {
             }
             accountIDs.insert(leg.account.id)
         }
-        
+
         let sameCurrencyOnly = parsedLegs.allSatisfy { $0.currency == sourceCurrency }
         if sameCurrencyOnly {
             let totalIn = parsedLegs.reduce(Decimal.zero) { $0 + $1.amount }
@@ -512,10 +566,10 @@ struct AddTransferView: View {
                 return
             }
         }
-        
+
         let transferGroupID = UUID()
         let memo = note.isEmpty ? "轉帳" : note
-        
+
         let outTx = FinancialTransaction(
             amount: -abs(sourceAmount),
             currencyCode: sourceCurrency,
@@ -527,7 +581,7 @@ struct AddTransferView: View {
             account: source
         )
         modelContext.insert(outTx)
-        
+
         for leg in parsedLegs {
             let inTx = FinancialTransaction(
                 amount: abs(leg.amount),
@@ -541,10 +595,10 @@ struct AddTransferView: View {
             )
             modelContext.insert(inTx)
         }
-        
+
         saveContextAndDismiss()
     }
-    
+
     private func saveManyToOneTransfer() {
         guard let destination = destinationAccount else {
             showValidation("請選擇轉入帳戶。")
@@ -554,7 +608,7 @@ struct AddTransferView: View {
             showValidation("請輸入大於 0 的轉入總額。")
             return
         }
-        
+
         let parsedLegs = sourceLegs.enumerated().compactMap { index, leg -> (index: Int, account: Account, currency: String, amount: Decimal)? in
             guard let account = leg.account,
                   let amount = positiveDecimal(from: leg.amountString) else {
@@ -562,12 +616,12 @@ struct AddTransferView: View {
             }
             return (index + 1, account, leg.currency, amount)
         }
-        
+
         if parsedLegs.count != sourceLegs.count || parsedLegs.isEmpty {
             showValidation("請完整填寫每一個轉出帳戶與金額。")
             return
         }
-        
+
         var accountIDs = Set<UUID>()
         for leg in parsedLegs {
             if leg.account.id == destination.id {
@@ -580,7 +634,7 @@ struct AddTransferView: View {
             }
             accountIDs.insert(leg.account.id)
         }
-        
+
         let sameCurrencyOnly = parsedLegs.allSatisfy { $0.currency == destinationCurrency }
         if sameCurrencyOnly {
             let totalOut = parsedLegs.reduce(Decimal.zero) { $0 + $1.amount }
@@ -589,10 +643,10 @@ struct AddTransferView: View {
                 return
             }
         }
-        
+
         let transferGroupID = UUID()
         let memo = note.isEmpty ? "轉帳" : note
-        
+
         for leg in parsedLegs {
             let outTx = FinancialTransaction(
                 amount: -abs(leg.amount),
@@ -606,7 +660,7 @@ struct AddTransferView: View {
             )
             modelContext.insert(outTx)
         }
-        
+
         let inTx = FinancialTransaction(
             amount: abs(destinationAmount),
             currencyCode: destinationCurrency,
@@ -618,10 +672,10 @@ struct AddTransferView: View {
             account: destination
         )
         modelContext.insert(inTx)
-        
+
         saveContextAndDismiss()
     }
-    
+
     private func saveContextAndDismiss() {
         do {
             try modelContext.save()
@@ -630,17 +684,17 @@ struct AddTransferView: View {
             showValidation("儲存失敗：\(error.localizedDescription)")
         }
     }
-    
+
     private func positiveDecimal(from value: String) -> Decimal? {
         guard let parsed = Decimal(string: value), parsed > 0 else { return nil }
         return parsed
     }
-    
+
     private func sanitizePositiveDecimalInput(_ value: String) -> String {
         let allowed = value.filter { "0123456789.".contains($0) }
         var result = ""
         var hasDot = false
-        
+
         for char in allowed {
             if char == "." {
                 if hasDot { continue }
@@ -648,14 +702,14 @@ struct AddTransferView: View {
             }
             result.append(char)
         }
-        
+
         return result == "." ? "" : result
     }
-    
+
     private func dismissKeyboard() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
-    
+
     private func showValidation(_ message: String) {
         validationMessage = message
         showingValidationAlert = true

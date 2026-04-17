@@ -8,6 +8,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.duckdns.lhfser.aiaccounting.core.transactions.RateSourceState
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.net.HttpURLConnection
@@ -25,6 +26,11 @@ private data class ExchangeRateCache(
     val fetchedAt: Long
 )
 
+data class CurrencyPreview(
+    val amount: BigDecimal,
+    val source: RateSourceState
+)
+
 class CurrencyService(context: Context) {
     private val prefs = context.getSharedPreferences("currency_service", Context.MODE_PRIVATE)
     private val gson = Gson()
@@ -33,6 +39,11 @@ class CurrencyService(context: Context) {
     private val cacheTtlMs = 7L * 24L * 60L * 60L * 1000L
 
     var rates by mutableStateOf<Map<String, Double>>(emptyMap())
+        private set
+
+    private var staleRates by mutableStateOf<Map<String, Double>>(emptyMap())
+
+    var rateSourceState by mutableStateOf(RateSourceState.Unavailable)
         private set
 
     var mainCurrency: String
@@ -68,7 +79,11 @@ class CurrencyService(context: Context) {
 
         if (parsed != null && parsed.base.equals(requestedBase, ignoreCase = true)) {
             rates = parsed.rates
+            staleRates = parsed.rates
+            rateSourceState = RateSourceState.Live
             saveRatesToLocal(base = requestedBase, rates = parsed.rates)
+        } else {
+            loadRatesFromLocal(preferStale = true)
         }
     }
 
@@ -77,16 +92,26 @@ class CurrencyService(context: Context) {
         prefs.edit().putString(cacheKey, gson.toJson(cache)).apply()
     }
 
-    private fun loadRatesFromLocal() {
+    private fun loadRatesFromLocal(preferStale: Boolean = true) {
         val currentBase = mainCurrency.uppercase()
+        rates = emptyMap()
+        staleRates = emptyMap()
+        rateSourceState = RateSourceState.Unavailable
+
         val cached = prefs.getString(cacheKey, null)
         if (cached != null) {
             val type = object : TypeToken<ExchangeRateCache>() {}.type
             val payload = gson.fromJson<ExchangeRateCache>(cached, type)
             if (payload.base.equals(currentBase, ignoreCase = true)) {
                 val age = Instant.now().toEpochMilli() - payload.fetchedAt
+                staleRates = payload.rates
                 if (age <= cacheTtlMs) {
                     rates = payload.rates
+                    rateSourceState = RateSourceState.Cached
+                    return
+                }
+                if (preferStale && payload.rates.isNotEmpty()) {
+                    rateSourceState = RateSourceState.Cached
                     return
                 }
             }
@@ -95,13 +120,11 @@ class CurrencyService(context: Context) {
         if (prefs.contains(legacyCacheKey)) {
             prefs.edit().remove(legacyCacheKey).apply()
         }
-
-        rates = emptyMap()
     }
 
     fun convert(amount: BigDecimal, from: String): BigDecimal {
         if (from.equals(mainCurrency, ignoreCase = true)) return amount
-        val rate = rates[from.uppercase()] ?: return amount
+        val rate = resolvedRates[from.uppercase()] ?: return amount
         if (rate <= 0.0) return amount
         return amount.divide(rate.toBigDecimal(), 6, RoundingMode.HALF_UP)
     }
@@ -109,14 +132,14 @@ class CurrencyService(context: Context) {
     fun convert(amount: BigDecimal, from: String, to: String): BigDecimal {
         if (from.equals(to, ignoreCase = true)) return amount
         if (from.equals(mainCurrency, ignoreCase = true)) {
-            val targetRate = rates[to.uppercase()] ?: return amount
+            val targetRate = resolvedRates[to.uppercase()] ?: return amount
             if (targetRate <= 0.0) return amount
             return amount.multiply(targetRate.toBigDecimal()).setScale(6, RoundingMode.HALF_UP)
         }
         if (to.equals(mainCurrency, ignoreCase = true)) {
             return convert(amount, from)
         }
-        val targetRate = rates[to.uppercase()] ?: return amount
+        val targetRate = resolvedRates[to.uppercase()] ?: return amount
         if (targetRate <= 0.0) return amount
         val inMain = convert(amount, from)
         return inMain.multiply(targetRate.toBigDecimal()).setScale(6, RoundingMode.HALF_UP)
@@ -124,9 +147,30 @@ class CurrencyService(context: Context) {
 
     fun getMarketRate(from: String, to: String): Double? {
         if (from.equals(to, ignoreCase = true)) return 1.0
-        val rateFrom = rates[from.uppercase()] ?: return null
-        val rateTo = rates[to.uppercase()] ?: return null
+        val rateFrom = resolvedRates[from.uppercase()] ?: return null
+        val rateTo = resolvedRates[to.uppercase()] ?: return null
         if (rateFrom <= 0.0 || rateTo <= 0.0) return null
         return (1.0 / rateFrom) * rateTo
     }
+
+    fun previewInMainCurrency(amount: BigDecimal, from: String): CurrencyPreview? {
+        if (from.equals(mainCurrency, ignoreCase = true)) return null
+        val converted = convert(amount, from)
+        if (converted == amount && resolvedRates[from.uppercase()] == null) return null
+        return CurrencyPreview(converted, resolvedRateSourceState)
+    }
+
+    val resolvedRateSourceState: RateSourceState
+        get() = when {
+            rates.isNotEmpty() -> rateSourceState
+            staleRates.isNotEmpty() -> RateSourceState.Cached
+            else -> RateSourceState.Unavailable
+        }
+
+    private val resolvedRates: Map<String, Double>
+        get() = when {
+            rates.isNotEmpty() -> rates
+            staleRates.isNotEmpty() -> staleRates
+            else -> emptyMap()
+        }
 }

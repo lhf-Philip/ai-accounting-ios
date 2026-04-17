@@ -4,6 +4,7 @@ import SwiftData
 struct EditTransferView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var currencyService = CurrencyService.shared
 
     let originalTransaction: FinancialTransaction
 
@@ -111,6 +112,12 @@ struct EditTransferView: View {
                                 }
                             }
                             .padding(.vertical, 4)
+
+                            CurrencyRateHintView(
+                                currencyService: currencyService,
+                                amount: positiveDecimal(from: leg.amountString),
+                                currencyCode: leg.currency
+                            )
                         }
 
                         Button {
@@ -166,6 +173,12 @@ struct EditTransferView: View {
                                 }
                             }
                             .padding(.vertical, 4)
+
+                            CurrencyRateHintView(
+                                currencyService: currencyService,
+                                amount: positiveDecimal(from: leg.amountString),
+                                currencyCode: leg.currency
+                            )
                         }
 
                         Button {
@@ -185,6 +198,15 @@ struct EditTransferView: View {
                     Section("其他") {
                         DatePicker("日期", selection: $date, displayedComponents: [.date, .hourAndMinute])
                         TextField("備註", text: $note)
+                        if outgoingLegs.count == 1, incomingLegs.count == 1 {
+                            TransferRateHintView(
+                                currencyService: currencyService,
+                                outgoingAmount: positiveDecimal(from: outgoingLegs[0].amountString),
+                                outgoingCurrency: outgoingLegs[0].currency,
+                                incomingAmount: positiveDecimal(from: incomingLegs[0].amountString),
+                                incomingCurrency: incomingLegs[0].currency
+                            )
+                        }
                     }
                 }
             }
@@ -207,7 +229,10 @@ struct EditTransferView: View {
                     Button("完成") { focusedFieldID = nil }
                 }
             }
-            .onAppear { loadData() }
+            .onAppear {
+                loadData()
+                Task { await currencyService.fetchRates() }
+            }
         }
     }
 

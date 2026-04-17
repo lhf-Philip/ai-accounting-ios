@@ -93,7 +93,8 @@ class DataHealthCheckerTest {
                     participantId = participantId,
                     receivedAccountId = receiveAccount.id
                 )
-            )
+            ),
+            shortcuts = emptyList()
         )
 
         val report = DataHealthChecker.run(snapshot, now)
@@ -149,7 +150,8 @@ class DataHealthCheckerTest {
                     debtAccountId = debtAccount.id
                 )
             ),
-            advanceRepayments = emptyList()
+            advanceRepayments = emptyList(),
+            shortcuts = emptyList()
         )
 
         val report = DataHealthChecker.run(snapshot, now)

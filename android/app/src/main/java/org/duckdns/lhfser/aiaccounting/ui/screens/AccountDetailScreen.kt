@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
+import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
@@ -43,7 +44,8 @@ fun AccountDetailScreen(
     accountId: String?,
     onEditAccount: (String) -> Unit,
     onEditTransaction: (String) -> Unit,
-    onEditTransfer: (String) -> Unit
+    onEditTransfer: (String) -> Unit,
+    onEditDebt: (String) -> Unit
 ) {
     val repository = LocalRepository.current
     val accounts by repository.accounts.collectAsState(initial = emptyList())
@@ -149,10 +151,10 @@ fun AccountDetailScreen(
                     item = item,
                     onClick = {
                         val groupId = item.transaction.transferGroupId?.toString()
-                        if (item.transaction.type == TransactionType.Transfer && groupId != null) {
-                            onEditTransfer(groupId)
-                        } else {
-                            onEditTransaction(item.transaction.id.toString())
+                        when {
+                            item.transaction.type == TransactionType.Transfer && TransactionSemantics.isDebtForgiveness(item.transaction.note) -> onEditDebt(item.transaction.id.toString())
+                            item.transaction.type == TransactionType.Transfer && groupId != null -> onEditTransfer(groupId)
+                            else -> onEditTransaction(item.transaction.id.toString())
                         }
                     }
                 )
@@ -173,6 +175,12 @@ private fun AccountTransactionRow(
         else -> MaterialTheme.colorScheme.onSurface
     }
     val categoryText = item.category?.name ?: defaultTransactionTitle(transaction.type)
+    val isDebtForgiveness = transaction.type == TransactionType.Transfer && TransactionSemantics.isDebtForgiveness(transaction.note)
+    val displayTitle = if (isDebtForgiveness) {
+        TransactionSemantics.debtForgivenessDisplayTitle(transaction.note)
+    } else {
+        transaction.note.ifBlank { categoryText }
+    }
     val metaText = listOfNotNull(categoryText, item.account?.name)
         .distinct()
         .joinToString(" · ")
@@ -199,11 +207,19 @@ private fun AccountTransactionRow(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = transaction.note.ifBlank { categoryText },
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = displayTitle,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (isDebtForgiveness) {
+                            ParityStatusPill(text = "免除債務", tint = MaterialTheme.colorScheme.tertiary)
+                        }
+                    }
                     Text(
                         text = metaText,
                         style = MaterialTheme.typography.labelMedium,
@@ -226,7 +242,11 @@ private fun AccountTransactionRow(
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = if (transaction.type == TransactionType.Transfer) "編輯轉帳" else "查看 / 編輯",
+                        text = when {
+                            isDebtForgiveness -> "編輯免除債務"
+                            transaction.type == TransactionType.Transfer -> "編輯轉帳"
+                            else -> "查看 / 編輯"
+                        },
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
