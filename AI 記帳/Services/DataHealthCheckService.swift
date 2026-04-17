@@ -30,6 +30,7 @@ enum DataHealthCheckService {
         let transactions = (try? modelContext.fetch(FetchDescriptor<FinancialTransaction>())) ?? []
         let categories = (try? modelContext.fetch(FetchDescriptor<Category>())) ?? []
         let budgets = (try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []
+        let shortcuts = (try? modelContext.fetch(FetchDescriptor<Shortcut>())) ?? []
         let advanceCases = (try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []
         let advanceParticipants = (try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []
         let advanceRepayments = (try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []
@@ -39,6 +40,7 @@ enum DataHealthCheckService {
         checkTransactionBasics(transactions, into: &issues)
         checkLinkedTransfers(transactions, into: &issues)
         checkTransferGroups(transactions, into: &issues)
+        checkDebtIncomeConflicts(transactions: transactions, shortcuts: shortcuts, into: &issues)
         checkCategories(categories, into: &issues)
         checkBudgets(budgets, into: &issues)
         checkAdvances(
@@ -167,6 +169,36 @@ enum DataHealthCheckService {
                     title: "轉帳群組不完整",
                     detail: "共有 \(brokenGroups) 個 transferGroup 缺少轉出或轉入側。",
                     recommendation: "建議檢查該群組交易是否被不完整刪除。"
+                )
+            )
+        }
+    }
+
+    private static func checkDebtIncomeConflicts(
+        transactions: [FinancialTransaction],
+        shortcuts: [Shortcut],
+        into issues: inout [HealthIssue]
+    ) {
+        let incomeOnDebtAccount = transactions.filter { TransactionSemantics.isLegacyDebtIncome($0) }
+        if !incomeOnDebtAccount.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "收入記到了借貸帳戶",
+                    detail: "共有 \(incomeOnDebtAccount.count) 筆收入交易使用借貸帳戶，這類資料建議改為「免除債務」。",
+                    recommendation: "請逐筆檢查，確認是否應改成債務管理內的「免除債務」，避免收入報表失真。"
+                )
+            )
+        }
+
+        let incomeShortcutsOnDebtAccount = shortcuts.filter { TransactionSemantics.isLegacyDebtIncome($0) }
+        if !incomeShortcutsOnDebtAccount.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "收入捷徑綁到了借貸帳戶",
+                    detail: "共有 \(incomeShortcutsOnDebtAccount.count) 個收入捷徑綁定借貸帳戶。",
+                    recommendation: "請把這些捷徑改到自己的賬戶，或改走債務管理流程。"
                 )
             )
         }

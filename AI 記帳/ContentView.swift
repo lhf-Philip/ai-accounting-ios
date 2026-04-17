@@ -18,7 +18,8 @@ struct ContentView: View {
 
     @State private var selectedTab: RootTab = .ledger
     @State private var showingAddOptions = false
-    @State private var showingAddTransaction = false
+    @State private var showingAddExpense = false
+    @State private var showingAddIncome = false
     @State private var showingAddTransfer = false
     @State private var showingScanReceipt = false
     @State private var showingAddDebt = false
@@ -115,14 +116,20 @@ struct ContentView: View {
             }
         }
         .confirmationDialog("新增內容", isPresented: $showingAddOptions, titleVisibility: .visible) {
-            Button("記一筆（收入/支出）") { showingAddTransaction = true }
+            Button("支出") { showingAddExpense = true }
+            Button("收入") { showingAddIncome = true }
             Button("掃描收據（AI）") { showingScanReceipt = true }
             Button("轉帳") { showingAddTransfer = true }
-            Button("借貸（借入/還款）") { showingAddDebt = true }
+            Button("債務管理（借入 / 還款 / 免除債務）") { showingAddDebt = true }
             Button("新增代墊單（多人分帳）") { showingAddAdvanceCase = true }
             Button("取消", role: .cancel) {}
         }
-        .sheet(isPresented: $showingAddTransaction) { AddTransactionView() }
+        .sheet(isPresented: $showingAddExpense) {
+            AddTransactionView(initialType: .expense, locksTransactionType: true)
+        }
+        .sheet(isPresented: $showingAddIncome) {
+            AddTransactionView(initialType: .income, locksTransactionType: true)
+        }
         .sheet(isPresented: $showingAddTransfer) { AddTransferView() }
         .sheet(isPresented: $showingScanReceipt) { ScanReceiptView() }
         .sheet(isPresented: $showingAddDebt) { AddDebtView() }
@@ -134,7 +141,8 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("CloseAddFlow"))) { _ in
             showingScanReceipt = false
-            showingAddTransaction = false
+            showingAddExpense = false
+            showingAddIncome = false
             showingAddTransfer = false
             showingAddDebt = false
             showingAddAdvanceCase = false

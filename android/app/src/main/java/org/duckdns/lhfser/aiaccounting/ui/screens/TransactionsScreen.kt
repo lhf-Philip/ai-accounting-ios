@@ -55,6 +55,7 @@ import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
+import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
@@ -98,6 +99,7 @@ private data class DailySection(val date: LocalDate, val items: List<LedgerItem>
 fun TransactionsScreen(
     onEdit: (String) -> Unit,
     onEditTransfer: (String) -> Unit,
+    onEditDebt: (String) -> Unit,
     onOpenAdvanceCase: (String) -> Unit,
     onAddShortcut: () -> Unit
 ) {
@@ -237,14 +239,15 @@ fun TransactionsScreen(
                         when (item) {
                             is LedgerItem.TransactionEntry -> {
                                 val groupId = item.item.transaction.transferGroupId?.toString()
+                                val isDebtForgiveness = TransactionSemantics.isDebtForgiveness(item.item.transaction.note)
                                 val isTransfer = item.item.transaction.type == TransactionType.Transfer && groupId != null
                                 TransactionRow(
                                     item = item.item,
                                     onClick = {
-                                        if (isTransfer) {
-                                            onEditTransfer(groupId!!)
-                                        } else {
-                                            onEdit(item.item.transaction.id.toString())
+                                        when {
+                                            isDebtForgiveness -> onEditDebt(item.item.transaction.id.toString())
+                                            isTransfer -> onEditTransfer(groupId!!)
+                                            else -> onEdit(item.item.transaction.id.toString())
                                         }
                                     },
                                     onLongClick = {
@@ -539,6 +542,12 @@ private fun TransactionRow(
     }
     val amountText = item.transaction.amount.asCurrencyText(item.transaction.currencyCode)
     val categoryText = item.category?.name ?: "未分類"
+    val isDebtForgiveness = item.transaction.type == TransactionType.Transfer && TransactionSemantics.isDebtForgiveness(item.transaction.note)
+    val displayTitle = if (isDebtForgiveness) {
+        TransactionSemantics.debtForgivenessDisplayTitle(item.transaction.note)
+    } else {
+        item.transaction.note.ifBlank { categoryText }
+    }
     val accountText = item.account?.name ?: "未指定帳戶"
     val metaText = listOfNotNull(
         categoryText.takeIf { it.isNotBlank() },
@@ -556,11 +565,22 @@ private fun TransactionRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    item.transaction.note.ifBlank { categoryText },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        displayTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (isDebtForgiveness) {
+                        ParityStatusPill(
+                            text = "免除債務",
+                            tint = Color(0xFF8E24AA)
+                        )
+                    }
+                }
                 Text(
                     metaText,
                     style = MaterialTheme.typography.labelMedium,
@@ -583,7 +603,7 @@ private fun TransactionRow(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "${transactionTypeLabel(item.transaction.type)} · ${item.transaction.currencyCode}",
+                    "${transactionTypeLabel(item)} · ${item.transaction.currencyCode}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -785,6 +805,7 @@ private fun ShortcutTile(
 private fun transferTintForNote(note: String): Color {
     val compact = note.replace(" ", "")
     return when {
+        TransactionSemantics.isDebtForgiveness(note) -> Color(0xFF8E24AA)
         compact.contains("(代墊給") || compact.contains("(代墊給我") -> Color(0xFFEF6C00)
         compact.contains("(還款至") || compact.contains("(還款給") -> Color(0xFF00897B)
         else -> MaterialTheme.colorScheme.onSurface
@@ -916,8 +937,9 @@ private fun formatHeaderDate(date: LocalDate): String {
     }
 }
 
-private fun transactionTypeLabel(type: TransactionType): String = when (type) {
-    TransactionType.Income -> "收入"
-    TransactionType.Expense -> "支出"
-    TransactionType.Transfer -> "轉帳"
+private fun transactionTypeLabel(item: TransactionWithDetails): String = when {
+    item.transaction.type == TransactionType.Transfer && TransactionSemantics.isDebtForgiveness(item.transaction.note) -> "免除債務"
+    item.transaction.type == TransactionType.Income -> "收入"
+    item.transaction.type == TransactionType.Expense -> "支出"
+    else -> "轉帳"
 }

@@ -146,6 +146,8 @@ struct TransactionsListView: View {
                 if tx.type == .transfer {
                     if isAdvanceTransfer(tx) {
                         EditAdvanceTransferView(originalTransaction: tx)
+                    } else if TransactionSemantics.isDebtForgiveness(note: tx.note) {
+                        AddDebtView(existingForgivenessTransaction: tx)
                     } else {
                         EditTransferView(originalTransaction: tx)
                     }
@@ -260,7 +262,7 @@ struct TransactionsListView: View {
     var filteredTransactions: [FinancialTransaction] {
         let calendar = Calendar.current
         let timeFiltered = transactions.filter { tx in
-            if tx.type == .transfer && tx.amount > 0 { return false }
+            if tx.type == .transfer && tx.amount > 0 && !TransactionSemantics.isDebtForgiveness(note: tx.note) { return false }
             if tx.type == .transfer,
                tx.transferGroupID == nil,
                tx.linkedTransactionID == nil,
@@ -438,7 +440,7 @@ struct TransactionsListView: View {
     }
     
     private func isAssetAdjustment(note: String) -> Bool {
-        note.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("[資產調整]")
+        note.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(TransactionSemantics.assetAdjustmentMarker)
     }
 }
 

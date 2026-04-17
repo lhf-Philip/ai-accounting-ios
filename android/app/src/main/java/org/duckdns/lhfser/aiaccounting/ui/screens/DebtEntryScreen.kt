@@ -16,6 +16,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,14 +28,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import org.duckdns.lhfser.aiaccounting.core.model.AccountType
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.core.model.TransferSide
+import org.duckdns.lhfser.aiaccounting.core.transactions.DebtForgivenessDirection
+import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
+import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
+import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyRateHint
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityMenuField
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
@@ -53,7 +57,8 @@ import java.util.UUID
 
 private enum class DebtMode(val label: String) {
     Borrow("借入 (我欠人)"),
-    Repay("還款 (還給人)")
+    Repay("還款 (還給人)"),
+    Forgive("免除債務")
 }
 
 private enum class DebtEntryMode(val label: String) {
@@ -76,18 +81,23 @@ private data class DebtMergeLeg(
 )
 
 @Composable
-fun DebtEntryScreen(onDone: () -> Unit) {
+fun DebtEntryScreen(
+    transactionId: String? = null,
+    onDone: () -> Unit
+) {
     val repository = LocalRepository.current
+    val currencyService = LocalCurrencyService.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
     val accounts by repository.accounts.collectAsState(initial = emptyList())
-    val debtAccounts = remember(accounts) { accounts.filter { it.type == AccountType.Debt && !it.isArchived }.sortedBy { it.name } }
-    val myAccounts = remember(accounts) { accounts.filter { it.type != AccountType.Debt && !it.isArchived }.sortedBy { it.sortOrder } }
+    val debtAccounts = remember(accounts) { TransactionSemantics.debtAccounts(accounts).sortedBy { it.name } }
+    val myAccounts = remember(accounts) { TransactionSemantics.ownAccounts(accounts).sortedBy { it.sortOrder } }
 
     var mode by remember { mutableStateOf(DebtMode.Borrow) }
     var entryMode by remember { mutableStateOf(DebtEntryMode.Normal) }
+    var forgivenessDirection by remember { mutableStateOf(DebtForgivenessDirection.ForgivenByOthers) }
     var selectedDebtAccount by remember { mutableStateOf<AccountEntity?>(null) }
     var selectedMyAccount by remember { mutableStateOf<AccountEntity?>(null) }
     var selectedCurrency by remember { mutableStateOf("HKD") }
@@ -98,12 +108,47 @@ fun DebtEntryScreen(onDone: () -> Unit) {
     var mergeLegs by remember { mutableStateOf(listOf(DebtMergeLeg())) }
     var validationMessage by remember { mutableStateOf<String?>(null) }
 
-    if (selectedDebtAccount == null && debtAccounts.isNotEmpty()) {
-        selectedDebtAccount = debtAccounts.first()
+    LaunchedEffect(currencyService.mainCurrency) {
+        currencyService.fetchRates()
     }
-    if (selectedMyAccount == null && myAccounts.isNotEmpty()) {
-        selectedMyAccount = myAccounts.first()
-        selectedCurrency = selectedMyAccount?.currency ?: selectedCurrency
+
+    LaunchedEffect(debtAccounts, myAccounts) {
+        if (selectedDebtAccount == null || debtAccounts.none { it.id == selectedDebtAccount?.id }) {
+            selectedDebtAccount = debtAccounts.firstOrNull()
+        }
+        if (selectedMyAccount == null || myAccounts.none { it.id == selectedMyAccount?.id }) {
+            selectedMyAccount = myAccounts.firstOrNull()
+        }
+        if (mode == DebtMode.Forgive) {
+            selectedCurrency = selectedDebtAccount?.currency ?: selectedCurrency
+        } else {
+            selectedCurrency = selectedMyAccount?.currency ?: selectedCurrency
+        }
+    }
+
+    LaunchedEffect(mode, selectedDebtAccount, selectedMyAccount) {
+        if (mode == DebtMode.Forgive) {
+            entryMode = DebtEntryMode.Normal
+            selectedCurrency = selectedDebtAccount?.currency ?: selectedCurrency
+        } else {
+            selectedCurrency = selectedMyAccount?.currency ?: selectedCurrency
+        }
+    }
+
+    LaunchedEffect(transactionId, accounts) {
+        val id = transactionId?.let(UUID::fromString) ?: return@LaunchedEffect
+        val existing = repository.getTransaction(id)?.transaction ?: return@LaunchedEffect
+        if (existing.type == TransactionType.Transfer && TransactionSemantics.isDebtForgiveness(existing.note)) {
+            mode = DebtMode.Forgive
+            entryMode = DebtEntryMode.Normal
+            forgivenessDirection = TransactionSemantics.debtForgivenessDirection(existing.note)
+                ?: DebtForgivenessDirection.ForgivenByOthers
+            selectedDebtAccount = accounts.firstOrNull { it.id == existing.accountId }
+            selectedCurrency = existing.currencyCode
+            amountInput = existing.amount.abs().toPlainString()
+            note = extractForgivenessBaseNote(existing.note)
+            date = existing.date
+        }
     }
 
     Column(
@@ -119,14 +164,14 @@ fun DebtEntryScreen(onDone: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
     ) {
         ParityTopSection(
-            title = "借貸管理",
-            subtitle = "和 iOS 一樣，借貸會落成一組或多組轉帳分錄，方便之後繼續編輯與對帳。"
+            title = if (transactionId == null) "債務管理" else "編輯債務紀錄",
+            subtitle = "借入、還款與免除債務分開處理，不會再混成一般收入。"
         )
 
         SectionCard {
             ParitySectionHeader(
-                title = "借貸方式",
-                detail = "先選操作，再決定一般 / 分拆 / 合併模式"
+                title = "債務方式",
+                detail = "先選操作，再決定是否需要分拆或合併。"
             )
             ParitySegmentedControl(
                 options = DebtMode.values().toList(),
@@ -134,32 +179,55 @@ fun DebtEntryScreen(onDone: () -> Unit) {
                 label = { it.label },
                 onSelect = { mode = it }
             )
-            ParitySegmentedControl(
-                options = DebtEntryMode.values().toList(),
-                selected = entryMode,
-                label = { it.label },
-                onSelect = { entryMode = it }
-            )
+            if (mode == DebtMode.Forgive) {
+                ParitySegmentedControl(
+                    options = DebtForgivenessDirection.values().toList(),
+                    selected = forgivenessDirection,
+                    label = { it.label },
+                    onSelect = { forgivenessDirection = it }
+                )
+                Text(
+                    forgivenessDirection.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                ParitySegmentedControl(
+                    options = DebtEntryMode.values().toList(),
+                    selected = entryMode,
+                    label = { it.label },
+                    onSelect = { entryMode = it }
+                )
+            }
         }
 
         if (debtAccounts.isEmpty()) {
             ParityEmptyState(
                 title = "還沒有借貸對象",
-                message = "先到帳戶頁建立類型為借貸的帳戶，之後才能記錄借入與還款流程。"
+                message = "先到帳戶頁建立類型為借貸的帳戶，之後才能記錄借入、還款或免除債務。"
             )
         } else {
             SectionCard {
                 ParitySectionHeader(
-                    title = "帳戶與對象",
-                    detail = "選擇借貸對象與你的實際資金帳戶"
+                    title = "對象與帳戶",
+                    detail = if (mode == DebtMode.Forgive) "免除債務只需要指定借貸對象。" else "借貸會同時影響你的帳戶與借貸對象。"
                 )
                 AccountMenuPicker(
-                    label = if (mode == DebtMode.Borrow) "跟誰借" else "還給誰",
+                    label = when (mode) {
+                        DebtMode.Borrow -> "跟誰借"
+                        DebtMode.Repay -> "還給誰"
+                        DebtMode.Forgive -> "借貸對象"
+                    },
                     options = debtAccounts,
                     selected = selectedDebtAccount,
-                    onSelect = { selectedDebtAccount = it }
+                    onSelect = {
+                        selectedDebtAccount = it
+                        if (mode == DebtMode.Forgive && it != null) {
+                            selectedCurrency = it.currency
+                        }
+                    }
                 )
-                if (entryMode != DebtEntryMode.Split) {
+                if (mode != DebtMode.Forgive && entryMode != DebtEntryMode.Split) {
                     AccountMenuPicker(
                         label = if (mode == DebtMode.Borrow) "存入帳戶" else "付款帳戶",
                         options = myAccounts,
@@ -178,23 +246,34 @@ fun DebtEntryScreen(onDone: () -> Unit) {
         SectionCard {
             ParitySectionHeader(
                 title = "金額與時間",
-                detail = "這裡的資料會直接影響之後產生的轉帳分錄"
+                detail = if (mode == DebtMode.Forgive) "免除債務只會調整借貸帳戶餘額，不會記成收入。" else "這裡的輸入會生成對應的借貸轉帳分錄。"
             )
-            when (entryMode) {
-                DebtEntryMode.Normal -> {
+            when {
+                mode == DebtMode.Forgive -> {
                     AmountCurrencyRow(
                         amount = amountInput,
                         onAmountChange = { amountInput = sanitizeAmount(it) },
                         currency = selectedCurrency,
-                        onCurrencyChange = { selectedCurrency = it }
+                        onCurrencyChange = { selectedCurrency = it },
+                        currencyService = currencyService
                     )
                 }
-                DebtEntryMode.Split -> {
+                entryMode == DebtEntryMode.Normal -> {
+                    AmountCurrencyRow(
+                        amount = amountInput,
+                        onAmountChange = { amountInput = sanitizeAmount(it) },
+                        currency = selectedCurrency,
+                        onCurrencyChange = { selectedCurrency = it },
+                        currencyService = currencyService
+                    )
+                }
+                entryMode == DebtEntryMode.Split -> {
                     splitLegs.forEachIndexed { index, leg ->
                         DebtSplitLegEditor(
                             index = index,
                             leg = leg,
                             accounts = myAccounts,
+                            currencyService = currencyService,
                             onUpdate = { updated ->
                                 splitLegs = splitLegs.toMutableList().also { it[index] = updated }
                             },
@@ -207,11 +286,12 @@ fun DebtEntryScreen(onDone: () -> Unit) {
                         Text("新增分拆帳戶")
                     }
                 }
-                DebtEntryMode.Merge -> {
+                entryMode == DebtEntryMode.Merge -> {
                     mergeLegs.forEachIndexed { index, leg ->
                         DebtMergeLegEditor(
                             index = index,
                             leg = leg,
+                            currencyService = currencyService,
                             onUpdate = { updated ->
                                 mergeLegs = mergeLegs.toMutableList().also { it[index] = updated }
                             },
@@ -253,10 +333,11 @@ fun DebtEntryScreen(onDone: () -> Unit) {
 
         ParitySummaryCard(
             title = "交易預覽",
-            value = totalAmountPreview(entryMode, amountInput, splitLegs, mergeLegs),
+            value = totalAmountPreview(mode, entryMode, amountInput, splitLegs, mergeLegs),
             supporting = when (mode) {
                 DebtMode.Borrow -> "借入會讓借貸帳戶出帳、你的帳戶入帳"
                 DebtMode.Repay -> "還款會讓你的帳戶出帳、借貸帳戶入帳"
+                DebtMode.Forgive -> forgivenessDirection.label
             }
         )
 
@@ -271,25 +352,52 @@ fun DebtEntryScreen(onDone: () -> Unit) {
                     validationMessage = "請先選擇借貸對象。"
                     return@Button
                 }
-                val transactions = buildDebtTransactions(
-                    mode = mode,
-                    entryMode = entryMode,
-                    debtAccount = debtAccount,
-                    myAccount = selectedMyAccount,
-                    date = date,
-                    note = note,
-                    currency = selectedCurrency,
-                    amountInput = amountInput,
-                    splitLegs = splitLegs,
-                    mergeLegs = mergeLegs
-                )
-                if (transactions == null) {
-                    validationMessage = "請輸入完整金額並選擇需要的帳戶。"
-                    return@Button
-                }
                 scope.launch {
-                    repository.upsertTransactions(transactions)
-                    onDone()
+                    if (mode == DebtMode.Forgive) {
+                        val amount = amountInput.toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO }
+                        if (amount == null) {
+                            validationMessage = "請輸入有效金額。"
+                            return@launch
+                        }
+                        val id = transactionId?.let(UUID::fromString) ?: UUID.randomUUID()
+                        val transaction = TransactionEntity(
+                            id = id,
+                            amount = amount.multiply(forgivenessDirection.amountSign),
+                            currencyCode = selectedCurrency,
+                            date = date,
+                            note = TransactionSemantics.debtForgivenessNote(note, debtAccount.name, forgivenessDirection),
+                            photoPath = null,
+                            type = TransactionType.Transfer,
+                            linkedTransactionId = null,
+                            transferGroupId = null,
+                            transferSide = null,
+                            createdAt = Instant.now(),
+                            updatedAt = Instant.now(),
+                            accountId = debtAccount.id,
+                            categoryId = null
+                        )
+                        repository.upsertTransaction(transaction, emptyList())
+                        onDone()
+                    } else {
+                        val transactions = buildDebtTransactions(
+                            mode = mode,
+                            entryMode = entryMode,
+                            debtAccount = debtAccount,
+                            myAccount = selectedMyAccount,
+                            date = date,
+                            note = note,
+                            currency = selectedCurrency,
+                            amountInput = amountInput,
+                            splitLegs = splitLegs,
+                            mergeLegs = mergeLegs
+                        )
+                        if (transactions == null) {
+                            validationMessage = "請輸入完整金額並選擇需要的帳戶。"
+                            return@launch
+                        }
+                        repository.upsertTransactions(transactions)
+                        onDone()
+                    }
                 }
             },
             modifier = Modifier
@@ -297,9 +405,9 @@ fun DebtEntryScreen(onDone: () -> Unit) {
                 .height(50.dp),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            enabled = debtAccounts.isNotEmpty() && myAccounts.isNotEmpty()
+            enabled = debtAccounts.isNotEmpty() && (mode == DebtMode.Forgive || myAccounts.isNotEmpty())
         ) {
-            Text("確認")
+            Text(if (transactionId == null) "確認" else "儲存")
         }
     }
 }
@@ -316,6 +424,7 @@ private fun AccountMenuPicker(
         ParityMenuField(
             label = label,
             value = selected?.name.orEmpty(),
+            placeholder = "選擇帳戶",
             onClick = { expanded = true }
         )
         androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -337,18 +446,26 @@ private fun AmountCurrencyRow(
     amount: String,
     onAmountChange: (String) -> Unit,
     currency: String,
-    onCurrencyChange: (String) -> Unit
+    onCurrencyChange: (String) -> Unit,
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.weight(1f)) {
-            OutlinedTextField(
-                value = amount,
-                onValueChange = onAmountChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("金額") }
-            )
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f)) {
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = onAmountChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("金額") }
+                )
+            }
+            CurrencyPicker(selected = currency, onSelect = onCurrencyChange, buttonStyle = CurrencyButtonStyle.Text)
         }
-        CurrencyPicker(selected = currency, onSelect = onCurrencyChange, buttonStyle = CurrencyButtonStyle.Text)
+        CurrencyRateHint(
+            currencyService = currencyService,
+            amount = amount.toBigDecimalOrNull(),
+            currencyCode = currency
+        )
     }
 }
 
@@ -357,6 +474,7 @@ private fun DebtSplitLegEditor(
     index: Int,
     leg: DebtSplitLeg,
     accounts: List<AccountEntity>,
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
     onUpdate: (DebtSplitLeg) -> Unit,
     onRemove: (() -> Unit)?
 ) {
@@ -373,7 +491,8 @@ private fun DebtSplitLegEditor(
             amount = leg.amount,
             onAmountChange = { onUpdate(leg.copy(amount = sanitizeAmount(it))) },
             currency = leg.currency,
-            onCurrencyChange = { onUpdate(leg.copy(currency = it)) }
+            onCurrencyChange = { onUpdate(leg.copy(currency = it)) },
+            currencyService = currencyService
         )
         if (onRemove != null) {
             TextButton(onClick = onRemove) { Text("移除此帳戶") }
@@ -385,6 +504,7 @@ private fun DebtSplitLegEditor(
 private fun DebtMergeLegEditor(
     index: Int,
     leg: DebtMergeLeg,
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
     onUpdate: (DebtMergeLeg) -> Unit,
     onRemove: (() -> Unit)?
 ) {
@@ -394,7 +514,8 @@ private fun DebtMergeLegEditor(
             amount = leg.amount,
             onAmountChange = { onUpdate(leg.copy(amount = sanitizeAmount(it))) },
             currency = leg.currency,
-            onCurrencyChange = { onUpdate(leg.copy(currency = it)) }
+            onCurrencyChange = { onUpdate(leg.copy(currency = it)) },
+            currencyService = currencyService
         )
         if (onRemove != null) {
             TextButton(onClick = onRemove) { Text("移除此金額項") }
@@ -530,15 +651,17 @@ private fun createDebtPair(
 }
 
 private fun totalAmountPreview(
+    mode: DebtMode,
     entryMode: DebtEntryMode,
     amountInput: String,
     splitLegs: List<DebtSplitLeg>,
     mergeLegs: List<DebtMergeLeg>
 ): String {
-    val total = when (entryMode) {
-        DebtEntryMode.Normal -> amountInput.toBigDecimalOrNull()
-        DebtEntryMode.Split -> splitLegs.mapNotNull { it.amount.toBigDecimalOrNull() }.takeIf { it.size == splitLegs.size }?.fold(BigDecimal.ZERO, BigDecimal::add)
-        DebtEntryMode.Merge -> mergeLegs.mapNotNull { it.amount.toBigDecimalOrNull() }.takeIf { it.size == mergeLegs.size }?.fold(BigDecimal.ZERO, BigDecimal::add)
+    val total = when {
+        mode == DebtMode.Forgive -> amountInput.toBigDecimalOrNull()
+        entryMode == DebtEntryMode.Normal -> amountInput.toBigDecimalOrNull()
+        entryMode == DebtEntryMode.Split -> splitLegs.mapNotNull { it.amount.toBigDecimalOrNull() }.takeIf { it.size == splitLegs.size }?.fold(BigDecimal.ZERO, BigDecimal::add)
+        else -> mergeLegs.mapNotNull { it.amount.toBigDecimalOrNull() }.takeIf { it.size == mergeLegs.size }?.fold(BigDecimal.ZERO, BigDecimal::add)
     }
     return total?.toPlainString() ?: "尚未完成輸入"
 }
@@ -566,4 +689,11 @@ private fun indexedMemo(base: String, mode: DebtEntryMode, index: Int, count: In
     }
     val trimmed = base.trim()
     return listOf(trimmed, suffix).filter { it.isNotBlank() }.joinToString(" ")
+}
+
+private fun extractForgivenessBaseNote(note: String): String {
+    return TransactionSemantics.debtForgivenessDisplayTitle(note)
+        .replace(Regex("\\(對方免除：.*\\)$"), "")
+        .replace(Regex("\\(我方免除：.*\\)$"), "")
+        .trim()
 }

@@ -9,8 +9,7 @@ struct AddShortcutView: View {
     @Query(sort: \Category.name) private var categories: [Category]
     @Query(sort: \Tag.name) private var tags: [Tag]
     
-    // 過濾已歸檔帳戶 (不讓用戶建立關聯到已歸檔帳戶的捷徑)
-    var accounts: [Account] { allAccounts.filter { !$0.isArchived } }
+    var accounts: [Account] { TransactionSemantics.allowedAccounts(for: selectedType, from: allAccounts) }
     
     @State private var name: String = ""
     @State private var icon: String = "⚡️"
@@ -56,6 +55,12 @@ struct AddShortcutView: View {
                     .onChange(of: selectedType) { _, _ in
                         if let current = selectedCategory, !current.kind.supports(selectedType) {
                             selectedCategory = nil
+                        }
+                        if let selectedAccount, !accounts.contains(where: { $0.id == selectedAccount.id }) {
+                            self.selectedAccount = accounts.first
+                            if let selectedAccount = self.selectedAccount {
+                                selectedCurrency = selectedAccount.currency
+                            }
                         }
                     }
                     

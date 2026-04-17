@@ -3,6 +3,8 @@ import SwiftData
 
 struct DataHealthCheckView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
+    @Query(sort: \Shortcut.name) private var shortcuts: [Shortcut]
     
     @State private var report: HealthReport?
     @State private var isRunning = false
@@ -30,6 +32,8 @@ struct DataHealthCheckView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            legacyDebtIncomeSection
             
             if let report {
                 issuesSection("錯誤", severity: .error, report: report)
@@ -55,6 +59,69 @@ struct DataHealthCheckView: View {
             Button("好", role: .cancel) {}
         } message: {
             Text(alertMessage)
+        }
+    }
+
+    @ViewBuilder
+    private var legacyDebtIncomeSection: some View {
+        let legacyTransactions = LegacyDebtIncomeRepairService.legacyDebtIncomeTransactions(from: transactions)
+        let legacyShortcuts = LegacyDebtIncomeRepairService.legacyDebtIncomeShortcuts(from: shortcuts)
+
+        if !legacyTransactions.isEmpty || !legacyShortcuts.isEmpty {
+            Section("收入 / 借貸清理") {
+                if !legacyTransactions.isEmpty {
+                    Button(isRunning ? "處理中..." : "全部轉成免除債務 (\(legacyTransactions.count))") {
+                        convertAllLegacyDebtIncomeTransactions(legacyTransactions)
+                    }
+                    .disabled(isRunning)
+
+                    ForEach(legacyTransactions) { transaction in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(transaction.account?.name ?? "未指定借貸帳戶")
+                                .font(.headline)
+                            Text(transaction.amount.formatted(.currency(code: transaction.currencyCode)))
+                                .font(.subheadline)
+                            Text(transaction.date.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(transaction.note.isEmpty ? "沒有備註" : transaction.note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button("轉成免除債務") {
+                                convertLegacyDebtIncomeTransaction(transaction)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(isRunning)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                if !legacyShortcuts.isEmpty {
+                    Button(isRunning ? "處理中..." : "清除收入捷徑的借貸帳戶綁定 (\(legacyShortcuts.count))") {
+                        detachAllLegacyDebtIncomeShortcuts(legacyShortcuts)
+                    }
+                    .disabled(isRunning)
+
+                    ForEach(legacyShortcuts) { shortcut in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("\(shortcut.icon) \(shortcut.name)")
+                                .font(.headline)
+                            Text("目前綁定：\(shortcut.account?.name ?? "未指定帳戶")")
+                                .font(.subheadline)
+                            Text("金額：\(shortcut.amount.formatted(.currency(code: shortcut.currencyCode)))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button("移除借貸帳戶綁定") {
+                                detachLegacyDebtIncomeShortcut(shortcut)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isRunning)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
         }
     }
     
@@ -140,6 +207,76 @@ struct DataHealthCheckView: View {
             alertMessage = "修復失敗：\(error.localizedDescription)"
         }
         
+        isRunning = false
+        showingAlert = true
+    }
+
+    private func convertLegacyDebtIncomeTransaction(_ transaction: FinancialTransaction) {
+        isRunning = true
+        do {
+            guard LegacyDebtIncomeRepairService.convertLegacyDebtIncomeTransaction(transaction, modelContext: modelContext) else {
+                alertMessage = "這筆資料已經不是舊版收入 / 借貸異常紀錄。"
+                showingAlert = true
+                isRunning = false
+                return
+            }
+            try modelContext.save()
+            report = DataHealthCheckService.run(modelContext: modelContext)
+            alertMessage = "已把這筆資料轉成免除債務。"
+        } catch {
+            alertMessage = "轉換失敗：\(error.localizedDescription)"
+        }
+        isRunning = false
+        showingAlert = true
+    }
+
+    private func convertAllLegacyDebtIncomeTransactions(_ transactions: [FinancialTransaction]) {
+        isRunning = true
+        do {
+            let converted = try LegacyDebtIncomeRepairService.convertLegacyDebtIncomeTransactions(
+                transactions,
+                modelContext: modelContext
+            )
+            report = DataHealthCheckService.run(modelContext: modelContext)
+            alertMessage = "已把 \(converted) 筆舊版收入 / 借貸紀錄轉成免除債務。"
+        } catch {
+            alertMessage = "批量轉換失敗：\(error.localizedDescription)"
+        }
+        isRunning = false
+        showingAlert = true
+    }
+
+    private func detachLegacyDebtIncomeShortcut(_ shortcut: Shortcut) {
+        isRunning = true
+        do {
+            guard LegacyDebtIncomeRepairService.detachLegacyDebtIncomeShortcut(shortcut, modelContext: modelContext) else {
+                alertMessage = "這個捷徑已經不是舊版收入 / 借貸異常綁定。"
+                showingAlert = true
+                isRunning = false
+                return
+            }
+            try modelContext.save()
+            report = DataHealthCheckService.run(modelContext: modelContext)
+            alertMessage = "已移除這個收入捷徑的借貸帳戶綁定。"
+        } catch {
+            alertMessage = "清理失敗：\(error.localizedDescription)"
+        }
+        isRunning = false
+        showingAlert = true
+    }
+
+    private func detachAllLegacyDebtIncomeShortcuts(_ shortcuts: [Shortcut]) {
+        isRunning = true
+        do {
+            let detached = try LegacyDebtIncomeRepairService.detachLegacyDebtIncomeShortcuts(
+                shortcuts,
+                modelContext: modelContext
+            )
+            report = DataHealthCheckService.run(modelContext: modelContext)
+            alertMessage = "已清除 \(detached) 個收入捷徑的借貸帳戶綁定。"
+        } catch {
+            alertMessage = "批量清理失敗：\(error.localizedDescription)"
+        }
         isRunning = false
         showingAlert = true
     }

@@ -4,6 +4,7 @@ import SwiftData
 struct EditTransactionView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var transaction: FinancialTransaction
+    @StateObject private var currencyService = CurrencyService.shared
     
     @Query(sort: \Account.sortOrder) private var accounts: [Account]
     @Query(sort: \Category.name) private var categories: [Category]
@@ -14,6 +15,15 @@ struct EditTransactionView: View {
     
     // 🔥 新增：焦點控制
     @FocusState private var isAmountFocused: Bool
+
+    private var selectableAccounts: [Account] {
+        let allowed = TransactionSemantics.allowedAccounts(for: transaction.type, from: accounts)
+        guard let current = transaction.account else { return allowed }
+        if allowed.contains(where: { $0.id == current.id }) {
+            return allowed
+        }
+        return [current] + allowed
+    }
     
     var body: some View {
         NavigationStack {
@@ -35,6 +45,10 @@ struct EditTransactionView: View {
                             if let category = transaction.category, !category.kind.supports(newType) {
                                 transaction.category = nil
                             }
+                            if let currentAccount = transaction.account,
+                               !TransactionSemantics.allowedAccounts(for: newType, from: accounts).contains(where: { $0.id == currentAccount.id }) {
+                                transaction.account = TransactionSemantics.allowedAccounts(for: newType, from: accounts).first
+                            }
                         }
                     }
 
@@ -45,12 +59,17 @@ struct EditTransactionView: View {
                             .focused($isAmountFocused) // 🔥 綁定焦點
                             .onChange(of: amountString) { _, _ in updateTransactionAmount() }
                     }
+                    CurrencyRateHintView(
+                        currencyService: currencyService,
+                        amount: Decimal(string: amountString),
+                        currencyCode: transaction.currencyCode
+                    )
                 }
 
                 Section("詳細資訊") {
                     Picker("帳戶", selection: $transaction.account) {
                         Text("無").tag(nil as Account?)
-                        ForEach(accounts.filter { !$0.isArchived }) { acc in
+                        ForEach(selectableAccounts) { acc in
                             Text(acc.name).tag(acc as Account?)
                         }
                     }
@@ -114,6 +133,7 @@ struct EditTransactionView: View {
             .onAppear {
                 amountString = String(format: "%.2f", abs(NSDecimalNumber(decimal: transaction.amount).doubleValue))
                 selectedTags = Set(transaction.tags)
+                Task { await currencyService.fetchRates() }
             }
         }
     }

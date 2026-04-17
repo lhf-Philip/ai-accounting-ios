@@ -4,8 +4,10 @@ import SwiftData
 struct AddDebtView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var currencyService = CurrencyService.shared
 
     @Query(sort: \Account.sortOrder) private var allAccounts: [Account]
+    private let existingForgivenessTransactionID: UUID?
 
     private var debtAccounts: [Account] {
         allAccounts.filter { $0.type == .debt && !$0.isArchived }.sorted { $0.name < $1.name }
@@ -18,6 +20,7 @@ struct AddDebtView: View {
     enum DebtMode: String, CaseIterable {
         case borrow = "借入 (我欠人)"
         case repay = "還款 (還給人)"
+        case forgive = "免除債務"
     }
 
     private enum EntryMode: String, CaseIterable, Identifiable {
@@ -50,6 +53,7 @@ struct AddDebtView: View {
     }
 
     @State private var mode: DebtMode = .borrow
+    @State private var forgivenessDirection: DebtForgivenessDirection = .forgivenByOthers
     @State private var entryMode: EntryMode = .normal
 
     @State private var selectedDebtAccount: Account?
@@ -68,6 +72,10 @@ struct AddDebtView: View {
 
     @FocusState private var isAmountFocused: Bool
 
+    init(existingForgivenessTransaction: FinancialTransaction? = nil) {
+        self.existingForgivenessTransactionID = existingForgivenessTransaction?.id
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -79,12 +87,21 @@ struct AddDebtView: View {
                     }
                     .pickerStyle(.segmented)
 
-                    Picker("模式", selection: $entryMode) {
-                        ForEach(EntryMode.allCases) { option in
-                            Text(option.title).tag(option)
+                    if mode == .forgive {
+                        Picker("免除方向", selection: $forgivenessDirection) {
+                            ForEach(DebtForgivenessDirection.allCases) { option in
+                                Text(option.rawValue).tag(option)
+                            }
                         }
+                        .pickerStyle(.segmented)
+                    } else {
+                        Picker("模式", selection: $entryMode) {
+                            ForEach(EntryMode.allCases) { option in
+                                Text(option.title).tag(option)
+                            }
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
                 }
 
                 Section {
@@ -93,15 +110,20 @@ struct AddDebtView: View {
                             .foregroundStyle(.red)
                             .font(.caption)
                     } else {
-                        Picker(mode == .borrow ? "跟誰借" : "還給誰", selection: $selectedDebtAccount) {
+                        Picker(debtAccountLabel, selection: $selectedDebtAccount) {
                             Text("請選擇對象").tag(nil as Account?)
                             ForEach(debtAccounts) { acc in
                                 Text(acc.name).tag(acc as Account?)
                             }
                         }
+                        .onChange(of: selectedDebtAccount) { _, newValue in
+                            if mode == .forgive, let newValue {
+                                selectedCurrency = newValue.currency
+                            }
+                        }
                     }
 
-                    if entryMode != .split {
+                    if mode != .forgive && entryMode != .split {
                         Picker(mode == .borrow ? "存入帳戶" : "付款帳戶", selection: $selectedMyAccount) {
                             Text("請選擇帳戶").tag(nil as Account?)
                             ForEach(myAccounts) { acc in
@@ -117,7 +139,7 @@ struct AddDebtView: View {
                 }
 
                 Section("金額與幣種") {
-                    switch entryMode {
+                    switch effectiveEntryMode {
                     case .normal:
                         normalAmountRow
                     case .split:
@@ -145,7 +167,7 @@ struct AddDebtView: View {
                     Button("取消") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("確認") { saveTransaction() }
+                    Button(existingForgivenessTransactionID == nil ? "確認" : "儲存") { saveTransaction() }
                         .disabled(!canSubmit)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
@@ -154,6 +176,19 @@ struct AddDebtView: View {
                 }
             }
             .onAppear {
+                if let existingForgivenessTransactionID,
+                   let transaction = allAccounts
+                    .flatMap(\.transactions)
+                    .first(where: { $0.id == existingForgivenessTransactionID && TransactionSemantics.isDebtForgiveness(note: $0.note) }) {
+                    mode = .forgive
+                    forgivenessDirection = TransactionSemantics.debtForgivenessDirection(note: transaction.note)
+                        ?? (transaction.amount >= 0 ? .forgivenByOthers : .forgiveOthers)
+                    selectedDebtAccount = transaction.account
+                    selectedCurrency = transaction.currencyCode
+                    amountString = NSDecimalNumber(decimal: abs(transaction.amount)).stringValue
+                    date = transaction.date
+                    note = extractForgivenessNote(transaction.note)
+                }
                 if selectedMyAccount == nil {
                     selectedMyAccount = myAccounts.first
                 }
@@ -167,27 +202,43 @@ struct AddDebtView: View {
                     splitLegs[0].account = first
                     splitLegs[0].currency = first.currency
                 }
+                Task { await currencyService.fetchRates() }
+            }
+            .onChange(of: mode) { _, newMode in
+                if newMode == .forgive {
+                    entryMode = .normal
+                    if let selectedDebtAccount {
+                        selectedCurrency = selectedDebtAccount.currency
+                    }
+                }
             }
         }
     }
 
     @ViewBuilder
     private var normalAmountRow: some View {
-        HStack {
-            Picker("", selection: $selectedCurrency) {
-                ForEach(currencies, id: \.self) { code in
-                    Text(code).tag(code)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Picker("", selection: $selectedCurrency) {
+                    ForEach(currencies, id: \.self) { code in
+                        Text(code).tag(code)
+                    }
                 }
-            }
-            .labelsHidden()
-            .frame(width: 80)
+                .labelsHidden()
+                .frame(width: 80)
 
-            TextField("0", text: Binding(
-                get: { amountString },
-                set: { amountString = sanitizePositiveDecimalInput($0) }
-            ))
-            .keyboardType(.decimalPad)
-            .focused($isAmountFocused)
+                TextField("0", text: Binding(
+                    get: { amountString },
+                    set: { amountString = sanitizePositiveDecimalInput($0) }
+                ))
+                .keyboardType(.decimalPad)
+                .focused($isAmountFocused)
+            }
+            CurrencyRateHintView(
+                currencyService: currencyService,
+                amount: positiveDecimal(from: amountString),
+                currencyCode: selectedCurrency
+            )
         }
     }
 
@@ -223,6 +274,11 @@ struct AddDebtView: View {
                     .keyboardType(.decimalPad)
                     .focused($isAmountFocused)
                 }
+                CurrencyRateHintView(
+                    currencyService: currencyService,
+                    amount: positiveDecimal(from: leg.amountString),
+                    currencyCode: leg.currency
+                )
 
                 if splitLegs.count > 1 {
                     Button(role: .destructive) {
@@ -261,6 +317,11 @@ struct AddDebtView: View {
                 .keyboardType(.decimalPad)
                 .focused($isAmountFocused)
             }
+            CurrencyRateHintView(
+                currencyService: currencyService,
+                amount: positiveDecimal(from: leg.amountString),
+                currencyCode: leg.currency
+            )
 
             if mergeLegs.count > 1 {
                 Button(role: .destructive) {
@@ -290,9 +351,12 @@ struct AddDebtView: View {
                 if mode == .borrow {
                     Text("對象：\(debtAcc.name)")
                     Text("動作：借入（我方資產增加）")
-                } else {
+                } else if mode == .repay {
                     Text("對象：\(debtAcc.name)")
                     Text("動作：還款（我方資產減少）")
+                } else {
+                    Text("對象：\(debtAcc.name)")
+                    Text("動作：\(forgivenessDirection.displayTitle)")
                 }
 
                 if let total {
@@ -305,7 +369,7 @@ struct AddDebtView: View {
     }
 
     private var totalInputAmount: Decimal? {
-        switch entryMode {
+        switch effectiveEntryMode {
         case .normal:
             return positiveDecimal(from: amountString)
         case .split:
@@ -322,8 +386,11 @@ struct AddDebtView: View {
     private var canSubmit: Bool {
         guard selectedDebtAccount != nil else { return false }
 
-        switch entryMode {
+        switch effectiveEntryMode {
         case .normal:
+            if mode == .forgive {
+                return positiveDecimal(from: amountString) != nil
+            }
             return selectedMyAccount != nil && positiveDecimal(from: amountString) != nil
         case .split:
             return splitLegs.contains { $0.account != nil && positiveDecimal(from: $0.amountString) != nil }
@@ -341,15 +408,27 @@ struct AddDebtView: View {
             return
         }
 
-        switch entryMode {
+        switch effectiveEntryMode {
         case .normal:
-            guard let myAcc = selectedMyAccount,
-                  let amount = positiveDecimal(from: amountString)
-            else {
-                showValidation("請輸入完整金額並選擇帳戶。")
+            guard let amount = positiveDecimal(from: amountString) else {
+                showValidation("請輸入有效金額。")
                 return
             }
-            createTransferPair(debtAccount: debtAcc, myAccount: myAcc, amount: amount, currencyCode: selectedCurrency, memo: note)
+            if mode == .forgive {
+                createDebtForgivenessTransaction(
+                    debtAccount: debtAcc,
+                    amount: amount,
+                    currencyCode: selectedCurrency,
+                    memo: note,
+                    direction: forgivenessDirection
+                )
+            } else {
+                guard let myAcc = selectedMyAccount else {
+                    showValidation("請輸入完整金額並選擇帳戶。")
+                    return
+                }
+                createTransferPair(debtAccount: debtAcc, myAccount: myAcc, amount: amount, currencyCode: selectedCurrency, memo: note)
+            }
 
         case .split:
             var legs: [(account: Account, amount: Decimal, currency: String)] = []
@@ -466,6 +545,52 @@ struct AddDebtView: View {
         }
     }
 
+    private func createDebtForgivenessTransaction(
+        debtAccount: Account,
+        amount: Decimal,
+        currencyCode: String,
+        memo: String,
+        direction: DebtForgivenessDirection
+    ) {
+        let normalizedAmount = abs(amount) * direction.amountSign
+        if let existingForgivenessTransactionID,
+           let transaction = allAccounts
+            .flatMap(\.transactions)
+            .first(where: { $0.id == existingForgivenessTransactionID }) {
+            transaction.amount = normalizedAmount
+            transaction.currencyCode = currencyCode
+            transaction.date = date
+            transaction.note = TransactionSemantics.debtForgivenessNote(
+                baseNote: memo,
+                debtAccountName: debtAccount.name,
+                direction: direction
+            )
+            transaction.type = .transfer
+            transaction.linkedTransactionID = nil
+            transaction.transferGroupID = nil
+            transaction.transferSide = nil
+            transaction.account = debtAccount
+            transaction.updatedAt = Date()
+        } else {
+            let transaction = FinancialTransaction(
+                amount: normalizedAmount,
+                currencyCode: currencyCode,
+                date: date,
+                note: TransactionSemantics.debtForgivenessNote(
+                    baseNote: memo,
+                    debtAccountName: debtAccount.name,
+                    direction: direction
+                ),
+                type: .transfer,
+                linkedTransactionID: nil,
+                transferGroupID: nil,
+                transferSide: nil,
+                account: debtAccount
+            )
+            modelContext.insert(transaction)
+        }
+    }
+
     private func indexedMemo(base: String, mode: EntryMode, index: Int, count: Int) -> String {
         let suffix: String
         switch mode {
@@ -508,5 +633,35 @@ struct AddDebtView: View {
     private func showValidation(_ message: String) {
         validationMessage = message
         showingValidationAlert = true
+    }
+
+    private var debtAccountLabel: String {
+        switch mode {
+        case .borrow:
+            return "跟誰借"
+        case .repay:
+            return "還給誰"
+        case .forgive:
+            switch forgivenessDirection {
+            case .forgivenByOthers:
+                return "誰免除了你的欠款"
+            case .forgiveOthers:
+                return "你要免除誰的欠款"
+            }
+        }
+    }
+
+    private var effectiveEntryMode: EntryMode {
+        mode == .forgive ? .normal : entryMode
+    }
+
+    private func extractForgivenessNote(_ note: String) -> String {
+        let cleaned = note
+            .replacingOccurrences(of: TransactionSemantics.debtForgivenessMarker, with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = cleaned.range(of: "(對方免除：") ?? cleaned.range(of: "(我方免除：") {
+            return cleaned[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return cleaned
     }
 }

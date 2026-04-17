@@ -131,6 +131,10 @@ interface ShortcutDao {
     @Query("SELECT * FROM shortcuts")
     suspend fun getAll(): List<ShortcutEntity>
 
+    @Transaction
+    @Query("SELECT * FROM shortcuts ORDER BY name ASC")
+    suspend fun getAllWithDetails(): List<ShortcutWithDetails>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(shortcut: ShortcutEntity)
 

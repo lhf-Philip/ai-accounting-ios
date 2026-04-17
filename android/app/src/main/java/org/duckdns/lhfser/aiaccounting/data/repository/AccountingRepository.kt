@@ -15,6 +15,7 @@ import org.duckdns.lhfser.aiaccounting.core.health.DataHealthReport
 import org.duckdns.lhfser.aiaccounting.core.health.DataHealthSnapshot
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.core.model.TransferSide
+import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseEntity
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceParticipantEntity
@@ -114,9 +115,84 @@ class AccountingRepository(
                 budgets = budgetDao.getAll(),
                 advanceCases = advanceDao.getAllCasesWithDetails(),
                 advanceParticipants = advanceDao.getAllParticipants(),
-                advanceRepayments = advanceDao.getAllRepayments()
+                advanceRepayments = advanceDao.getAllRepayments(),
+                shortcuts = shortcutDao.getAllWithDetails()
             )
         )
+    }
+
+    suspend fun legacyDebtIncomeTransactions(): List<TransactionWithDetails> {
+        return transactionDao.getAllWithDetails().filter(TransactionSemantics::isLegacyDebtIncome)
+    }
+
+    suspend fun legacyDebtIncomeShortcuts(): List<ShortcutWithDetails> {
+        return shortcutDao.getAllWithDetails().filter(TransactionSemantics::isLegacyDebtIncome)
+    }
+
+    suspend fun convertLegacyDebtIncomeTransaction(transactionId: UUID): Boolean {
+        return database.withTransaction {
+            val existing = transactionDao.getTransaction(transactionId) ?: return@withTransaction false
+            val account = existing.account ?: return@withTransaction false
+            if (!TransactionSemantics.isLegacyDebtIncome(existing)) {
+                return@withTransaction false
+            }
+
+            val direction = if (existing.transaction.amount >= BigDecimal.ZERO) {
+                org.duckdns.lhfser.aiaccounting.core.transactions.DebtForgivenessDirection.ForgivenByOthers
+            } else {
+                org.duckdns.lhfser.aiaccounting.core.transactions.DebtForgivenessDirection.ForgiveOthers
+            }
+
+            val updated = existing.transaction.copy(
+                amount = existing.transaction.amount.abs().multiply(direction.amountSign),
+                note = TransactionSemantics.debtForgivenessNote(
+                    baseNote = TransactionSemantics.debtForgivenessDisplayTitle(existing.transaction.note),
+                    debtAccountName = account.name,
+                    direction = direction
+                ),
+                type = TransactionType.Transfer,
+                linkedTransactionId = null,
+                transferGroupId = null,
+                transferSide = null,
+                updatedAt = Instant.now(),
+                accountId = account.id,
+                categoryId = null
+            )
+            transactionDao.upsert(updated)
+            transactionDao.clearTransactionTags(updated.id)
+            syncAllBudgetHistory()
+            true
+        }
+    }
+
+    suspend fun convertAllLegacyDebtIncomeTransactions(): Int {
+        var converted = 0
+        for (transaction in legacyDebtIncomeTransactions()) {
+            if (convertLegacyDebtIncomeTransaction(transaction.transaction.id)) {
+                converted += 1
+            }
+        }
+        return converted
+    }
+
+    suspend fun detachLegacyDebtIncomeShortcut(shortcutId: UUID): Boolean {
+        return database.withTransaction {
+            val shortcut = shortcutDao.getAllWithDetails().firstOrNull { it.shortcut.id == shortcutId } ?: return@withTransaction false
+            if (!TransactionSemantics.isLegacyDebtIncome(shortcut)) {
+                return@withTransaction false
+            }
+            shortcutDao.upsert(shortcut.shortcut.copy(accountId = null))
+            true
+        }
+    }
+
+    suspend fun detachAllLegacyDebtIncomeShortcuts(): Int {
+        val shortcuts = legacyDebtIncomeShortcuts()
+        if (shortcuts.isEmpty()) return 0
+        database.withTransaction {
+            shortcutDao.upsertAll(shortcuts.map { it.shortcut.copy(accountId = null) })
+        }
+        return shortcuts.size
     }
 
     suspend fun upsertAccount(account: AccountEntity) {
