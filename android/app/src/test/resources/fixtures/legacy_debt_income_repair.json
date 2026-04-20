@@ -1,0 +1,115 @@
+{
+  "version": "1.4",
+  "timestamp": "2026-02-01T00:00:00Z",
+  "accounts": [
+    {
+      "id": "12121212-1212-1212-1212-121212121211",
+      "name": "Cash Wallet",
+      "currency": "HKD",
+      "type": "Cash",
+      "baseBalance": 300,
+      "sortOrder": 0,
+      "isArchived": false
+    },
+    {
+      "id": "12121212-1212-1212-1212-121212121212",
+      "name": "Friend Loan",
+      "currency": "HKD",
+      "type": "Debt",
+      "baseBalance": 0,
+      "sortOrder": 1,
+      "isArchived": false
+    },
+    {
+      "id": "12121212-1212-1212-1212-121212121213",
+      "name": "HSBC",
+      "currency": "HKD",
+      "type": "Bank",
+      "baseBalance": 900,
+      "sortOrder": 2,
+      "isArchived": false
+    }
+  ],
+  "categories": [
+    {
+      "id": "abababab-abab-abab-abab-ababababab11",
+      "name": "Salary",
+      "icon": "banknote",
+      "colorHex": "#10B981",
+      "kind": null
+    },
+    {
+      "id": "abababab-abab-abab-abab-ababababab12",
+      "name": "Groceries",
+      "icon": "cart",
+      "colorHex": "#F97316",
+      "kind": "Expense"
+    }
+  ],
+  "tags": [],
+  "transactions": [
+    {
+      "id": "34343434-3434-3434-3434-343434343431",
+      "amount": 150,
+      "currencyCode": "HKD",
+      "date": "2026-01-05T09:00:00Z",
+      "note": "Legacy debt income",
+      "type": "Income",
+      "linkedTransactionID": null,
+      "transferGroupID": null,
+      "transferSide": null,
+      "photoPath": null,
+      "createdAt": "2026-01-05T09:00:00Z",
+      "updatedAt": "2026-01-05T09:00:00Z",
+      "accountID": "12121212-1212-1212-1212-121212121212",
+      "categoryID": "abababab-abab-abab-abab-ababababab11",
+      "tagIDs": []
+    },
+    {
+      "id": "34343434-3434-3434-3434-343434343432",
+      "amount": -45,
+      "currencyCode": "HKD",
+      "date": "2026-01-08T18:30:00Z",
+      "note": "Weekly groceries",
+      "type": "Expense",
+      "linkedTransactionID": null,
+      "transferGroupID": null,
+      "transferSide": null,
+      "photoPath": null,
+      "createdAt": "2026-01-08T18:30:00Z",
+      "updatedAt": "2026-01-08T18:30:00Z",
+      "accountID": "12121212-1212-1212-1212-121212121211",
+      "categoryID": "abababab-abab-abab-abab-ababababab12",
+      "tagIDs": []
+    }
+  ],
+  "shortcuts": [
+    {
+      "id": "56565656-5656-5656-5656-565656565651",
+      "name": "Legacy salary shortcut",
+      "icon": "banknote",
+      "amount": 60,
+      "type": "Income",
+      "note": "Shortcut still points to debt account",
+      "currencyCode": null,
+      "accountID": "12121212-1212-1212-1212-121212121212",
+      "categoryID": "abababab-abab-abab-abab-ababababab11",
+      "tagIDs": []
+    }
+  ],
+  "budgets": [
+    {
+      "id": "78787878-7878-7878-7878-787878787871",
+      "monthKey": "2026-01",
+      "amount": 100,
+      "currencyCode": "HKD",
+      "isEnabled": null,
+      "categoryID": "abababab-abab-abab-abab-ababababab12",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "advanceCases": null,
+  "advanceParticipants": null,
+  "advanceRepayments": null
+}

@@ -59,6 +59,10 @@ struct ContentView: View {
         return hasher.finalize()
     }
 
+    private var isRunningXCTest: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .bottomTrailing) {
@@ -148,6 +152,7 @@ struct ContentView: View {
             showingAddAdvanceCase = false
         }
         .onChange(of: scenePhase, initial: true) { _, newPhase in
+            guard !isRunningXCTest else { return }
             switch newPhase {
             case .active:
                 idleBackupTask?.cancel()
@@ -159,6 +164,7 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            guard !isRunningXCTest else { return }
             guard !initialGuideChecked else { return }
             initialGuideChecked = true
             selectedTab = hasSeenUserGuide ? .ledger : .home
@@ -167,6 +173,7 @@ struct ContentView: View {
             }
         }
         .task(id: budgetHistorySyncToken) {
+            guard !isRunningXCTest else { return }
             do {
                 try BudgetHistoryService.shared.syncAll(
                     modelContext: modelContext,
