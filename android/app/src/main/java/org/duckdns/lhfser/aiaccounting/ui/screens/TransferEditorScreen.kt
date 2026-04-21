@@ -240,7 +240,7 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                         TransferLegEditor(
                             title = "轉入帳戶 ${index + 1}",
                             leg = leg,
-                            accounts = selectableAccounts.filter { it.id != sourceAccount?.id },
+                            accounts = selectableAccounts,
                             currencyService = currencyService,
                             onUpdate = { updated ->
                                 destinationLegs = destinationLegs.toMutableList().also { it[index] = updated }
@@ -271,7 +271,7 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                         TransferLegEditor(
                             title = "轉出帳戶 ${index + 1}",
                             leg = leg,
-                            accounts = selectableAccounts.filter { it.id != destinationAccount?.id },
+                            accounts = selectableAccounts,
                             currencyService = currencyService,
                             onUpdate = { updated ->
                                 sourceLegs = sourceLegs.toMutableList().also { it[index] = updated }

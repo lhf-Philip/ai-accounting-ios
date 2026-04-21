@@ -174,7 +174,7 @@ fun AddTransferScreen(onDone: () -> Unit) {
                         TransferLegEditor(
                             title = "轉入帳戶 ${index + 1}",
                             leg = leg,
-                            accounts = activeAccounts.filter { it.id != sourceAccount?.id },
+                            accounts = activeAccounts,
                             currencyService = currencyService,
                             onUpdate = { updated ->
                                 destinationLegs = destinationLegs.toMutableList().also { it[index] = updated }
@@ -205,7 +205,7 @@ fun AddTransferScreen(onDone: () -> Unit) {
                         TransferLegEditor(
                             title = "轉出帳戶 ${index + 1}",
                             leg = leg,
-                            accounts = activeAccounts.filter { it.id != destinationAccount?.id },
+                            accounts = activeAccounts,
                             currencyService = currencyService,
                             onUpdate = { updated ->
                                 sourceLegs = sourceLegs.toMutableList().also { it[index] = updated }
