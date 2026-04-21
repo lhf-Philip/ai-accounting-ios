@@ -300,10 +300,6 @@ struct EditTransferView: View {
                 showValidation("轉入帳戶不可重複，請合併金額。")
                 return
             }
-            if !outgoingIDs.isDisjoint(with: incomingIDs) {
-                showValidation("同一帳戶不可同時出現在轉出與轉入。")
-                return
-            }
 
             var existing = try fetchGroupTransactions(for: originalTransaction)
                 .filter { $0.type == .transfer }

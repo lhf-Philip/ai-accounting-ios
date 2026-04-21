@@ -158,9 +158,6 @@ struct AddTransferView: View {
             .onChange(of: fromAccount) { _, _ in
                 if let acc = fromAccount {
                     currencyOut = acc.currency
-                    if toAccount?.id == acc.id {
-                        toAccount = nil
-                    }
                 }
             }
 
@@ -199,7 +196,7 @@ struct AddTransferView: View {
         Section("轉入方 (收入)") {
             Picker("到帳戶", selection: $toAccount) {
                 Text("選擇帳戶").tag(nil as Account?)
-                ForEach(activeAccounts.filter { $0.id != fromAccount?.id }) { acc in
+                ForEach(activeAccounts) { acc in
                     Text(acc.name).tag(acc as Account?)
                 }
             }
@@ -265,11 +262,6 @@ struct AddTransferView: View {
             .onChange(of: sourceAccount) { _, _ in
                 if let acc = sourceAccount {
                     sourceCurrency = acc.currency
-                    for index in destinationLegs.indices {
-                        if destinationLegs[index].account?.id == acc.id {
-                            destinationLegs[index].account = nil
-                        }
-                    }
                 }
             }
 
@@ -302,7 +294,7 @@ struct AddTransferView: View {
                 VStack(spacing: 10) {
                     Picker("到帳戶", selection: $leg.account) {
                         Text("選擇帳戶").tag(nil as Account?)
-                        ForEach(activeAccounts.filter { $0.id != sourceAccount?.id }) { acc in
+                        ForEach(activeAccounts) { acc in
                             Text(acc.name).tag(acc as Account?)
                         }
                     }
@@ -361,7 +353,7 @@ struct AddTransferView: View {
                 VStack(spacing: 10) {
                     Picker("從帳戶", selection: $leg.account) {
                         Text("選擇帳戶").tag(nil as Account?)
-                        ForEach(activeAccounts.filter { $0.id != destinationAccount?.id }) { acc in
+                        ForEach(activeAccounts) { acc in
                             Text(acc.name).tag(acc as Account?)
                         }
                     }
@@ -422,11 +414,6 @@ struct AddTransferView: View {
             .onChange(of: destinationAccount) { _, _ in
                 if let acc = destinationAccount {
                     destinationCurrency = acc.currency
-                    for index in sourceLegs.indices {
-                        if sourceLegs[index].account?.id == acc.id {
-                            sourceLegs[index].account = nil
-                        }
-                    }
                 }
             }
 
@@ -468,10 +455,6 @@ struct AddTransferView: View {
 
     private func saveOneToOneTransfer() {
         guard let from = fromAccount, let to = toAccount else { return }
-        guard from.id != to.id else {
-            showValidation("轉出與轉入帳戶不可相同。")
-            return
-        }
         guard let amountOut = positiveDecimal(from: amountOutString) else {
             showValidation("請輸入大於 0 的轉出金額。")
             return
@@ -547,10 +530,6 @@ struct AddTransferView: View {
 
         var accountIDs = Set<UUID>()
         for leg in parsedLegs {
-            if leg.account.id == source.id {
-                showValidation("轉入帳戶不可與轉出帳戶相同。")
-                return
-            }
             if accountIDs.contains(leg.account.id) {
                 showValidation("分拆轉入帳戶不可重複，請合併該帳戶的金額。")
                 return
@@ -624,10 +603,6 @@ struct AddTransferView: View {
 
         var accountIDs = Set<UUID>()
         for leg in parsedLegs {
-            if leg.account.id == destination.id {
-                showValidation("轉出帳戶不可與轉入帳戶相同。")
-                return
-            }
             if accountIDs.contains(leg.account.id) {
                 showValidation("轉出帳戶不可重複，請合併該帳戶的金額。")
                 return
