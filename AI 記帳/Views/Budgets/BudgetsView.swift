@@ -5,6 +5,7 @@ struct BudgetsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Category.name) private var categories: [Category]
     @Query(sort: \CategoryMonthlyBudget.monthKey, order: .reverse) private var budgets: [CategoryMonthlyBudget]
+    @Query(sort: \BudgetSettings.updatedAt, order: .reverse) private var budgetSettingsRecords: [BudgetSettings]
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @StateObject private var currencyService = CurrencyService.shared
     
@@ -16,6 +17,10 @@ struct BudgetsView: View {
     
     private var monthKey: String {
         BudgetService.monthKey(from: selectedMonthDate)
+    }
+
+    private var budgetSettings: BudgetSettings? {
+        budgetSettingsRecords.first
     }
     
     private var monthStatuses: [BudgetStatus] {
@@ -44,6 +49,43 @@ struct BudgetsView: View {
                 DatePicker("預算月份", selection: $selectedMonthDate, displayedComponents: [.date])
                     .datePickerStyle(.compact)
                 Toggle("只顯示提醒", isOn: $showingOnlyAlerts)
+            }
+
+            if let budgetSettings {
+                Section("預算規則") {
+                    Picker("結轉方式", selection: Binding(
+                        get: { budgetSettings.carryOverMode },
+                        set: { mode in
+                            budgetSettings.carryOverMode = mode
+                            persistBudgetSettings()
+                            applyCarryOverIfNeeded()
+                        }
+                    )) {
+                        ForEach(BudgetCarryOverMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+
+                    Stepper(
+                        value: Binding(
+                            get: { Int(truncating: NSDecimalNumber(decimal: budgetSettings.alertThresholdPercent)) },
+                            set: { value in
+                                budgetSettings.alertThresholdPercent = Decimal(value)
+                                budgetSettings.updatedAt = Date()
+                                persistBudgetSettings()
+                            }
+                        ),
+                        in: 50...100,
+                        step: 5
+                    ) {
+                        Text("提醒門檻：\(Int(truncating: NSDecimalNumber(decimal: budgetSettings.alertThresholdPercent)))%")
+                    }
+
+                    LabeledContent("預測方式", value: budgetSettings.forecastMode.displayName)
+                    Text(carryOverDescription(for: budgetSettings.carryOverMode))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             
             if visibleStatuses.isEmpty {
@@ -75,6 +117,13 @@ struct BudgetsView: View {
             }
         }
         .navigationTitle("預算與超支提醒")
+        .task {
+            ensureBudgetSettings()
+            applyCarryOverIfNeeded()
+        }
+        .onChange(of: selectedMonthDate) { _, _ in
+            applyCarryOverIfNeeded()
+        }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -127,7 +176,9 @@ struct BudgetsView: View {
         let categoryName = budget.category?.name ?? "未分類"
         let progress = min(max(Double(NSDecimalNumber(decimal: status.ratio).doubleValue), 0), 1.5)
         let overBy = abs(status.remaining)
-        let color: Color = status.isOverBudget ? .red : (status.ratio >= 0.85 ? .orange : .green)
+        let threshold = (budgetSettings?.alertThresholdPercent ?? 85) / 100
+        let forecast = BudgetService.forecast(for: status)
+        let color: Color = status.isOverBudget ? .red : (status.ratio >= threshold ? .orange : .green)
         
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -159,8 +210,101 @@ struct BudgetsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            HStack {
+                Text("月底預測：\(forecast.projectedSpent.formatted(.currency(code: budget.currencyCode)))")
+                    .font(.caption2)
+                    .foregroundStyle(forecast.isProjectedOverBudget ? .red : .secondary)
+                Spacer()
+                if forecast.isProjectedOverBudget {
+                    Text("預計超支 \(abs(forecast.projectedRemaining).formatted(.currency(code: budget.currencyCode)))")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                } else {
+                    Text("預計剩餘 \(forecast.projectedRemaining.formatted(.currency(code: budget.currencyCode)))")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .padding(.vertical, 4)
+    }
+
+    private func ensureBudgetSettings() {
+        guard budgetSettingsRecords.isEmpty else { return }
+        modelContext.insert(BudgetSettings())
+        persistBudgetSettings()
+    }
+
+    private func persistBudgetSettings() {
+        do {
+            try modelContext.save()
+        } catch {
+            print("儲存預算設定失敗: \(error)")
+        }
+    }
+
+    private func carryOverDescription(for mode: BudgetCarryOverMode) -> String {
+        switch mode {
+        case .none:
+            return "新月份不會自動建立預算。"
+        case .unusedOnly:
+            return "新月份會把上月剩餘金額加到同分類預算。"
+        case .overspendOnly:
+            return "新月份會扣減上月超支金額。"
+        case .netBalance:
+            return "新月份會把上月剩餘或超支都結轉。"
+        }
+    }
+
+    private func applyCarryOverIfNeeded() {
+        guard let settings = budgetSettings,
+              settings.carryOverMode != .none,
+              let previousMonthKey = BudgetService.previousMonthKey(from: monthKey)
+        else { return }
+
+        let currentCategoryIDs = Set(budgets.compactMap { budget -> UUID? in
+            guard budget.monthKey == monthKey else { return nil }
+            return budget.category?.id
+        })
+
+        let previousStatuses = BudgetService.statuses(
+            for: previousMonthKey,
+            budgets: budgets,
+            transactions: transactions,
+            currencyService: currencyService
+        )
+
+        var inserted = false
+        for status in previousStatuses {
+            guard let category = status.budget.category,
+                  !currentCategoryIDs.contains(category.id)
+            else { continue }
+
+            let amount = BudgetService.carryOverAmount(
+                previousBudgetAmount: status.budget.amount,
+                previousRemaining: status.remaining,
+                mode: settings.carryOverMode
+            )
+            guard amount > 0 else { continue }
+
+            modelContext.insert(CategoryMonthlyBudget(
+                monthKey: monthKey,
+                amount: amount,
+                currencyCode: status.budget.currencyCode,
+                isEnabled: status.budget.isEnabled,
+                category: category
+            ))
+            inserted = true
+        }
+
+        guard inserted else { return }
+        do {
+            try modelContext.save()
+            try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: currencyService)
+        } catch {
+            print("套用預算結轉失敗: \(error)")
+        }
     }
     
     private func deleteBudget(_ budget: CategoryMonthlyBudget) {

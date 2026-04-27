@@ -14,6 +14,7 @@ data class FullBackupData(
     val shortcuts: List<ShortcutCodable>,
     val budgets: List<BudgetCodable>?,
     val budgetHistory: List<BudgetHistoryCodable>?,
+    val budgetSettings: List<BudgetSettingsCodable>? = null,
     val advanceCases: List<AdvanceCaseCodable>?,
     val advanceParticipants: List<AdvanceParticipantCodable>?,
     val advanceRepayments: List<AdvanceRepaymentCodable>?
@@ -95,6 +96,14 @@ data class FullBackupData(
         val usageRatio: BigDecimal,
         val isOverBudget: Boolean,
         val currencyCode: String,
+        val updatedAt: Instant?
+    )
+
+    data class BudgetSettingsCodable(
+        val id: String,
+        val carryOverMode: String,
+        val alertThresholdPercent: BigDecimal,
+        val forecastMode: String,
         val updatedAt: Instant?
     )
 

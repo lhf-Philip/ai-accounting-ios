@@ -59,6 +59,36 @@ enum CategoryKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum BudgetCarryOverMode: String, Codable, CaseIterable, Identifiable {
+    case none = "None"
+    case unusedOnly = "UnusedOnly"
+    case overspendOnly = "OverspendOnly"
+    case netBalance = "NetBalance"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .none: return "不結轉"
+        case .unusedOnly: return "只結轉剩餘"
+        case .overspendOnly: return "只扣減超支"
+        case .netBalance: return "結轉淨額"
+        }
+    }
+}
+
+enum BudgetForecastMode: String, Codable, CaseIterable, Identifiable {
+    case spendingPace = "SpendingPace"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .spendingPace: return "按本月使用速度"
+        }
+    }
+}
+
 // MARK: - Models
 
 @Model
@@ -279,6 +309,45 @@ final class BudgetMonthlyHistory {
         self.isOverBudget = isOverBudget
         self.currencyCode = currencyCode
         self.updatedAt = updatedAt
+    }
+}
+
+@Model
+final class BudgetSettings {
+    @Attribute(.unique) var id: String
+    var carryOverModeRaw: String
+    var alertThresholdPercent: Decimal
+    var forecastModeRaw: String
+    var updatedAt: Date
+
+    init(
+        id: String = "global",
+        carryOverMode: BudgetCarryOverMode = .none,
+        alertThresholdPercent: Decimal = 85,
+        forecastMode: BudgetForecastMode = .spendingPace,
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.carryOverModeRaw = carryOverMode.rawValue
+        self.alertThresholdPercent = alertThresholdPercent
+        self.forecastModeRaw = forecastMode.rawValue
+        self.updatedAt = updatedAt
+    }
+
+    var carryOverMode: BudgetCarryOverMode {
+        get { BudgetCarryOverMode(rawValue: carryOverModeRaw) ?? .none }
+        set {
+            carryOverModeRaw = newValue.rawValue
+            updatedAt = Date()
+        }
+    }
+
+    var forecastMode: BudgetForecastMode {
+        get { BudgetForecastMode(rawValue: forecastModeRaw) ?? .spendingPace }
+        set {
+            forecastModeRaw = newValue.rawValue
+            updatedAt = Date()
+        }
     }
 }
 

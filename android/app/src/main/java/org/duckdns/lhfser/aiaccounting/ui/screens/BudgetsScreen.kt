@@ -60,6 +60,7 @@ import org.duckdns.lhfser.aiaccounting.data.backup.FullBackupData
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
 import org.duckdns.lhfser.aiaccounting.data.db.BudgetMonthlyHistoryEntity
+import org.duckdns.lhfser.aiaccounting.data.db.BudgetSettingsEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
@@ -80,6 +81,14 @@ private data class BudgetStatus(
     val isOverBudget: Boolean = remaining < BigDecimal.ZERO
 }
 
+private data class BudgetForecast(
+    val projectedSpent: BigDecimal,
+    val projectedRemaining: BigDecimal,
+    val projectedRatio: BigDecimal
+) {
+    val isProjectedOverBudget: Boolean = projectedRemaining < BigDecimal.ZERO
+}
+
 @Composable
 fun BudgetsScreen() {
     val repository = LocalRepository.current
@@ -93,6 +102,7 @@ fun BudgetsScreen() {
 
     val budgets by repository.budgets.collectAsState(initial = emptyList())
     val budgetHistories by repository.budgetHistories.collectAsState(initial = emptyList())
+    val budgetSettings by repository.budgetSettings.collectAsState(initial = null)
     val categories by repository.categories.collectAsState(initial = emptyList())
     val transactions by repository.transactions.collectAsState(initial = emptyList())
 
@@ -139,12 +149,31 @@ fun BudgetsScreen() {
     }
 
     val monthKey = monthKeyFromDate(selectedMonthDate)
+    val effectiveBudgetSettings = budgetSettings ?: BudgetSettingsEntity()
     val statuses = remember(budgets, transactions, categories, currencyService, monthKey) {
         buildBudgetStatuses(budgets, transactions, categories, currencyService, monthKey)
     }
     val visibleStatuses = if (showingOnlyAlerts) {
         statuses.filter { it.ratio >= BigDecimal.ONE }
     } else statuses
+
+    LaunchedEffect(budgetSettings) {
+        if (budgetSettings == null) {
+            repository.upsertBudgetSettings(BudgetSettingsEntity())
+        }
+    }
+
+    LaunchedEffect(monthKey, effectiveBudgetSettings.carryOverMode, budgets, transactions, categories) {
+        applyBudgetCarryOverIfNeeded(
+            repository = repository,
+            settings = effectiveBudgetSettings,
+            selectedMonthDate = selectedMonthDate,
+            budgets = budgets,
+            transactions = transactions,
+            categories = categories,
+            currencyService = currencyService
+        )
+    }
 
     LaunchedEffect(editingBudget, expenseCategories) {
         if (editingBudget == null) {
@@ -194,6 +223,65 @@ fun BudgetsScreen() {
                         }
                         Switch(checked = showingOnlyAlerts, onCheckedChange = { showingOnlyAlerts = it })
                     }
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(AppSpacing.card),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("預算規則", style = MaterialTheme.typography.titleSmall)
+                    TextButton(onClick = {
+                        scope.launch {
+                            repository.upsertBudgetSettings(
+                                effectiveBudgetSettings.copy(
+                                    carryOverMode = nextCarryOverMode(effectiveBudgetSettings.carryOverMode),
+                                    updatedAt = Instant.now()
+                                )
+                            )
+                        }
+                    }) {
+                        Text("結轉方式：${carryOverModeLabel(effectiveBudgetSettings.carryOverMode)}")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "提醒門檻：${effectiveBudgetSettings.alertThresholdPercent.toPlainString()}%",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        TextButton(onClick = {
+                            scope.launch {
+                                repository.upsertBudgetSettings(
+                                    effectiveBudgetSettings.copy(
+                                        alertThresholdPercent = (effectiveBudgetSettings.alertThresholdPercent - BigDecimal("5")).coerceAtLeast(BigDecimal("50")),
+                                        updatedAt = Instant.now()
+                                    )
+                                )
+                            }
+                        }) { Text("-5") }
+                        TextButton(onClick = {
+                            scope.launch {
+                                repository.upsertBudgetSettings(
+                                    effectiveBudgetSettings.copy(
+                                        alertThresholdPercent = (effectiveBudgetSettings.alertThresholdPercent + BigDecimal("5")).coerceAtMost(BigDecimal("100")),
+                                        updatedAt = Instant.now()
+                                    )
+                                )
+                            }
+                        }) { Text("+5") }
+                    }
+                    Text(
+                        "預測方式：按本月使用速度。${carryOverModeDescription(effectiveBudgetSettings.carryOverMode)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
@@ -511,6 +599,7 @@ fun BudgetsScreen() {
             items(visibleStatuses) { status ->
                 BudgetRow(
                     status = status,
+                    alertThresholdPercent = effectiveBudgetSettings.alertThresholdPercent,
                     onClick = { editingBudget = status.budget },
                     onLongClick = {
                         budgetToDelete = status.budget
@@ -543,14 +632,21 @@ fun BudgetsScreen() {
 }
 
 @Composable
-private fun BudgetRow(status: BudgetStatus, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun BudgetRow(
+    status: BudgetStatus,
+    alertThresholdPercent: BigDecimal,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
     val progress = status.ratio
         .coerceIn(BigDecimal.ZERO, BigDecimal("1.5"))
         .toFloat()
         .coerceIn(0f, 1.5f)
+    val alertRatio = alertThresholdPercent.divide(BigDecimal("100"), 4, RoundingMode.HALF_UP)
+    val forecast = buildBudgetForecast(status)
     val color = when {
         status.isOverBudget -> MaterialTheme.colorScheme.error
-        status.ratio >= BigDecimal("0.85") -> Color(0xFFFF9800)
+        status.ratio >= alertRatio -> Color(0xFFFF9800)
         else -> Color(0xFF2E7D32)
     }
 
@@ -599,6 +695,23 @@ private fun BudgetRow(status: BudgetStatus, onClick: () -> Unit, onLongClick: ()
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "月底預測：${forecast.projectedSpent.asCurrencyText(status.budget.currencyCode)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (forecast.isProjectedOverBudget) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    if (forecast.isProjectedOverBudget) {
+                        "預計超支 ${forecast.projectedRemaining.abs().asCurrencyText(status.budget.currencyCode)}"
+                    } else {
+                        "預計剩餘 ${forecast.projectedRemaining.asCurrencyText(status.budget.currencyCode)}"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (forecast.isProjectedOverBudget) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -673,6 +786,117 @@ private fun buildBudgetStatuses(
             categoryName = categoryName
         )
     }.sortedByDescending { it.ratio }
+}
+
+private suspend fun applyBudgetCarryOverIfNeeded(
+    repository: org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository,
+    settings: BudgetSettingsEntity,
+    selectedMonthDate: LocalDate,
+    budgets: List<CategoryMonthlyBudgetEntity>,
+    transactions: List<TransactionWithDetails>,
+    categories: List<CategoryEntity>,
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService
+) {
+    if (settings.carryOverMode == "None") return
+
+    val monthKey = monthKeyFromDate(selectedMonthDate)
+    val previousMonthDate = selectedMonthDate.minusMonths(1).withDayOfMonth(1)
+    val previousMonthKey = monthKeyFromDate(previousMonthDate)
+    val existingCategoryIds = budgets
+        .filter { it.monthKey == monthKey }
+        .mapNotNull { it.categoryId }
+        .toSet()
+
+    val previousStatuses = buildBudgetStatuses(
+        budgets = budgets,
+        transactions = transactions,
+        categories = categories,
+        currencyService = currencyService,
+        monthKey = previousMonthKey
+    )
+    val now = Instant.now()
+
+    previousStatuses.forEach { status ->
+        val categoryId = status.budget.categoryId ?: return@forEach
+        if (categoryId in existingCategoryIds) return@forEach
+
+        val amount = carryOverAmount(
+            previousBudgetAmount = status.budget.amount,
+            previousRemaining = status.remaining,
+            mode = settings.carryOverMode
+        )
+        if (amount <= BigDecimal.ZERO) return@forEach
+
+        repository.upsertBudget(
+            CategoryMonthlyBudgetEntity(
+                id = UUID.randomUUID(),
+                monthKey = monthKey,
+                amount = amount,
+                currencyCode = status.budget.currencyCode,
+                isEnabled = status.budget.isEnabled,
+                createdAt = now,
+                updatedAt = now,
+                categoryId = categoryId
+            )
+        )
+    }
+}
+
+private fun carryOverAmount(
+    previousBudgetAmount: BigDecimal,
+    previousRemaining: BigDecimal,
+    mode: String
+): BigDecimal {
+    return when (mode) {
+        "UnusedOnly" -> previousBudgetAmount + previousRemaining.max(BigDecimal.ZERO)
+        "OverspendOnly" -> (previousBudgetAmount + previousRemaining.min(BigDecimal.ZERO)).max(BigDecimal.ZERO)
+        "NetBalance" -> (previousBudgetAmount + previousRemaining).max(BigDecimal.ZERO)
+        else -> previousBudgetAmount
+    }
+}
+
+private fun buildBudgetForecast(status: BudgetStatus, today: LocalDate = LocalDate.now()): BudgetForecast {
+    val monthStart = monthStartFromKey(status.budget.monthKey)
+    val daysInMonth = monthStart.lengthOfMonth()
+    val projectedSpent = if (monthKeyFromDate(today) == status.budget.monthKey) {
+        val elapsed = today.dayOfMonth.coerceIn(1, daysInMonth)
+        status.spent
+            .divide(BigDecimal(elapsed), 6, RoundingMode.HALF_UP)
+            .multiply(BigDecimal(daysInMonth))
+    } else {
+        status.spent
+    }
+    val projectedRemaining = status.budget.amount - projectedSpent
+    val projectedRatio = if (status.budget.amount > BigDecimal.ZERO) {
+        projectedSpent.divide(status.budget.amount, 6, RoundingMode.HALF_UP)
+    } else {
+        BigDecimal.ZERO
+    }
+    return BudgetForecast(projectedSpent, projectedRemaining, projectedRatio)
+}
+
+private fun nextCarryOverMode(current: String): String {
+    val modes = listOf("None", "UnusedOnly", "OverspendOnly", "NetBalance")
+    val index = modes.indexOf(current).takeIf { it >= 0 } ?: 0
+    return modes[(index + 1) % modes.size]
+}
+
+private fun carryOverModeLabel(mode: String): String {
+    return when (mode) {
+        "UnusedOnly" -> "只結轉剩餘"
+        "OverspendOnly" -> "只扣減超支"
+        "NetBalance" -> "結轉淨額"
+        else -> "不結轉"
+    }
+}
+
+private fun carryOverModeDescription(mode: String): String {
+    return when (mode) {
+        "UnusedOnly" -> "新月份會把上月剩餘金額加到同分類預算。"
+        "OverspendOnly" -> "新月份會扣減上月超支金額。"
+        "NetBalance" -> "新月份會把上月剩餘或超支都結轉。"
+        else -> "新月份不會自動建立預算。"
+    }
 }
 
 private fun monthKeyFromDate(date: LocalDate): String {

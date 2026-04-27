@@ -15,6 +15,7 @@ struct FullBackupData: Codable {
     let shortcuts: [ShortcutCodable]
     let budgets: [BudgetCodable]?
     let budgetHistory: [BudgetHistoryCodable]?
+    let budgetSettings: [BudgetSettingsCodable]?
     let advanceCases: [AdvanceCaseCodable]?
     let advanceParticipants: [AdvanceParticipantCodable]?
     let advanceRepayments: [AdvanceRepaymentCodable]?
@@ -69,6 +70,13 @@ struct FullBackupData: Codable {
         let usageRatio: Decimal
         let isOverBudget: Bool
         let currencyCode: String
+        let updatedAt: Date?
+    }
+    struct BudgetSettingsCodable: Codable {
+        let id: String
+        let carryOverMode: String
+        let alertThresholdPercent: Decimal
+        let forecastMode: String
         let updatedAt: Date?
     }
     struct AdvanceCaseCodable: Codable {
@@ -174,11 +182,12 @@ class BackupManager: NSObject, ObservableObject {
         let shortcuts = (try? modelContext.fetch(FetchDescriptor<Shortcut>())) ?? []
         let budgets = (try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []
         let budgetHistory = (try? modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>())) ?? []
+        let budgetSettings = (try? modelContext.fetch(FetchDescriptor<BudgetSettings>())) ?? []
         let advanceCases = (try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []
         let advanceParticipants = (try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []
         let advanceRepayments = (try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []
         
-        return FullBackupData(version: "1.6", timestamp: Date(),
+        return FullBackupData(version: "1.7", timestamp: Date(),
             accounts: accounts.map { FullBackupData.AccountCodable(id: $0.id, name: $0.name, currency: $0.currency, type: $0.type.rawValue, baseBalance: $0.baseBalance, sortOrder: $0.sortOrder, isArchived: $0.isArchived) },
             categories: categories.map { FullBackupData.CategoryCodable(id: $0.id, name: $0.name, icon: $0.icon, colorHex: $0.colorHex, kind: $0.kind.rawValue) },
             tags: tags.map { FullBackupData.TagCodable(id: $0.id, name: $0.name) },
@@ -227,6 +236,15 @@ class BackupManager: NSObject, ObservableObject {
                     usageRatio: $0.usageRatio,
                     isOverBudget: $0.isOverBudget,
                     currencyCode: $0.currencyCode,
+                    updatedAt: $0.updatedAt
+                )
+            },
+            budgetSettings: budgetSettings.map {
+                FullBackupData.BudgetSettingsCodable(
+                    id: $0.id,
+                    carryOverMode: $0.carryOverModeRaw,
+                    alertThresholdPercent: $0.alertThresholdPercent,
+                    forecastMode: $0.forecastModeRaw,
                     updatedAt: $0.updatedAt
                 )
             },
@@ -299,6 +317,7 @@ class BackupManager: NSObject, ObservableObject {
         var existingShortcutIDs = Set(((try? modelContext.fetch(FetchDescriptor<Shortcut>())) ?? []).map(\.id))
         var existingBudgetIDs = Set(((try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []).map(\.id))
         var historyByKey = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>())) ?? []).map { ($0.historyKey, $0) })
+        var budgetSettingsByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<BudgetSettings>())) ?? []).map { ($0.id, $0) })
         var advanceCaseByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []).map { ($0.id, $0) })
         var participantByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []).map { ($0.id, $0) })
         var existingRepaymentIDs = Set(((try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []).map(\.id))
@@ -426,6 +445,28 @@ class BackupManager: NSObject, ObservableObject {
                 )
                 modelContext.insert(history)
                 historyByKey[historyDTO.historyKey] = history
+            }
+        }
+
+        if let settingsDTOs = backup.budgetSettings {
+            for settingsDTO in settingsDTOs {
+                if let existing = budgetSettingsByID[settingsDTO.id] {
+                    existing.carryOverModeRaw = settingsDTO.carryOverMode
+                    existing.alertThresholdPercent = settingsDTO.alertThresholdPercent
+                    existing.forecastModeRaw = settingsDTO.forecastMode
+                    existing.updatedAt = settingsDTO.updatedAt ?? Date()
+                    continue
+                }
+
+                let settings = BudgetSettings(
+                    id: settingsDTO.id,
+                    carryOverMode: BudgetCarryOverMode(rawValue: settingsDTO.carryOverMode) ?? .none,
+                    alertThresholdPercent: settingsDTO.alertThresholdPercent,
+                    forecastMode: BudgetForecastMode(rawValue: settingsDTO.forecastMode) ?? .spendingPace,
+                    updatedAt: settingsDTO.updatedAt ?? Date()
+                )
+                modelContext.insert(settings)
+                budgetSettingsByID[settingsDTO.id] = settings
             }
         }
 
