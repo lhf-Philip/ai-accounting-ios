@@ -2,6 +2,12 @@ import SwiftUI
 import SwiftData
 import SQLite3
 
+private extension ProcessInfo {
+    static var isRunningXCTest: Bool {
+        processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+}
+
 @main
 struct AI___App: App {
     private static func repairLegacyCategoryKindsIfNeeded(storeURL: URL) {
@@ -192,6 +198,15 @@ struct AI___App: App {
             AdvanceParticipant.self,
             AdvanceRepayment.self
         ])
+
+        if ProcessInfo.isRunningXCTest {
+            let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+            do {
+                return try ModelContainer(for: schema, configurations: [configuration])
+            } catch {
+                fatalError("Could not create in-memory ModelContainer for tests: \(error)")
+            }
+        }
         
         // 1. 獲取 Documents 資料夾
         let fileManager = FileManager.default

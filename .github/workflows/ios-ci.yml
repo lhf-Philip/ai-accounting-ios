@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  build-and-test:
     runs-on: macos-latest
     timeout-minutes: 30
 
@@ -38,9 +38,20 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             build | tee xcodebuild.log
 
+      - name: Run Unit Tests (iOS Simulator)
+        run: |
+          xcodebuild \
+            -project 'AI 記帳.xcodeproj' \
+            -scheme 'AI 記帳' \
+            -destination 'platform=iOS Simulator,name=iPhone 13' \
+            CODE_SIGNING_ALLOWED=NO \
+            test | tee xcodebuild-test.log
+
       - name: Upload Build Log on Failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: xcodebuild-log
-          path: xcodebuild.log
+          name: xcodebuild-logs
+          path: |
+            xcodebuild.log
+            xcodebuild-test.log

@@ -1,7 +1,7 @@
 # CI Checklist (iOS + Android)
 
 Status: Active  
-Last updated: 2026-03-23
+Last updated: 2026-04-18
 
 This checklist is the baseline for PR quality gates for dual-platform delivery.
 
@@ -29,6 +29,14 @@ xcodebuild -project 'AI 記帳.xcodeproj' \
   build
 ```
 
+```bash
+xcodebuild -project 'AI 記帳.xcodeproj' \
+  -scheme 'AI 記帳' \
+  -destination 'platform=iOS Simulator,name=iPhone 13' \
+  CODE_SIGNING_ALLOWED=NO \
+  test
+```
+
 ### String catalog sanity
 ```bash
 python3 -m json.tool Localizable.xcstrings > /dev/null
@@ -47,10 +55,20 @@ cd android
 - Add transaction (income/expense) and verify report totals.
 - Transfer flow (including grouped transfer) and verify it does not affect income/expense totals.
 - Backup export/import with `android/app/src/test/resources/fixtures/legacy_bidirectional_advances.json`.
+- Legacy repair regression with:
+  - `android/app/src/test/resources/fixtures/legacy_bidirectional_advances.json`
+  - `android/app/src/test/resources/fixtures/legacy_debt_income_repair.json`
 - Advance tracking flow (create case, repayment, remaining amount).
 - Follow the cross-platform matrix in `docs/VALIDATION_MATRIX.md`.
 
-## 5. Release Gate
+## 5. Data Regression Guard
+
+When a PR changes backup format, repair rules, or model semantics:
+- Add or update at least one legacy fixture.
+- Run `restore -> health check -> repair -> re-check -> export` on the affected fixture set.
+- Confirm iOS and Android both accept the supported legacy backups.
+
+## 6. Release Gate
 
 Before creating a release tag:
 - Confirm all required checks are green.
