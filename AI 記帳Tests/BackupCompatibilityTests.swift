@@ -93,6 +93,7 @@ final class BackupCompatibilityTests: XCTestCase {
             Shortcut.self,
             CategoryMonthlyBudget.self,
             BudgetMonthlyHistory.self,
+            BudgetSettings.self,
             AdvanceCase.self,
             AdvanceParticipant.self,
             AdvanceRepayment.self,

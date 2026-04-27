@@ -400,6 +400,7 @@ struct SettingsView: View {
             try modelContext.delete(model: Shortcut.self)
             try modelContext.delete(model: CategoryMonthlyBudget.self)
             try modelContext.delete(model: BudgetMonthlyHistory.self)
+            try modelContext.delete(model: BudgetSettings.self)
             try modelContext.delete(model: AdvanceRepayment.self)
             try modelContext.delete(model: AdvanceParticipant.self)
             try modelContext.delete(model: AdvanceCase.self)

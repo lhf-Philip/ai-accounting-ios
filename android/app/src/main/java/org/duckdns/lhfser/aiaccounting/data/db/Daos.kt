@@ -168,11 +168,17 @@ interface BudgetDao {
     @Query("SELECT * FROM budget_monthly_history ORDER BY monthKey DESC, categoryNameSnapshot ASC")
     fun observeBudgetHistory(): Flow<List<BudgetMonthlyHistoryEntity>>
 
+    @Query("SELECT * FROM budget_settings WHERE id = 'global' LIMIT 1")
+    fun observeBudgetSettings(): Flow<BudgetSettingsEntity?>
+
     @Query("SELECT * FROM category_monthly_budgets")
     suspend fun getAll(): List<CategoryMonthlyBudgetEntity>
 
     @Query("SELECT * FROM budget_monthly_history")
     suspend fun getAllHistory(): List<BudgetMonthlyHistoryEntity>
+
+    @Query("SELECT * FROM budget_settings WHERE id = 'global' LIMIT 1")
+    suspend fun getSettings(): BudgetSettingsEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(budget: CategoryMonthlyBudgetEntity)
@@ -186,6 +192,9 @@ interface BudgetDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAllHistory(history: List<BudgetMonthlyHistoryEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSettings(settings: BudgetSettingsEntity)
+
     @Delete
     suspend fun delete(budget: CategoryMonthlyBudgetEntity)
 
@@ -197,6 +206,9 @@ interface BudgetDao {
 
     @Query("DELETE FROM budget_monthly_history")
     suspend fun deleteAllHistory()
+
+    @Query("DELETE FROM budget_settings")
+    suspend fun deleteAllSettings()
 }
 
 @Dao

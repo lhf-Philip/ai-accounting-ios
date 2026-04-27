@@ -25,6 +25,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.BudgetDao
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
 import org.duckdns.lhfser.aiaccounting.data.db.BudgetMonthlyHistoryEntity
+import org.duckdns.lhfser.aiaccounting.data.db.BudgetSettingsEntity
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutEntity
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutTagCrossRef
 import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
@@ -80,6 +81,7 @@ class AccountingRepository(
     val shortcuts: Flow<List<ShortcutWithDetails>> = shortcutDao.observeShortcuts()
     val budgets: Flow<List<CategoryMonthlyBudgetEntity>> = budgetDao.observeBudgets()
     val budgetHistories: Flow<List<BudgetMonthlyHistoryEntity>> = budgetDao.observeBudgetHistory()
+    val budgetSettings: Flow<BudgetSettingsEntity?> = budgetDao.observeBudgetSettings()
     val advanceCases: Flow<List<AdvanceCaseWithDetails>> = advanceDao.observeAdvanceCases()
 
     private data class AccountDeletionTargets(
@@ -348,6 +350,10 @@ class AccountingRepository(
             budgetDao.delete(budget)
             syncAllBudgetHistory()
         }
+    }
+
+    suspend fun upsertBudgetSettings(settings: BudgetSettingsEntity) {
+        budgetDao.upsertSettings(settings)
     }
 
     suspend fun createTransferOneToOne(
@@ -807,6 +813,7 @@ class AccountingRepository(
         val shortcutTags = shortcutDao.getShortcutTags()
         val budgets = budgetDao.getAll()
         val budgetHistories = budgetDao.getAllHistory()
+        val budgetSettings = budgetDao.getSettings()
         val advanceCases = advanceDao.getAllCases()
         val advanceParticipants = advanceDao.getAllParticipants()
         val advanceRepayments = advanceDao.getAllRepayments()
@@ -815,7 +822,7 @@ class AccountingRepository(
         val shortcutTagMap = shortcutTags.groupBy { it.shortcutId }
 
         return FullBackupData(
-            version = "1.6",
+            version = "1.7",
             timestamp = Instant.now(),
             accounts = accounts.map {
                 FullBackupData.AccountCodable(
@@ -897,6 +904,15 @@ class AccountingRepository(
                     isOverBudget = history.isOverBudget,
                     currencyCode = history.currencyCode,
                     updatedAt = history.updatedAt
+                )
+            },
+            budgetSettings = listOfNotNull(budgetSettings).map { settings ->
+                FullBackupData.BudgetSettingsCodable(
+                    id = settings.id,
+                    carryOverMode = settings.carryOverMode,
+                    alertThresholdPercent = settings.alertThresholdPercent,
+                    forecastMode = settings.forecastMode,
+                    updatedAt = settings.updatedAt
                 )
             },
             advanceCases = advanceCases.map { case ->
@@ -1057,6 +1073,16 @@ class AccountingRepository(
             )
         }.orEmpty()
 
+        val settingsEntities = data.budgetSettings?.map { settings ->
+            BudgetSettingsEntity(
+                id = settings.id,
+                carryOverMode = settings.carryOverMode,
+                alertThresholdPercent = settings.alertThresholdPercent,
+                forecastMode = settings.forecastMode,
+                updatedAt = settings.updatedAt ?: Instant.now()
+            )
+        }.orEmpty()
+
         val caseEntities = data.advanceCases?.map { case ->
             AdvanceCaseEntity(
                 id = case.id,
@@ -1127,6 +1153,7 @@ class AccountingRepository(
             if (historyEntities.isNotEmpty()) {
                 budgetDao.upsertAllHistory(historyEntities)
             }
+            settingsEntities.forEach { budgetDao.upsertSettings(it) }
             caseEntities.forEach { advanceDao.upsertCase(it) }
             if (participantEntities.isNotEmpty()) {
                 advanceDao.upsertParticipants(participantEntities)
@@ -1214,6 +1241,7 @@ class AccountingRepository(
         advanceDao.deleteAllRepayments()
         advanceDao.deleteAllParticipants()
         advanceDao.deleteAllCases()
+        budgetDao.deleteAllSettings()
         budgetDao.deleteAllHistory()
         budgetDao.deleteAll()
         shortcutDao.deleteAllShortcuts()

@@ -136,6 +136,15 @@ data class BudgetMonthlyHistoryEntity(
     val updatedAt: Instant
 )
 
+@Entity(tableName = "budget_settings")
+data class BudgetSettingsEntity(
+    @PrimaryKey val id: String = "global",
+    val carryOverMode: String = "None",
+    val alertThresholdPercent: BigDecimal = BigDecimal("85"),
+    val forecastMode: String = "SpendingPace",
+    val updatedAt: Instant = Instant.now()
+)
+
 @Entity(
     tableName = "advance_cases",
     indices = [Index("payerAccountId"), Index("expenseCategoryId")]

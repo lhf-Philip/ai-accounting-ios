@@ -10,6 +10,18 @@ struct BudgetStatus: Identifiable {
     var id: UUID { budget.id }
 }
 
+struct BudgetForecast {
+    let projectedSpent: Decimal
+    let projectedRemaining: Decimal
+    let projectedRatio: Decimal
+    let daysElapsed: Int
+    let daysInMonth: Int
+
+    var isProjectedOverBudget: Bool {
+        projectedRemaining < 0
+    }
+}
+
 enum BudgetService {
     static func monthKey(from date: Date) -> String {
         let components = Calendar.current.dateComponents([.year, .month], from: date)
@@ -30,6 +42,13 @@ enum BudgetService {
         components.month = month
         components.day = 1
         return Calendar.current.date(from: components)
+    }
+
+    static func previousMonthKey(from monthKey: String) -> String? {
+        guard let start = monthStart(from: monthKey),
+              let previous = Calendar.current.date(byAdding: .month, value: -1, to: start)
+        else { return nil }
+        return self.monthKey(from: previous)
     }
     
     static func statuses(
@@ -67,6 +86,61 @@ enum BudgetService {
                 return $0.isOverBudget && !$1.isOverBudget
             }
             return $0.ratio > $1.ratio
+        }
+    }
+
+    static func forecast(for status: BudgetStatus, today: Date = Date()) -> BudgetForecast {
+        guard let monthStart = monthStart(from: status.budget.monthKey),
+              let monthRange = Calendar.current.range(of: .day, in: .month, for: monthStart)
+        else {
+            return BudgetForecast(
+                projectedSpent: status.spent,
+                projectedRemaining: status.remaining,
+                projectedRatio: status.ratio,
+                daysElapsed: 1,
+                daysInMonth: 1
+            )
+        }
+
+        let daysInMonth = monthRange.count
+        let currentMonthKey = monthKey(from: today)
+        let projectedSpent: Decimal
+        let daysElapsed: Int
+
+        if status.budget.monthKey == currentMonthKey {
+            let day = Calendar.current.component(.day, from: today)
+            daysElapsed = max(1, min(day, daysInMonth))
+            projectedSpent = status.spent / Decimal(daysElapsed) * Decimal(daysInMonth)
+        } else {
+            daysElapsed = daysInMonth
+            projectedSpent = status.spent
+        }
+
+        let projectedRemaining = status.budget.amount - projectedSpent
+        let projectedRatio: Decimal = status.budget.amount > 0 ? projectedSpent / status.budget.amount : 0
+        return BudgetForecast(
+            projectedSpent: projectedSpent,
+            projectedRemaining: projectedRemaining,
+            projectedRatio: projectedRatio,
+            daysElapsed: daysElapsed,
+            daysInMonth: daysInMonth
+        )
+    }
+
+    static func carryOverAmount(
+        previousBudgetAmount: Decimal,
+        previousRemaining: Decimal,
+        mode: BudgetCarryOverMode
+    ) -> Decimal {
+        switch mode {
+        case .none:
+            return previousBudgetAmount
+        case .unusedOnly:
+            return previousBudgetAmount + max(previousRemaining, 0)
+        case .overspendOnly:
+            return max(previousBudgetAmount + min(previousRemaining, 0), 0)
+        case .netBalance:
+            return max(previousBudgetAmount + previousRemaining, 0)
         }
     }
 }

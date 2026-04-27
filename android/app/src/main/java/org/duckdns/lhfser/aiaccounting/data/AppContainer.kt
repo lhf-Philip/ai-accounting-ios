@@ -13,6 +13,7 @@ class AppContainer(context: Context) {
     val database: AIAccountingDatabase by lazy {
         Room.databaseBuilder(appContext, AIAccountingDatabase::class.java, "ai_accounting.db")
             .addMigrations(AIAccountingDatabase.MIGRATION_1_2)
+            .addMigrations(AIAccountingDatabase.MIGRATION_2_3)
             .addCallback(SeedData.callback(appContext))
             .build()
     }

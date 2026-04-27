@@ -17,11 +17,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ShortcutTagCrossRef::class,
         CategoryMonthlyBudgetEntity::class,
         BudgetMonthlyHistoryEntity::class,
+        BudgetSettingsEntity::class,
         AdvanceCaseEntity::class,
         AdvanceParticipantEntity::class,
         AdvanceRepaymentEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -36,8 +37,8 @@ abstract class AIAccountingDatabase : RoomDatabase() {
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS `budget_monthly_history` (
                         `id` TEXT NOT NULL,
@@ -56,9 +57,26 @@ abstract class AIAccountingDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
-                database.execSQL("CREATE INDEX IF NOT EXISTS `index_budget_monthly_history_monthKey` ON `budget_monthly_history` (`monthKey`)")
-                database.execSQL("CREATE INDEX IF NOT EXISTS `index_budget_monthly_history_categoryId` ON `budget_monthly_history` (`categoryId`)")
-                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_budget_monthly_history_historyKey` ON `budget_monthly_history` (`historyKey`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_budget_monthly_history_monthKey` ON `budget_monthly_history` (`monthKey`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_budget_monthly_history_categoryId` ON `budget_monthly_history` (`categoryId`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_budget_monthly_history_historyKey` ON `budget_monthly_history` (`historyKey`)")
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `budget_settings` (
+                        `id` TEXT NOT NULL,
+                        `carryOverMode` TEXT NOT NULL,
+                        `alertThresholdPercent` TEXT NOT NULL,
+                        `forecastMode` TEXT NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
             }
         }
     }
