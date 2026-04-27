@@ -53,6 +53,7 @@ fun SettingsScreen(
     onOpenTags: () -> Unit,
     onOpenBudgets: () -> Unit,
     onOpenAdvances: () -> Unit,
+    onOpenSettlements: () -> Unit,
     onOpenHealth: () -> Unit
 ) {
     val repository = LocalRepository.current
@@ -188,6 +189,7 @@ fun SettingsScreen(
                 ParitySettingRow("分類管理", "支援收入 / 支出 / 兩者", onClick = onOpenCategories)
                 ParitySettingRow("標籤管理", "用於快速篩選與統計", onClick = onOpenTags)
                 ParitySettingRow("代墊追蹤", "查看待還款與還款紀錄", onClick = onOpenAdvances)
+                ParitySettingRow("結算中心", "集中查看代墊、借貸、還款與免除債務", onClick = onOpenSettlements)
                 ParitySettingRow("預算與超支提醒", "設定每月分類預算與 AI 建議", onClick = onOpenBudgets)
                 ParitySettingRow("資料健康檢查", "檢查缺失分類、帳戶與歷史異常", onClick = onOpenHealth)
             }
