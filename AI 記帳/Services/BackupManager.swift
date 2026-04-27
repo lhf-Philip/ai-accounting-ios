@@ -369,6 +369,32 @@ class BackupManager: NSObject, ObservableObject {
     }
 
     @MainActor
+    func restoreBackupData(_ backup: FullBackupData, modelContext: ModelContext, replaceExisting: Bool = false) throws {
+        if replaceExisting {
+            try deleteAllBackupData(modelContext: modelContext)
+        }
+        try restoreDecodedBackup(backup, modelContext: modelContext)
+    }
+
+    @MainActor
+    private func deleteAllBackupData(modelContext: ModelContext) throws {
+        try modelContext.delete(model: FinancialTransaction.self)
+        try modelContext.delete(model: Shortcut.self)
+        try modelContext.delete(model: RecurringOccurrence.self)
+        try modelContext.delete(model: RecurringRule.self)
+        try modelContext.delete(model: CategoryMonthlyBudget.self)
+        try modelContext.delete(model: BudgetMonthlyHistory.self)
+        try modelContext.delete(model: BudgetSettings.self)
+        try modelContext.delete(model: AdvanceRepayment.self)
+        try modelContext.delete(model: AdvanceParticipant.self)
+        try modelContext.delete(model: AdvanceCase.self)
+        try modelContext.delete(model: Account.self)
+        try modelContext.delete(model: Category.self)
+        try modelContext.delete(model: Tag.self)
+        try modelContext.save()
+    }
+
+    @MainActor
     private func restoreDecodedBackup(_ backup: FullBackupData, modelContext: ModelContext) throws {
         var accountByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<Account>())) ?? []).map { ($0.id, $0) })
         var categoryByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<Category>())) ?? []).map { ($0.id, $0) })

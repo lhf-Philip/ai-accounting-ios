@@ -53,6 +53,7 @@ fun SettingsScreen(
     onOpenTags: () -> Unit,
     onOpenBudgets: () -> Unit,
     onOpenRecurring: () -> Unit,
+    onOpenRemoteBackup: () -> Unit,
     onOpenAdvances: () -> Unit,
     onOpenSettlements: () -> Unit,
     onOpenHealth: () -> Unit
@@ -222,6 +223,7 @@ fun SettingsScreen(
                 ) {
                     Text("匯入 JSON 備份")
                 }
+                ParitySettingRow("WebDAV 遠端備份", "加密上傳、下載預覽並手動還原", onClick = onOpenRemoteBackup)
                 if (message != null) {
                     Text(message.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
