@@ -224,6 +224,9 @@ struct SettingsView: View {
                     NavigationLink(destination: AdvancesView()) {
                         Label("代墊追蹤", systemImage: "person.2.fill")
                     }
+                    NavigationLink(destination: SettlementCenterView()) {
+                        Label("結算中心", systemImage: "person.line.dotted.person")
+                    }
                     NavigationLink(destination: BudgetsView()) {
                         Label("預算與超支提醒", systemImage: "chart.bar.doc.horizontal")
                     }

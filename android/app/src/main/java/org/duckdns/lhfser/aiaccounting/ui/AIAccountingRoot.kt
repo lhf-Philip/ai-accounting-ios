@@ -66,6 +66,7 @@ import org.duckdns.lhfser.aiaccounting.ui.screens.OverviewScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.ReceiptScanScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.ReportsScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.SettingsScreen
+import org.duckdns.lhfser.aiaccounting.ui.screens.SettlementCenterScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.ShortcutEditorScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.TagEditorScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.TagsScreen
@@ -104,6 +105,7 @@ private sealed class AppDestination(
     data object TagEdit : AppDestination("tags/edit/{tagId}", "編輯標籤")
     data object Budgets : AppDestination("budgets", "預算與提醒")
     data object DataHealth : AppDestination("data-health", "資料健康檢查")
+    data object Settlements : AppDestination("settlements", "結算中心")
     data object AccountEdit : AppDestination("accounts/edit/{accountId}", "編輯帳戶")
     data object ShortcutEdit : AppDestination("shortcuts/edit/{shortcutId}", "捷徑")
 }
@@ -257,6 +259,7 @@ fun AIAccountingRoot(
                     onOpenTags = { navController.navigate(AppDestination.Tags.route) },
                     onOpenBudgets = { navController.navigate(AppDestination.Budgets.route) },
                     onOpenAdvances = { navController.navigate("advances") },
+                    onOpenSettlements = { navController.navigate(AppDestination.Settlements.route) },
                     onOpenHealth = { navController.navigate(AppDestination.DataHealth.route) }
                 )
             }
@@ -316,6 +319,12 @@ fun AIAccountingRoot(
             }
             composable("advances") {
                 AdvancesScreen(onOpenCase = { caseId -> navController.navigate("advance/$caseId") })
+            }
+            composable(AppDestination.Settlements.route) {
+                SettlementCenterScreen(
+                    onOpenAdvanceCase = { caseId -> navController.navigate("advance/$caseId") },
+                    onOpenDebt = { navController.navigate(AppDestination.DebtAdd.route) }
+                )
             }
             composable(
                 AppDestination.AdvanceDetail.route,
@@ -499,6 +508,7 @@ private fun resolveTitle(backStackEntry: NavBackStackEntry?): String {
         route.startsWith("tags/edit") -> "編輯標籤"
         route == AppDestination.Budgets.route -> "預算與提醒"
         route == AppDestination.DataHealth.route -> "資料健康檢查"
+        route == AppDestination.Settlements.route -> "結算中心"
         route.startsWith("accounts/edit") -> "編輯帳戶"
         route.startsWith("accounts/") -> "帳戶明細"
         route.startsWith("shortcuts/edit") -> "捷徑"
