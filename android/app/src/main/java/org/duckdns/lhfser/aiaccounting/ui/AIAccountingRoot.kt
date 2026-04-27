@@ -66,6 +66,7 @@ import org.duckdns.lhfser.aiaccounting.ui.screens.OverviewScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.ReceiptScanScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.RecurringRuleEditorScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.RecurringTransactionsScreen
+import org.duckdns.lhfser.aiaccounting.ui.screens.RemoteBackupScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.ReportsScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.SettingsScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.SettlementCenterScreen
@@ -108,6 +109,7 @@ private sealed class AppDestination(
     data object Budgets : AppDestination("budgets", "預算與提醒")
     data object Recurring : AppDestination("recurring", "定期記帳")
     data object RecurringEdit : AppDestination("recurring/edit/{ruleId}", "編輯定期記帳")
+    data object RemoteBackup : AppDestination("remote-backup", "WebDAV 遠端備份")
     data object DataHealth : AppDestination("data-health", "資料健康檢查")
     data object Settlements : AppDestination("settlements", "結算中心")
     data object AccountEdit : AppDestination("accounts/edit/{accountId}", "編輯帳戶")
@@ -263,6 +265,7 @@ fun AIAccountingRoot(
                     onOpenTags = { navController.navigate(AppDestination.Tags.route) },
                     onOpenBudgets = { navController.navigate(AppDestination.Budgets.route) },
                     onOpenRecurring = { navController.navigate(AppDestination.Recurring.route) },
+                    onOpenRemoteBackup = { navController.navigate(AppDestination.RemoteBackup.route) },
                     onOpenAdvances = { navController.navigate("advances") },
                     onOpenSettlements = { navController.navigate(AppDestination.Settlements.route) },
                     onOpenHealth = { navController.navigate(AppDestination.DataHealth.route) }
@@ -377,6 +380,7 @@ fun AIAccountingRoot(
                     onDone = { navController.popBackStack() }
                 )
             }
+            composable(AppDestination.RemoteBackup.route) { RemoteBackupScreen() }
             composable(AppDestination.DataHealth.route) { DataHealthScreen() }
             composable(
                 AppDestination.AccountEdit.route,
@@ -529,6 +533,7 @@ private fun resolveTitle(backStackEntry: NavBackStackEntry?): String {
         route == AppDestination.Budgets.route -> "預算與提醒"
         route == AppDestination.Recurring.route -> "定期記帳"
         route.startsWith("recurring/edit") -> "編輯定期記帳"
+        route == AppDestination.RemoteBackup.route -> "WebDAV 遠端備份"
         route == AppDestination.DataHealth.route -> "資料健康檢查"
         route == AppDestination.Settlements.route -> "結算中心"
         route.startsWith("accounts/edit") -> "編輯帳戶"

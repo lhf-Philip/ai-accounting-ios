@@ -160,6 +160,10 @@ struct SettingsView: View {
 
                     Stepper("保留最近 \(backupRetentionDays) 天備份", value: $backupRetentionDays, in: 7...365)
 
+                    NavigationLink(destination: RemoteBackupView()) {
+                        Label("WebDAV 遠端備份", systemImage: "externaldrive.badge.icloud")
+                    }
+
                     Button {
                         let data = BackupManager.shared.createBackupData(modelContext: modelContext)
                         do {
