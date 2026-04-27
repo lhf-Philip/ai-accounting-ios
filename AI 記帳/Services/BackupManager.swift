@@ -13,6 +13,8 @@ struct FullBackupData: Codable {
     let tags: [TagCodable]
     let transactions: [TransactionCodable]
     let shortcuts: [ShortcutCodable]
+    let recurringRules: [RecurringRuleCodable]?
+    let recurringOccurrences: [RecurringOccurrenceCodable]?
     let budgets: [BudgetCodable]?
     let budgetHistory: [BudgetHistoryCodable]?
     let budgetSettings: [BudgetSettingsCodable]?
@@ -47,6 +49,32 @@ struct FullBackupData: Codable {
         // 🔥 新增 Optional，兼容舊 JSON
         let currencyCode: String?
         let accountID: UUID?; let categoryID: UUID?; let tagIDs: [UUID]
+    }
+    struct RecurringRuleCodable: Codable {
+        let id: UUID
+        let title: String
+        let amount: Decimal
+        let currencyCode: String
+        let type: String
+        let note: String
+        let frequency: String
+        let intervalCount: Int
+        let nextDueDate: Date
+        let isPaused: Bool
+        let accountID: UUID?
+        let categoryID: UUID?
+        let tagIDs: [UUID]
+        let createdAt: Date?
+        let updatedAt: Date?
+    }
+    struct RecurringOccurrenceCodable: Codable {
+        let id: UUID
+        let dueDate: Date
+        let status: String
+        let createdTransactionID: UUID?
+        let ruleID: UUID?
+        let createdAt: Date?
+        let updatedAt: Date?
     }
     struct BudgetCodable: Codable {
         let id: UUID
@@ -180,6 +208,8 @@ class BackupManager: NSObject, ObservableObject {
         let tags = (try? modelContext.fetch(FetchDescriptor<Tag>())) ?? []
         let transactions = (try? modelContext.fetch(FetchDescriptor<FinancialTransaction>())) ?? []
         let shortcuts = (try? modelContext.fetch(FetchDescriptor<Shortcut>())) ?? []
+        let recurringRules = (try? modelContext.fetch(FetchDescriptor<RecurringRule>())) ?? []
+        let recurringOccurrences = (try? modelContext.fetch(FetchDescriptor<RecurringOccurrence>())) ?? []
         let budgets = (try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []
         let budgetHistory = (try? modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>())) ?? []
         let budgetSettings = (try? modelContext.fetch(FetchDescriptor<BudgetSettings>())) ?? []
@@ -187,7 +217,7 @@ class BackupManager: NSObject, ObservableObject {
         let advanceParticipants = (try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []
         let advanceRepayments = (try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []
         
-        return FullBackupData(version: "1.7", timestamp: Date(),
+        return FullBackupData(version: "1.8", timestamp: Date(),
             accounts: accounts.map { FullBackupData.AccountCodable(id: $0.id, name: $0.name, currency: $0.currency, type: $0.type.rawValue, baseBalance: $0.baseBalance, sortOrder: $0.sortOrder, isArchived: $0.isArchived) },
             categories: categories.map { FullBackupData.CategoryCodable(id: $0.id, name: $0.name, icon: $0.icon, colorHex: $0.colorHex, kind: $0.kind.rawValue) },
             tags: tags.map { FullBackupData.TagCodable(id: $0.id, name: $0.name) },
@@ -211,6 +241,36 @@ class BackupManager: NSObject, ObservableObject {
                 )
             },
             shortcuts: shortcuts.map { FullBackupData.ShortcutCodable(id: $0.id, name: $0.name, icon: $0.icon, amount: $0.amount, type: $0.type.rawValue, note: $0.note, currencyCode: $0.currencyCode, accountID: $0.account?.id, categoryID: $0.category?.id, tagIDs: $0.tags.map { $0.id }) },
+            recurringRules: recurringRules.map {
+                FullBackupData.RecurringRuleCodable(
+                    id: $0.id,
+                    title: $0.title,
+                    amount: $0.amount,
+                    currencyCode: $0.currencyCode,
+                    type: $0.type.rawValue,
+                    note: $0.note,
+                    frequency: $0.frequencyRaw,
+                    intervalCount: $0.intervalCount,
+                    nextDueDate: $0.nextDueDate,
+                    isPaused: $0.isPaused,
+                    accountID: $0.account?.id,
+                    categoryID: $0.category?.id,
+                    tagIDs: $0.tags.map(\.id),
+                    createdAt: $0.createdAt,
+                    updatedAt: $0.updatedAt
+                )
+            },
+            recurringOccurrences: recurringOccurrences.map {
+                FullBackupData.RecurringOccurrenceCodable(
+                    id: $0.id,
+                    dueDate: $0.dueDate,
+                    status: $0.statusRaw,
+                    createdTransactionID: $0.createdTransactionID,
+                    ruleID: $0.rule?.id,
+                    createdAt: $0.createdAt,
+                    updatedAt: $0.updatedAt
+                )
+            },
             budgets: budgets.map {
                 FullBackupData.BudgetCodable(
                     id: $0.id,
@@ -315,6 +375,8 @@ class BackupManager: NSObject, ObservableObject {
         var tagByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<Tag>())) ?? []).map { ($0.id, $0) })
         var existingTransactionIDs = Set(((try? modelContext.fetch(FetchDescriptor<FinancialTransaction>())) ?? []).map(\.id))
         var existingShortcutIDs = Set(((try? modelContext.fetch(FetchDescriptor<Shortcut>())) ?? []).map(\.id))
+        var recurringRuleByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<RecurringRule>())) ?? []).map { ($0.id, $0) })
+        var recurringOccurrenceByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<RecurringOccurrence>())) ?? []).map { ($0.id, $0) })
         var existingBudgetIDs = Set(((try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []).map(\.id))
         var historyByKey = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>())) ?? []).map { ($0.historyKey, $0) })
         var budgetSettingsByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<BudgetSettings>())) ?? []).map { ($0.id, $0) })
@@ -394,6 +456,73 @@ class BackupManager: NSObject, ObservableObject {
             )
             modelContext.insert(shortcut)
             existingShortcutIDs.insert(scDTO.id)
+        }
+
+        if let ruleDTOs = backup.recurringRules {
+            for ruleDTO in ruleDTOs {
+                let tagIDs = Set(ruleDTO.tagIDs)
+                if let existing = recurringRuleByID[ruleDTO.id] {
+                    existing.title = ruleDTO.title
+                    existing.amount = ruleDTO.amount
+                    existing.currencyCode = ruleDTO.currencyCode
+                    existing.type = TransactionType(rawValue: ruleDTO.type) ?? .expense
+                    existing.note = ruleDTO.note
+                    existing.frequencyRaw = ruleDTO.frequency
+                    existing.intervalCount = max(1, ruleDTO.intervalCount)
+                    existing.nextDueDate = ruleDTO.nextDueDate
+                    existing.isPaused = ruleDTO.isPaused
+                    existing.account = ruleDTO.accountID.flatMap { accountByID[$0] }
+                    existing.category = ruleDTO.categoryID.flatMap { categoryByID[$0] }
+                    existing.tags = tagByID.values.filter { tagIDs.contains($0.id) }
+                    existing.updatedAt = ruleDTO.updatedAt ?? Date()
+                    continue
+                }
+
+                let rule = RecurringRule(
+                    id: ruleDTO.id,
+                    title: ruleDTO.title,
+                    amount: ruleDTO.amount,
+                    currencyCode: ruleDTO.currencyCode,
+                    type: TransactionType(rawValue: ruleDTO.type) ?? .expense,
+                    note: ruleDTO.note,
+                    frequency: RecurringFrequency(rawValue: ruleDTO.frequency) ?? .monthly,
+                    intervalCount: max(1, ruleDTO.intervalCount),
+                    nextDueDate: ruleDTO.nextDueDate,
+                    isPaused: ruleDTO.isPaused,
+                    createdAt: ruleDTO.createdAt ?? Date(),
+                    updatedAt: ruleDTO.updatedAt ?? (ruleDTO.createdAt ?? Date()),
+                    account: ruleDTO.accountID.flatMap { accountByID[$0] },
+                    category: ruleDTO.categoryID.flatMap { categoryByID[$0] },
+                    tags: tagByID.values.filter { tagIDs.contains($0.id) }
+                )
+                modelContext.insert(rule)
+                recurringRuleByID[ruleDTO.id] = rule
+            }
+        }
+
+        if let occurrenceDTOs = backup.recurringOccurrences {
+            for occurrenceDTO in occurrenceDTOs {
+                if let existing = recurringOccurrenceByID[occurrenceDTO.id] {
+                    existing.dueDate = occurrenceDTO.dueDate
+                    existing.statusRaw = occurrenceDTO.status
+                    existing.createdTransactionID = occurrenceDTO.createdTransactionID
+                    existing.rule = occurrenceDTO.ruleID.flatMap { recurringRuleByID[$0] }
+                    existing.updatedAt = occurrenceDTO.updatedAt ?? Date()
+                    continue
+                }
+
+                let occurrence = RecurringOccurrence(
+                    id: occurrenceDTO.id,
+                    dueDate: occurrenceDTO.dueDate,
+                    status: RecurringOccurrenceStatus(rawValue: occurrenceDTO.status) ?? .pending,
+                    createdTransactionID: occurrenceDTO.createdTransactionID,
+                    createdAt: occurrenceDTO.createdAt ?? Date(),
+                    updatedAt: occurrenceDTO.updatedAt ?? (occurrenceDTO.createdAt ?? Date()),
+                    rule: occurrenceDTO.ruleID.flatMap { recurringRuleByID[$0] }
+                )
+                modelContext.insert(occurrence)
+                recurringOccurrenceByID[occurrenceDTO.id] = occurrence
+            }
         }
 
         if let budgetDTOs = backup.budgets {

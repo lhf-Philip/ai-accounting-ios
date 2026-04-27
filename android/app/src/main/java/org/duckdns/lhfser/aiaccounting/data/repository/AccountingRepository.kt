@@ -26,6 +26,8 @@ import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
 import org.duckdns.lhfser.aiaccounting.data.db.BudgetMonthlyHistoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.BudgetSettingsEntity
+import org.duckdns.lhfser.aiaccounting.data.db.RecurringOccurrenceEntity
+import org.duckdns.lhfser.aiaccounting.data.db.RecurringRuleEntity
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutEntity
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutTagCrossRef
 import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
@@ -62,6 +64,10 @@ data class AccountDeletionImpact(
         get() = !counts.hasBookkeeping
 }
 
+private const val RECURRING_STATUS_PENDING = "Pending"
+private const val RECURRING_STATUS_CONFIRMED = "Confirmed"
+private const val RECURRING_STATUS_SKIPPED = "Skipped"
+
 class AccountingRepository(
     private val database: AIAccountingDatabase,
     private val currencyService: CurrencyService
@@ -71,6 +77,7 @@ class AccountingRepository(
     private val tagDao = database.tagDao()
     private val transactionDao = database.transactionDao()
     private val shortcutDao = database.shortcutDao()
+    private val recurringDao = database.recurringDao()
     private val budgetDao: BudgetDao = database.budgetDao()
     private val advanceDao = database.advanceDao()
 
@@ -79,6 +86,8 @@ class AccountingRepository(
     val tags: Flow<List<TagEntity>> = tagDao.observeTags()
     val transactions: Flow<List<TransactionWithDetails>> = transactionDao.observeTransactions()
     val shortcuts: Flow<List<ShortcutWithDetails>> = shortcutDao.observeShortcuts()
+    val recurringRules: Flow<List<RecurringRuleEntity>> = recurringDao.observeRules()
+    val recurringOccurrences: Flow<List<RecurringOccurrenceEntity>> = recurringDao.observeOccurrences()
     val budgets: Flow<List<CategoryMonthlyBudgetEntity>> = budgetDao.observeBudgets()
     val budgetHistories: Flow<List<BudgetMonthlyHistoryEntity>> = budgetDao.observeBudgetHistory()
     val budgetSettings: Flow<BudgetSettingsEntity?> = budgetDao.observeBudgetSettings()
@@ -336,6 +345,124 @@ class AccountingRepository(
     suspend fun deleteShortcut(shortcut: ShortcutEntity) {
         shortcutDao.delete(shortcut)
         shortcutDao.clearShortcutTags(shortcut.id)
+    }
+
+    suspend fun getRecurringRule(ruleId: UUID): RecurringRuleEntity? {
+        return recurringDao.getRule(ruleId)
+    }
+
+    suspend fun upsertRecurringRule(rule: RecurringRuleEntity) {
+        recurringDao.upsertRule(rule)
+    }
+
+    suspend fun deleteRecurringRule(rule: RecurringRuleEntity) {
+        database.withTransaction {
+            recurringDao.deleteOccurrencesForRule(rule.id)
+            recurringDao.deleteRule(rule)
+        }
+    }
+
+    suspend fun syncDueRecurringOccurrences(now: Instant = Instant.now()) {
+        database.withTransaction {
+            val existingKeys = recurringDao.getAllOccurrences()
+                .mapNotNull { occurrence ->
+                    val ruleId = occurrence.ruleId ?: return@mapNotNull null
+                    "$ruleId|${occurrence.dueDate}"
+                }
+                .toMutableSet()
+            val activeRules = recurringDao.getAllRules().filter { rule ->
+                !rule.isPaused && (rule.type == TransactionType.Income || rule.type == TransactionType.Expense)
+            }
+            activeRules.forEach { rule ->
+                var cursor = rule.nextDueDate
+                var generated = 0
+                val occurrences = mutableListOf<RecurringOccurrenceEntity>()
+                while (!cursor.isAfter(now) && generated < 24) {
+                    val key = "${rule.id}|$cursor"
+                    if (key !in existingKeys) {
+                        occurrences.add(
+                            RecurringOccurrenceEntity(
+                                id = UUID.randomUUID(),
+                                dueDate = cursor,
+                                status = RECURRING_STATUS_PENDING,
+                                createdTransactionId = null,
+                                createdAt = now,
+                                updatedAt = now,
+                                ruleId = rule.id
+                            )
+                        )
+                        existingKeys.add(key)
+                    }
+                    cursor = nextRecurringDate(cursor, rule.frequency, rule.intervalCount)
+                    generated += 1
+                }
+                if (cursor != rule.nextDueDate || occurrences.isNotEmpty()) {
+                    if (occurrences.isNotEmpty()) {
+                        recurringDao.upsertOccurrences(occurrences)
+                    }
+                    recurringDao.upsertRule(rule.copy(nextDueDate = cursor, updatedAt = now))
+                }
+            }
+        }
+    }
+
+    suspend fun confirmRecurringOccurrence(occurrenceId: UUID): UUID? {
+        return database.withTransaction {
+            val occurrence = recurringDao.getOccurrence(occurrenceId) ?: return@withTransaction null
+            val rule = occurrence.ruleId?.let { recurringDao.getRule(it) } ?: return@withTransaction null
+            if (occurrence.status == RECURRING_STATUS_CONFIRMED) {
+                return@withTransaction occurrence.createdTransactionId
+            }
+            if (rule.type != TransactionType.Income && rule.type != TransactionType.Expense) {
+                return@withTransaction null
+            }
+            val accountId = rule.accountId ?: return@withTransaction null
+            val now = Instant.now()
+            val transactionId = occurrence.createdTransactionId ?: UUID.randomUUID()
+            val signedAmount = if (rule.type == TransactionType.Expense) {
+                rule.amount.abs().negate()
+            } else {
+                rule.amount.abs()
+            }
+            val transaction = TransactionEntity(
+                id = transactionId,
+                amount = signedAmount,
+                currencyCode = rule.currencyCode,
+                date = occurrence.dueDate,
+                note = rule.note.ifBlank { rule.title },
+                photoPath = null,
+                type = rule.type,
+                linkedTransactionId = null,
+                transferGroupId = null,
+                transferSide = null,
+                createdAt = now,
+                updatedAt = now,
+                accountId = accountId,
+                categoryId = rule.categoryId
+            )
+            transactionDao.upsert(transaction)
+            recurringDao.upsertOccurrence(
+                occurrence.copy(
+                    status = RECURRING_STATUS_CONFIRMED,
+                    createdTransactionId = transactionId,
+                    updatedAt = now
+                )
+            )
+            syncAllBudgetHistory()
+            transactionId
+        }
+    }
+
+    suspend fun skipRecurringOccurrence(occurrenceId: UUID) {
+        database.withTransaction {
+            val occurrence = recurringDao.getOccurrence(occurrenceId) ?: return@withTransaction
+            recurringDao.upsertOccurrence(
+                occurrence.copy(
+                    status = RECURRING_STATUS_SKIPPED,
+                    updatedAt = Instant.now()
+                )
+            )
+        }
     }
 
     suspend fun upsertBudget(budget: CategoryMonthlyBudgetEntity) {
@@ -811,6 +938,8 @@ class AccountingRepository(
         val transactionTags = transactionDao.getTransactionTags()
         val shortcuts = shortcutDao.getAll()
         val shortcutTags = shortcutDao.getShortcutTags()
+        val recurringRules = recurringDao.getAllRules()
+        val recurringOccurrences = recurringDao.getAllOccurrences()
         val budgets = budgetDao.getAll()
         val budgetHistories = budgetDao.getAllHistory()
         val budgetSettings = budgetDao.getSettings()
@@ -822,7 +951,7 @@ class AccountingRepository(
         val shortcutTagMap = shortcutTags.groupBy { it.shortcutId }
 
         return FullBackupData(
-            version = "1.7",
+            version = "1.8",
             timestamp = Instant.now(),
             accounts = accounts.map {
                 FullBackupData.AccountCodable(
@@ -876,6 +1005,36 @@ class AccountingRepository(
                     accountID = shortcut.accountId,
                     categoryID = shortcut.categoryId,
                     tagIDs = shortcutTagMap[shortcut.id]?.map { it.tagId } ?: emptyList()
+                )
+            },
+            recurringRules = recurringRules.map { rule ->
+                FullBackupData.RecurringRuleCodable(
+                    id = rule.id,
+                    title = rule.title,
+                    amount = rule.amount,
+                    currencyCode = rule.currencyCode,
+                    type = rule.type.rawValue,
+                    note = rule.note,
+                    frequency = rule.frequency,
+                    intervalCount = rule.intervalCount,
+                    nextDueDate = rule.nextDueDate,
+                    isPaused = rule.isPaused,
+                    accountID = rule.accountId,
+                    categoryID = rule.categoryId,
+                    tagIDs = emptyList(),
+                    createdAt = rule.createdAt,
+                    updatedAt = rule.updatedAt
+                )
+            },
+            recurringOccurrences = recurringOccurrences.map { occurrence ->
+                FullBackupData.RecurringOccurrenceCodable(
+                    id = occurrence.id,
+                    dueDate = occurrence.dueDate,
+                    status = occurrence.status,
+                    createdTransactionID = occurrence.createdTransactionId,
+                    ruleID = occurrence.ruleId,
+                    createdAt = occurrence.createdAt,
+                    updatedAt = occurrence.updatedAt
                 )
             },
             budgets = budgets.map { budget ->
@@ -1043,6 +1202,39 @@ class AccountingRepository(
             shortcut.tagIDs.map { tagId -> ShortcutTagCrossRef(shortcut.id, tagId) }
         }
 
+        val recurringRuleEntities = data.recurringRules?.map { rule ->
+            RecurringRuleEntity(
+                id = rule.id,
+                title = rule.title,
+                amount = rule.amount,
+                currencyCode = rule.currencyCode,
+                type = org.duckdns.lhfser.aiaccounting.core.model.TransactionType.entries
+                    .firstOrNull { type -> type.rawValue == rule.type }
+                    ?: org.duckdns.lhfser.aiaccounting.core.model.TransactionType.Expense,
+                note = rule.note,
+                frequency = rule.frequency,
+                intervalCount = rule.intervalCount.coerceAtLeast(1),
+                nextDueDate = rule.nextDueDate,
+                isPaused = rule.isPaused,
+                createdAt = rule.createdAt ?: Instant.now(),
+                updatedAt = rule.updatedAt ?: Instant.now(),
+                accountId = rule.accountID,
+                categoryId = rule.categoryID
+            )
+        }.orEmpty()
+
+        val recurringOccurrenceEntities = data.recurringOccurrences?.map { occurrence ->
+            RecurringOccurrenceEntity(
+                id = occurrence.id,
+                dueDate = occurrence.dueDate,
+                status = occurrence.status,
+                createdTransactionId = occurrence.createdTransactionID,
+                createdAt = occurrence.createdAt ?: Instant.now(),
+                updatedAt = occurrence.updatedAt ?: Instant.now(),
+                ruleId = occurrence.ruleID
+            )
+        }.orEmpty()
+
         val budgetEntities = data.budgets?.map { budget ->
             CategoryMonthlyBudgetEntity(
                 id = budget.id,
@@ -1147,6 +1339,12 @@ class AccountingRepository(
             if (shortcutTags.isNotEmpty()) {
                 shortcutDao.insertShortcutTags(shortcutTags)
             }
+            if (recurringRuleEntities.isNotEmpty()) {
+                recurringDao.upsertRules(recurringRuleEntities)
+            }
+            if (recurringOccurrenceEntities.isNotEmpty()) {
+                recurringDao.upsertOccurrences(recurringOccurrenceEntities)
+            }
             if (budgetEntities.isNotEmpty()) {
                 budgetDao.upsertAll(budgetEntities)
             }
@@ -1244,6 +1442,8 @@ class AccountingRepository(
         budgetDao.deleteAllSettings()
         budgetDao.deleteAllHistory()
         budgetDao.deleteAll()
+        recurringDao.deleteAllOccurrences()
+        recurringDao.deleteAllRules()
         shortcutDao.deleteAllShortcuts()
         transactionDao.deleteAllTransactions()
         tagDao.deleteAll()
@@ -1417,6 +1617,17 @@ class AccountingRepository(
     private fun monthKeyFromInstant(instant: Instant): String {
         val date = instant.atZone(ZoneId.systemDefault()).toLocalDate()
         return "%04d-%02d".format(date.year, date.monthValue)
+    }
+
+    private fun nextRecurringDate(date: Instant, frequency: String, intervalCount: Int): Instant {
+        val safeInterval = intervalCount.coerceAtLeast(1).toLong()
+        val zonedDateTime = date.atZone(ZoneId.systemDefault())
+        val next = when (frequency) {
+            "Daily" -> zonedDateTime.plusDays(safeInterval)
+            "Weekly" -> zonedDateTime.plusWeeks(safeInterval)
+            else -> zonedDateTime.plusMonths(safeInterval)
+        }
+        return next.toInstant()
     }
 }
 

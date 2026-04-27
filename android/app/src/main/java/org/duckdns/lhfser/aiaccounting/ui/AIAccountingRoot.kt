@@ -64,6 +64,8 @@ import org.duckdns.lhfser.aiaccounting.ui.screens.DataHealthScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.DebtEntryScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.OverviewScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.ReceiptScanScreen
+import org.duckdns.lhfser.aiaccounting.ui.screens.RecurringRuleEditorScreen
+import org.duckdns.lhfser.aiaccounting.ui.screens.RecurringTransactionsScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.ReportsScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.SettingsScreen
 import org.duckdns.lhfser.aiaccounting.ui.screens.SettlementCenterScreen
@@ -104,6 +106,8 @@ private sealed class AppDestination(
     data object Tags : AppDestination("tags", "標籤管理")
     data object TagEdit : AppDestination("tags/edit/{tagId}", "編輯標籤")
     data object Budgets : AppDestination("budgets", "預算與提醒")
+    data object Recurring : AppDestination("recurring", "定期記帳")
+    data object RecurringEdit : AppDestination("recurring/edit/{ruleId}", "編輯定期記帳")
     data object DataHealth : AppDestination("data-health", "資料健康檢查")
     data object Settlements : AppDestination("settlements", "結算中心")
     data object AccountEdit : AppDestination("accounts/edit/{accountId}", "編輯帳戶")
@@ -258,6 +262,7 @@ fun AIAccountingRoot(
                     onOpenCategories = { navController.navigate(AppDestination.Categories.route) },
                     onOpenTags = { navController.navigate(AppDestination.Tags.route) },
                     onOpenBudgets = { navController.navigate(AppDestination.Budgets.route) },
+                    onOpenRecurring = { navController.navigate(AppDestination.Recurring.route) },
                     onOpenAdvances = { navController.navigate("advances") },
                     onOpenSettlements = { navController.navigate(AppDestination.Settlements.route) },
                     onOpenHealth = { navController.navigate(AppDestination.DataHealth.route) }
@@ -357,6 +362,21 @@ fun AIAccountingRoot(
                 )
             }
             composable(AppDestination.Budgets.route) { BudgetsScreen() }
+            composable(AppDestination.Recurring.route) {
+                RecurringTransactionsScreen(
+                    onAddRule = { navController.navigate("recurring/edit/${UUID.randomUUID()}") },
+                    onEditRule = { id -> navController.navigate("recurring/edit/$id") }
+                )
+            }
+            composable(
+                AppDestination.RecurringEdit.route,
+                arguments = listOf(navArgument("ruleId") { type = NavType.StringType })
+            ) { entry ->
+                RecurringRuleEditorScreen(
+                    ruleId = entry.arguments?.getString("ruleId"),
+                    onDone = { navController.popBackStack() }
+                )
+            }
             composable(AppDestination.DataHealth.route) { DataHealthScreen() }
             composable(
                 AppDestination.AccountEdit.route,
@@ -507,6 +527,8 @@ private fun resolveTitle(backStackEntry: NavBackStackEntry?): String {
         route == AppDestination.Tags.route -> "標籤"
         route.startsWith("tags/edit") -> "編輯標籤"
         route == AppDestination.Budgets.route -> "預算與提醒"
+        route == AppDestination.Recurring.route -> "定期記帳"
+        route.startsWith("recurring/edit") -> "編輯定期記帳"
         route == AppDestination.DataHealth.route -> "資料健康檢查"
         route == AppDestination.Settlements.route -> "結算中心"
         route.startsWith("accounts/edit") -> "編輯帳戶"

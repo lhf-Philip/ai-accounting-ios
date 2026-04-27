@@ -15,6 +15,8 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \CategoryMonthlyBudget.updatedAt, order: .reverse) private var budgets: [CategoryMonthlyBudget]
     @Query(sort: \FinancialTransaction.updatedAt, order: .reverse) private var transactions: [FinancialTransaction]
+    @Query(sort: \RecurringRule.updatedAt, order: .reverse) private var recurringRules: [RecurringRule]
+    @Query(sort: \RecurringOccurrence.updatedAt, order: .reverse) private var recurringOccurrences: [RecurringOccurrence]
 
     @State private var selectedTab: RootTab = .ledger
     @State private var showingAddOptions = false
@@ -56,6 +58,22 @@ struct ContentView: View {
             hasher.combine(transaction.category?.id)
         }
 
+        return hasher.finalize()
+    }
+
+    private var recurringSyncToken: Int {
+        var hasher = Hasher()
+        for rule in recurringRules {
+            hasher.combine(rule.id)
+            hasher.combine(rule.nextDueDate.timeIntervalSince1970)
+            hasher.combine(rule.isPaused)
+            hasher.combine(rule.updatedAt.timeIntervalSince1970)
+        }
+        for occurrence in recurringOccurrences {
+            hasher.combine(occurrence.id)
+            hasher.combine(occurrence.statusRaw)
+            hasher.combine(occurrence.updatedAt.timeIntervalSince1970)
+        }
         return hasher.finalize()
     }
 
@@ -157,6 +175,7 @@ struct ContentView: View {
             case .active:
                 idleBackupTask?.cancel()
                 idleBackupTask = nil
+                syncRecurringOccurrences()
             case .inactive, .background:
                 scheduleIdleAutoBackup()
             @unknown default:
@@ -184,6 +203,10 @@ struct ContentView: View {
             } catch {
                 print("⚠️ 預算歷史同步失敗: \(error)")
             }
+        }
+        .task(id: recurringSyncToken) {
+            guard !isRunningXCTest else { return }
+            syncRecurringOccurrences()
         }
     }
 
@@ -221,6 +244,18 @@ struct ContentView: View {
             guard !Task.isCancelled, scenePhase != .active else { return }
             BackupManager.shared.performAutoBackup(modelContext: modelContext)
             idleBackupTask = nil
+        }
+    }
+
+    private func syncRecurringOccurrences() {
+        do {
+            try RecurringTransactionService.syncDueOccurrences(
+                rules: recurringRules,
+                occurrences: recurringOccurrences,
+                modelContext: modelContext
+            )
+        } catch {
+            print("⚠️ 定期記帳同步失敗: \(error)")
         }
     }
 }

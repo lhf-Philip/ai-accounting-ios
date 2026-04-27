@@ -89,6 +89,38 @@ enum BudgetForecastMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum RecurringFrequency: String, Codable, CaseIterable, Identifiable {
+    case daily = "Daily"
+    case weekly = "Weekly"
+    case monthly = "Monthly"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .daily: return "每日"
+        case .weekly: return "每週"
+        case .monthly: return "每月"
+        }
+    }
+}
+
+enum RecurringOccurrenceStatus: String, Codable, CaseIterable, Identifiable {
+    case pending = "Pending"
+    case confirmed = "Confirmed"
+    case skipped = "Skipped"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .pending: return "待確認"
+        case .confirmed: return "已建立"
+        case .skipped: return "已跳過"
+        }
+    }
+}
+
 // MARK: - Models
 
 @Model
@@ -232,6 +264,108 @@ final class Shortcut {
         self.account = account
         self.category = category
         self.tags = tags
+    }
+}
+
+@Model
+final class RecurringRule {
+    @Attribute(.unique) var id: UUID
+    var title: String
+    var amount: Decimal
+    var currencyCode: String
+    var type: TransactionType
+    var note: String
+    var frequencyRaw: String
+    var intervalCount: Int
+    var nextDueDate: Date
+    var isPaused: Bool
+    var createdAt: Date
+    var updatedAt: Date
+
+    var account: Account?
+    var category: Category?
+    var tags: [Tag] = []
+    @Relationship(deleteRule: .cascade, inverse: \RecurringOccurrence.rule)
+    var occurrences: [RecurringOccurrence] = []
+
+    init(
+        id: UUID = UUID(),
+        title: String,
+        amount: Decimal,
+        currencyCode: String = "HKD",
+        type: TransactionType,
+        note: String = "",
+        frequency: RecurringFrequency = .monthly,
+        intervalCount: Int = 1,
+        nextDueDate: Date = Date(),
+        isPaused: Bool = false,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
+        account: Account? = nil,
+        category: Category? = nil,
+        tags: [Tag] = []
+    ) {
+        self.id = id
+        self.title = title
+        self.amount = amount
+        self.currencyCode = currencyCode
+        self.type = type
+        self.note = note
+        self.frequencyRaw = frequency.rawValue
+        self.intervalCount = max(1, intervalCount)
+        self.nextDueDate = nextDueDate
+        self.isPaused = isPaused
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.account = account
+        self.category = category
+        self.tags = tags
+    }
+
+    var frequency: RecurringFrequency {
+        get { RecurringFrequency(rawValue: frequencyRaw) ?? .monthly }
+        set {
+            frequencyRaw = newValue.rawValue
+            updatedAt = Date()
+        }
+    }
+}
+
+@Model
+final class RecurringOccurrence {
+    @Attribute(.unique) var id: UUID
+    var dueDate: Date
+    var statusRaw: String
+    var createdTransactionID: UUID?
+    var createdAt: Date
+    var updatedAt: Date
+
+    var rule: RecurringRule?
+
+    init(
+        id: UUID = UUID(),
+        dueDate: Date,
+        status: RecurringOccurrenceStatus = .pending,
+        createdTransactionID: UUID? = nil,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
+        rule: RecurringRule? = nil
+    ) {
+        self.id = id
+        self.dueDate = dueDate
+        self.statusRaw = status.rawValue
+        self.createdTransactionID = createdTransactionID
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.rule = rule
+    }
+
+    var status: RecurringOccurrenceStatus {
+        get { RecurringOccurrenceStatus(rawValue: statusRaw) ?? .pending }
+        set {
+            statusRaw = newValue.rawValue
+            updatedAt = Date()
+        }
     }
 }
 
