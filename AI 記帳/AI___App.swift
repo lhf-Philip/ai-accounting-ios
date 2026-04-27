@@ -192,6 +192,8 @@ struct AI___App: App {
             Category.self,
             Tag.self,
             Shortcut.self,
+            RecurringRule.self,
+            RecurringOccurrence.self,
             CategoryMonthlyBudget.self,
             BudgetMonthlyHistory.self,
             BudgetSettings.self,

@@ -52,6 +52,7 @@ fun SettingsScreen(
     onOpenCategories: () -> Unit,
     onOpenTags: () -> Unit,
     onOpenBudgets: () -> Unit,
+    onOpenRecurring: () -> Unit,
     onOpenAdvances: () -> Unit,
     onOpenSettlements: () -> Unit,
     onOpenHealth: () -> Unit
@@ -191,6 +192,7 @@ fun SettingsScreen(
                 ParitySettingRow("代墊追蹤", "查看待還款與還款紀錄", onClick = onOpenAdvances)
                 ParitySettingRow("結算中心", "集中查看代墊、借貸、還款與免除債務", onClick = onOpenSettlements)
                 ParitySettingRow("預算與超支提醒", "設定每月分類預算與 AI 建議", onClick = onOpenBudgets)
+                ParitySettingRow("定期記帳", "管理待確認的週期收入與支出", onClick = onOpenRecurring)
                 ParitySettingRow("資料健康檢查", "檢查缺失分類、帳戶與歷史異常", onClick = onOpenHealth)
             }
         }

@@ -12,6 +12,8 @@ data class FullBackupData(
     val tags: List<TagCodable>,
     val transactions: List<TransactionCodable>,
     val shortcuts: List<ShortcutCodable>,
+    val recurringRules: List<RecurringRuleCodable>? = null,
+    val recurringOccurrences: List<RecurringOccurrenceCodable>? = null,
     val budgets: List<BudgetCodable>?,
     val budgetHistory: List<BudgetHistoryCodable>?,
     val budgetSettings: List<BudgetSettingsCodable>? = null,
@@ -71,6 +73,34 @@ data class FullBackupData(
         val accountID: UUID?,
         val categoryID: UUID?,
         val tagIDs: List<UUID>
+    )
+
+    data class RecurringRuleCodable(
+        val id: UUID,
+        val title: String,
+        val amount: BigDecimal,
+        val currencyCode: String,
+        val type: String,
+        val note: String,
+        val frequency: String,
+        val intervalCount: Int,
+        val nextDueDate: Instant,
+        val isPaused: Boolean,
+        val accountID: UUID?,
+        val categoryID: UUID?,
+        val tagIDs: List<UUID>,
+        val createdAt: Instant?,
+        val updatedAt: Instant?
+    )
+
+    data class RecurringOccurrenceCodable(
+        val id: UUID,
+        val dueDate: Instant,
+        val status: String,
+        val createdTransactionID: UUID?,
+        val ruleID: UUID?,
+        val createdAt: Instant?,
+        val updatedAt: Instant?
     )
 
     data class BudgetCodable(

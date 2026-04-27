@@ -99,6 +99,45 @@ data class ShortcutTagCrossRef(
 )
 
 @Entity(
+    tableName = "recurring_rules",
+    indices = [Index("accountId"), Index("categoryId"), Index("nextDueDate")]
+)
+data class RecurringRuleEntity(
+    @PrimaryKey val id: UUID,
+    val title: String,
+    val amount: BigDecimal,
+    val currencyCode: String,
+    val type: TransactionType,
+    val note: String,
+    val frequency: String,
+    val intervalCount: Int,
+    val nextDueDate: Instant,
+    val isPaused: Boolean,
+    val createdAt: Instant,
+    val updatedAt: Instant,
+    val accountId: UUID?,
+    val categoryId: UUID?
+)
+
+@Entity(
+    tableName = "recurring_occurrences",
+    indices = [
+        Index("ruleId"),
+        Index("dueDate"),
+        Index(value = ["ruleId", "dueDate"], unique = true)
+    ]
+)
+data class RecurringOccurrenceEntity(
+    @PrimaryKey val id: UUID,
+    val dueDate: Instant,
+    val status: String,
+    val createdTransactionId: UUID?,
+    val createdAt: Instant,
+    val updatedAt: Instant,
+    val ruleId: UUID?
+)
+
+@Entity(
     tableName = "category_monthly_budgets",
     indices = [Index("monthKey"), Index("categoryId")]
 )

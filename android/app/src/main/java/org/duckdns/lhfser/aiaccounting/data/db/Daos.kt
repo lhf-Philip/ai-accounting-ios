@@ -161,6 +161,51 @@ interface ShortcutDao {
 }
 
 @Dao
+interface RecurringDao {
+    @Query("SELECT * FROM recurring_rules ORDER BY nextDueDate ASC")
+    fun observeRules(): Flow<List<RecurringRuleEntity>>
+
+    @Query("SELECT * FROM recurring_occurrences ORDER BY dueDate ASC")
+    fun observeOccurrences(): Flow<List<RecurringOccurrenceEntity>>
+
+    @Query("SELECT * FROM recurring_rules")
+    suspend fun getAllRules(): List<RecurringRuleEntity>
+
+    @Query("SELECT * FROM recurring_occurrences")
+    suspend fun getAllOccurrences(): List<RecurringOccurrenceEntity>
+
+    @Query("SELECT * FROM recurring_occurrences WHERE id = :occurrenceId")
+    suspend fun getOccurrence(occurrenceId: UUID): RecurringOccurrenceEntity?
+
+    @Query("SELECT * FROM recurring_rules WHERE id = :ruleId")
+    suspend fun getRule(ruleId: UUID): RecurringRuleEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertRule(rule: RecurringRuleEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertRules(rules: List<RecurringRuleEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertOccurrence(occurrence: RecurringOccurrenceEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertOccurrences(occurrences: List<RecurringOccurrenceEntity>)
+
+    @Delete
+    suspend fun deleteRule(rule: RecurringRuleEntity)
+
+    @Query("DELETE FROM recurring_occurrences WHERE ruleId = :ruleId")
+    suspend fun deleteOccurrencesForRule(ruleId: UUID)
+
+    @Query("DELETE FROM recurring_occurrences")
+    suspend fun deleteAllOccurrences()
+
+    @Query("DELETE FROM recurring_rules")
+    suspend fun deleteAllRules()
+}
+
+@Dao
 interface BudgetDao {
     @Query("SELECT * FROM category_monthly_budgets ORDER BY monthKey DESC")
     fun observeBudgets(): Flow<List<CategoryMonthlyBudgetEntity>>

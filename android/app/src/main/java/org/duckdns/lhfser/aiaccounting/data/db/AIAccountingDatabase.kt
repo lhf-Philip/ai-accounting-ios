@@ -15,6 +15,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TransactionTagCrossRef::class,
         ShortcutEntity::class,
         ShortcutTagCrossRef::class,
+        RecurringRuleEntity::class,
+        RecurringOccurrenceEntity::class,
         CategoryMonthlyBudgetEntity::class,
         BudgetMonthlyHistoryEntity::class,
         BudgetSettingsEntity::class,
@@ -22,7 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AdvanceParticipantEntity::class,
         AdvanceRepaymentEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -32,6 +34,7 @@ abstract class AIAccountingDatabase : RoomDatabase() {
     abstract fun tagDao(): TagDao
     abstract fun transactionDao(): TransactionDao
     abstract fun shortcutDao(): ShortcutDao
+    abstract fun recurringDao(): RecurringDao
     abstract fun budgetDao(): BudgetDao
     abstract fun advanceDao(): AdvanceDao
 
@@ -77,6 +80,52 @@ abstract class AIAccountingDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `recurring_rules` (
+                        `id` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `amount` TEXT NOT NULL,
+                        `currencyCode` TEXT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `note` TEXT NOT NULL,
+                        `frequency` TEXT NOT NULL,
+                        `intervalCount` INTEGER NOT NULL,
+                        `nextDueDate` INTEGER NOT NULL,
+                        `isPaused` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        `accountId` TEXT,
+                        `categoryId` TEXT,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_rules_accountId` ON `recurring_rules` (`accountId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_rules_categoryId` ON `recurring_rules` (`categoryId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_rules_nextDueDate` ON `recurring_rules` (`nextDueDate`)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `recurring_occurrences` (
+                        `id` TEXT NOT NULL,
+                        `dueDate` INTEGER NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `createdTransactionId` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        `ruleId` TEXT,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_occurrences_ruleId` ON `recurring_occurrences` (`ruleId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_occurrences_dueDate` ON `recurring_occurrences` (`dueDate`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_recurring_occurrences_ruleId_dueDate` ON `recurring_occurrences` (`ruleId`, `dueDate`)")
             }
         }
     }

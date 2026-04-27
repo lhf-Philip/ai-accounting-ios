@@ -91,6 +91,8 @@ final class BackupCompatibilityTests: XCTestCase {
             Category.self,
             Tag.self,
             Shortcut.self,
+            RecurringRule.self,
+            RecurringOccurrence.self,
             CategoryMonthlyBudget.self,
             BudgetMonthlyHistory.self,
             BudgetSettings.self,

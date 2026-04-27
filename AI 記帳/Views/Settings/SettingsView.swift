@@ -227,6 +227,9 @@ struct SettingsView: View {
                     NavigationLink(destination: SettlementCenterView()) {
                         Label("結算中心", systemImage: "person.line.dotted.person")
                     }
+                    NavigationLink(destination: RecurringTransactionsView()) {
+                        Label("定期記帳", systemImage: "calendar.badge.clock")
+                    }
                     NavigationLink(destination: BudgetsView()) {
                         Label("預算與超支提醒", systemImage: "chart.bar.doc.horizontal")
                     }
@@ -401,6 +404,8 @@ struct SettingsView: View {
             try modelContext.delete(model: Category.self)
             try modelContext.delete(model: Tag.self)
             try modelContext.delete(model: Shortcut.self)
+            try modelContext.delete(model: RecurringOccurrence.self)
+            try modelContext.delete(model: RecurringRule.self)
             try modelContext.delete(model: CategoryMonthlyBudget.self)
             try modelContext.delete(model: BudgetMonthlyHistory.self)
             try modelContext.delete(model: BudgetSettings.self)
