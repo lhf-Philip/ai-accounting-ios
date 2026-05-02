@@ -72,6 +72,7 @@ struct TransactionsListView: View {
                         .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("ledger.dateFilter.button")
                     Spacer()
                 }
                 .padding(.vertical, 8)
@@ -121,6 +122,8 @@ struct TransactionsListView: View {
                                         transaction: transaction,
                                         transferCounterpart: renderState.transferCounterpartByID[transaction.id]
                                     )
+                                        .accessibilityIdentifier("ledger.transaction.row")
+                                        .accessibilityValue(transaction.note)
                                         .onTapGesture {
                                             transactionToEdit = transaction
                                         }
@@ -140,6 +143,7 @@ struct TransactionsListView: View {
                     }
                 }
                 .listStyle(.insetGrouped)
+                .accessibilityIdentifier("ledger.list")
             }
             .prominentInlineTitle("帳目明細")
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜尋備註、分類、金額")

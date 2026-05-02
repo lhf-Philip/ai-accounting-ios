@@ -6,6 +6,12 @@ private extension ProcessInfo {
     static var isRunningXCTest: Bool {
         processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
+
+    static var usesInMemoryStoreForTests: Bool {
+        isRunningXCTest
+            || processInfo.environment["AI_ACCOUNTING_UI_TESTS"] == "1"
+            || processInfo.arguments.contains("-UITestSeedLedgerPerformanceData")
+    }
 }
 
 @main
@@ -202,7 +208,7 @@ struct AI___App: App {
             AdvanceRepayment.self
         ])
 
-        if ProcessInfo.isRunningXCTest {
+        if ProcessInfo.usesInMemoryStoreForTests {
             let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
             do {
                 return try ModelContainer(for: schema, configurations: [configuration])

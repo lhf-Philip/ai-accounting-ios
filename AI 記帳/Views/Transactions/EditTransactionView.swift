@@ -58,6 +58,7 @@ struct EditTransactionView: View {
                             .keyboardType(.decimalPad)
                             .focused($isAmountFocused) // 🔥 綁定焦點
                             .onChange(of: amountString) { _, _ in updateTransactionAmount() }
+                            .accessibilityIdentifier("transactionEditor.amountField")
                     }
                     CurrencyRateHintView(
                         currencyService: currencyService,
@@ -87,7 +88,9 @@ struct EditTransactionView: View {
                     }
 
                     DatePicker("日期", selection: $transaction.date)
+                        .accessibilityIdentifier("transactionEditor.datePicker")
                     TextField("備註", text: $transaction.note)
+                        .accessibilityIdentifier("transactionEditor.noteField")
                 }
 
                 if transaction.type != .transfer {
@@ -120,6 +123,7 @@ struct EditTransactionView: View {
                         transaction.updatedAt = Date()
                         dismiss()
                     }
+                    .accessibilityIdentifier("transactionEditor.saveButton")
                 }
                 
                 // 🔥 新增：鍵盤工具列 (收起按鈕)

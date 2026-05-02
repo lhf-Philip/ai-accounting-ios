@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		FFA001000000000000000004 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FFA001000000000000000002 /* XCTest.framework */; };
+		FFA002000000000000000004 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FFA001000000000000000002 /* XCTest.framework */; };
 		FFE186662F067E15007E709F /* GoogleGenerativeAI in Frameworks */ = {isa = PBXBuildFile; productRef = FFE186652F067E15007E709F /* GoogleGenerativeAI */; };
 		FFE186742F06A5DB007E709F /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = FFE186732F06A5DB007E709F /* Localizable.xcstrings */; };
 /* End PBXBuildFile section */
@@ -20,11 +21,19 @@
 			remoteGlobalIDString = FF50821C2F057AD70012E7D0;
 			remoteInfo = "AI 記帳";
 		};
+		FFA00200000000000000000D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FF5082152F057AD70012E7D0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FF50821C2F057AD70012E7D0;
+			remoteInfo = "AI 記帳";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		FF50821D2F057AD70012E7D0 /* AI 記帳.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AI 記帳.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		FFA001000000000000000001 /* AI 記帳Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "AI 記帳Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		FFA002000000000000000001 /* AI 記帳UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "AI 記帳UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		FFA001000000000000000002 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
 		FFE186732F06A5DB007E709F /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -38,6 +47,11 @@
 		FFA001000000000000000003 /* AI 記帳Tests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "AI 記帳Tests";
+			sourceTree = "<group>";
+		};
+		FFA002000000000000000003 /* AI 記帳UITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "AI 記帳UITests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -59,6 +73,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FFA002000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FFA002000000000000000004 /* XCTest.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -68,8 +90,10 @@
 				FFE186732F06A5DB007E709F /* Localizable.xcstrings */,
 				FF50821D2F057AD70012E7D0 /* AI 記帳.app */,
 				FFA001000000000000000001 /* AI 記帳Tests.xctest */,
+				FFA002000000000000000001 /* AI 記帳UITests.xctest */,
 				FF50821F2F057AD70012E7D0 /* AI 記帳 */,
 				FFA001000000000000000003 /* AI 記帳Tests */,
+				FFA002000000000000000003 /* AI 記帳UITests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -122,6 +146,29 @@
 			productReference = FFA001000000000000000001 /* AI 記帳Tests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		FFA002000000000000000008 /* AI 記帳UITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FFA00200000000000000000B /* Build configuration list for PBXNativeTarget "AI 記帳UITests" */;
+			buildPhases = (
+				FFA002000000000000000006 /* Sources */,
+				FFA002000000000000000005 /* Frameworks */,
+				FFA002000000000000000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				FFA00200000000000000000E /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				FFA002000000000000000003 /* AI 記帳UITests */,
+			);
+			name = "AI 記帳UITests";
+			packageProductDependencies = (
+			);
+			productName = "AI 記帳UITests";
+			productReference = FFA002000000000000000001 /* AI 記帳UITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -136,6 +183,10 @@
 						CreatedOnToolsVersion = 26.2;
 					};
 					FFA001000000000000000008 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = FF50821C2F057AD70012E7D0;
+					};
+					FFA002000000000000000008 = {
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = FF50821C2F057AD70012E7D0;
 					};
@@ -165,6 +216,7 @@
 			targets = (
 				FF50821C2F057AD70012E7D0 /* AI 記帳 */,
 				FFA001000000000000000008 /* AI 記帳Tests */,
+				FFA002000000000000000008 /* AI 記帳UITests */,
 			);
 		};
 /* End PBXProject section */
@@ -179,6 +231,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		FFA001000000000000000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FFA002000000000000000007 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -202,6 +261,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FFA002000000000000000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -209,6 +275,11 @@
 			isa = PBXTargetDependency;
 			target = FF50821C2F057AD70012E7D0 /* AI 記帳 */;
 			targetProxy = FFA00100000000000000000D /* PBXContainerItemProxy */;
+		};
+		FFA00200000000000000000E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FF50821C2F057AD70012E7D0 /* AI 記帳 */;
+			targetProxy = FFA00200000000000000000D /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -464,6 +535,58 @@
 				};
 				name = Release;
 			};
+		FFA002000000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N8999ZB8MC;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.duckdns.lhfser.AIMoneyUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "AI 記帳";
+			};
+			name = Debug;
+		};
+		FFA00200000000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N8999ZB8MC;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.duckdns.lhfser.AIMoneyUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "AI 記帳";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -490,6 +613,15 @@
 			buildConfigurations = (
 				FFA001000000000000000009 /* Debug */,
 				FFA00100000000000000000A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		FFA00200000000000000000B /* Build configuration list for PBXNativeTarget "AI 記帳UITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FFA002000000000000000009 /* Debug */,
+				FFA00200000000000000000A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -197,7 +197,9 @@ struct EditTransferView: View {
 
                     Section("其他") {
                         DatePicker("日期", selection: $date, displayedComponents: [.date, .hourAndMinute])
+                            .accessibilityIdentifier("transferEditor.datePicker")
                         TextField("備註", text: $note)
+                            .accessibilityIdentifier("transferEditor.noteField")
                         if outgoingLegs.count == 1, incomingLegs.count == 1 {
                             TransferRateHintView(
                                 currencyService: currencyService,
@@ -223,6 +225,7 @@ struct EditTransferView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("儲存") { saveChanges() }
                         .disabled(!canSubmit)
+                        .accessibilityIdentifier("transferEditor.saveButton")
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
