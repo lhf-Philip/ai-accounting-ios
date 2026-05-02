@@ -6,15 +6,6 @@ struct AccountDetailView: View {
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var allTransactions: [FinancialTransaction]
     @Environment(\.modelContext) private var modelContext
     
-    // 只篩選該帳戶的交易
-    var accountTransactions: [FinancialTransaction] {
-        allTransactions.filter { $0.account?.id == account.id }
-    }
-    
-    private var transferCounterpartByID: [UUID: TransferCounterpartInfo] {
-        TransferPresentationService.counterpartMap(transactions: allTransactions)
-    }
-    
     // 🔥 修正 1：定義一個結構體來代替 Tuple，讓 ForEach 能識別
     struct CurrencyBalance: Identifiable {
         var id: String { currency } // 使用幣種作為唯一 ID
@@ -22,41 +13,22 @@ struct AccountDetailView: View {
         let amount: Decimal
     }
     
-    // 🔥 修正 2：回傳 [CurrencyBalance] 結構體陣列
-    var currencyBalances: [CurrencyBalance] {
-        var balances: [String: Decimal] = [:]
-        
-        // 1. 加上初始餘額 (歸入帳戶預設幣種)
-        if account.baseBalance != 0 {
-            balances[account.currency, default: 0] += account.baseBalance
-        }
-        
-        // 2. 加上所有交易 (歸入交易各自的幣種)
-        for tx in accountTransactions {
-            balances[tx.currencyCode, default: 0] += tx.amount
-        }
-        
-        // 過濾掉金額為 0 的，並轉為結構體陣列
-        return balances
-            .filter { $0.value != 0 }
-            .map { CurrencyBalance(currency: $0.key, amount: $0.value) }
-            .sorted { $0.currency < $1.currency }
-    }
-    
     var body: some View {
+        let renderState = AccountDetailRenderState(account: account, allTransactions: allTransactions)
+
         List {
             // 1. 頂部資訊卡 (總覽)
             Section {
                 VStack(spacing: 16) {
                     
-                    if currencyBalances.isEmpty {
+                    if renderState.currencyBalances.isEmpty {
                         // 如果剛好歸零，顯示 0 (預設幣種)
                         Text(Decimal(0).formatted(.currency(code: account.currency)))
                             .font(.system(size: 36, weight: .bold))
                             .foregroundStyle(.secondary)
                     } else {
                         // 🔥 修正 3：現在 ForEach 可以正常運作了
-                        ForEach(currencyBalances) { item in
+                        ForEach(renderState.currencyBalances) { item in
                             HStack {
                                 Text(item.currency)
                                     .font(.headline)
@@ -72,12 +44,12 @@ struct AccountDetailView: View {
                             }
                             
                             // 分隔線邏輯：如果不是最後一個，顯示分隔線
-                            if item.id != currencyBalances.last?.id {
+                            if item.id != renderState.currencyBalances.last?.id {
                                 Divider()
                             }
                         }
                     }
-                    
+
                     HStack {
                         Text(account.name)
                             .font(.headline)
@@ -98,10 +70,10 @@ struct AccountDetailView: View {
             
             // 2. 交易列表
             Section("交易紀錄") {
-                ForEach(accountTransactions) { transaction in
+                ForEach(renderState.accountTransactions) { transaction in
                     TransactionRow(
                         transaction: transaction,
-                        transferCounterpart: transferCounterpartByID[transaction.id]
+                        transferCounterpart: renderState.transferCounterpartByID[transaction.id]
                     )
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
@@ -140,5 +112,42 @@ struct AccountDetailView: View {
         }
         
         modelContext.delete(transaction)
+    }
+}
+
+private struct AccountDetailRenderState {
+    let accountTransactions: [FinancialTransaction]
+    let transferCounterpartByID: [UUID: TransferCounterpartInfo]
+    let currencyBalances: [AccountDetailView.CurrencyBalance]
+
+    init(account: Account, allTransactions: [FinancialTransaction]) {
+        let accountTransactions = allTransactions.filter { $0.account?.id == account.id }
+
+        self.accountTransactions = accountTransactions
+        self.transferCounterpartByID = TransferPresentationService.counterpartMap(transactions: allTransactions)
+        self.currencyBalances = Self.currencyBalances(
+            account: account,
+            accountTransactions: accountTransactions
+        )
+    }
+
+    private static func currencyBalances(
+        account: Account,
+        accountTransactions: [FinancialTransaction]
+    ) -> [AccountDetailView.CurrencyBalance] {
+        var balances: [String: Decimal] = [:]
+
+        if account.baseBalance != 0 {
+            balances[account.currency, default: 0] += account.baseBalance
+        }
+
+        for tx in accountTransactions {
+            balances[tx.currencyCode, default: 0] += tx.amount
+        }
+
+        return balances
+            .filter { $0.value != 0 }
+            .map { AccountDetailView.CurrencyBalance(currency: $0.key, amount: $0.value) }
+            .sorted { $0.currency < $1.currency }
     }
 }

@@ -45,8 +45,15 @@ struct TransactionsListView: View {
             }
         }
     }
+
+    struct TransactionGroup {
+        let title: String
+        let items: [LedgerItem]
+    }
     
     var body: some View {
+        let renderState = makeRenderState()
+
         NavigationStack {
             VStack(spacing: 0) {
                 // MARK: - 1. 日期選擇器 (固定)
@@ -105,14 +112,14 @@ struct TransactionsListView: View {
                 // MARK: - 3. 列表內容 (List)
                 List {
                     // 交易分組
-                    ForEach(groupedTransactions, id: \.title) { group in
+                    ForEach(renderState.groupedTransactions, id: \.title) { group in
                         Section(header: Text(group.title)) {
                             ForEach(group.items) { item in
                                 switch item {
                                 case .transaction(let transaction):
                                     TransactionRow(
                                         transaction: transaction,
-                                        transferCounterpart: transferCounterpartByID[transaction.id]
+                                        transferCounterpart: renderState.transferCounterpartByID[transaction.id]
                                     )
                                         .onTapGesture {
                                             transactionToEdit = transaction
@@ -144,7 +151,7 @@ struct TransactionsListView: View {
             }
             .sheet(item: $transactionToEdit) { tx in
                 if tx.type == .transfer {
-                    if isAdvanceTransfer(tx) {
+                    if isAdvanceTransfer(tx, advanceGroupIDs: renderState.advanceGroupIDs) {
                         EditAdvanceTransferView(originalTransaction: tx)
                     } else if TransactionSemantics.isDebtForgiveness(note: tx.note) {
                         AddDebtView(existingForgivenessTransaction: tx)
@@ -156,7 +163,7 @@ struct TransactionsListView: View {
                 }
             }
             .overlay {
-                if filteredLedgerItems.isEmpty {
+                if renderState.ledgerItems.isEmpty {
                     ContentUnavailableView("無交易紀錄", systemImage: "list.bullet.clipboard", description: Text("該區間或搜尋條件下無資料"))
                 }
             }
@@ -218,8 +225,16 @@ struct TransactionsListView: View {
     
     // MARK: - Logic
     
-    private var transferCounterpartByID: [UUID: TransferCounterpartInfo] {
-        TransferPresentationService.counterpartMap(transactions: transactions)
+    private func makeRenderState() -> TransactionsRenderState {
+        TransactionsRenderState(
+            transactions: transactions,
+            advanceCases: advanceCases,
+            advanceParticipants: advanceParticipants,
+            advanceRepayments: advanceRepayments,
+            filterType: filterType,
+            selectedDate: selectedDate,
+            searchText: searchText
+        )
     }
     
     private func executeShortcut() {
@@ -244,11 +259,6 @@ struct TransactionsListView: View {
         print("✅ 捷徑執行成功: \(sc.name) (\(currency))")
     }
     
-    // ... Helpers (Filter logic 同前，省略重複代碼以節省篇幅) ...
-    // 請保留原本的 filterDisplayString, filteredTransactions, groupedTransactions
-    // calculateTotalEstimate, calculateCurrencyBreakdown, deleteTransaction
-    // 注意：在 calculateCurrencyBreakdown 中，需使用 tx.currencyCode 替代舊的 tx.account.currency
-    
     var filterDisplayString: String {
         let formatter = DateFormatter()
         switch filterType {
@@ -259,91 +269,9 @@ struct TransactionsListView: View {
         }
     }
     
-    var filteredTransactions: [FinancialTransaction] {
-        let calendar = Calendar.current
-        let timeFiltered = transactions.filter { tx in
-            if tx.type == .transfer && tx.amount > 0 && !TransactionSemantics.isDebtForgiveness(note: tx.note) { return false }
-            if tx.type == .transfer,
-               tx.transferGroupID == nil,
-               tx.linkedTransactionID == nil,
-               isAssetAdjustment(note: tx.note) {
-                return false
-            }
-            if let groupID = tx.transferGroupID, initialAdvanceGroupIDs.contains(groupID) {
-                return false
-            }
-            switch filterType {
-            case .all: return true
-            case .year: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .year)
-            case .month: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .month)
-            case .day: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .day)
-            }
-        }
-        let searched = searchText.isEmpty ? timeFiltered : timeFiltered.filter { tx in
-            tx.note.localizedCaseInsensitiveContains(searchText) ||
-            (tx.category?.name.localizedCaseInsensitiveContains(searchText) ?? false) ||
-            tx.tags.contains { $0.name.localizedCaseInsensitiveContains(searchText) } ||
-            String(describing: abs(tx.amount)).contains(searchText)
-        }
-        return collapseTransferGroups(in: searched)
-    }
-
-    var filteredAdvanceCases: [AdvanceCase] {
-        let calendar = Calendar.current
-        let timeFiltered = advanceCases.filter { advanceCase in
-            switch filterType {
-            case .all: return true
-            case .year: return calendar.isDate(advanceCase.date, equalTo: selectedDate, toGranularity: .year)
-            case .month: return calendar.isDate(advanceCase.date, equalTo: selectedDate, toGranularity: .month)
-            case .day: return calendar.isDate(advanceCase.date, equalTo: selectedDate, toGranularity: .day)
-            }
-        }
-
-        guard !searchText.isEmpty else {
-            return timeFiltered
-        }
-
-        return timeFiltered.filter { advanceCase in
-            advanceCase.title.localizedCaseInsensitiveContains(searchText)
-                || advanceCase.note.localizedCaseInsensitiveContains(searchText)
-                || (advanceCase.payerAccount?.name.localizedCaseInsensitiveContains(searchText) ?? false)
-                || advanceCase.participants.contains { $0.name.localizedCaseInsensitiveContains(searchText) }
-        }
-    }
-
-    var filteredLedgerItems: [LedgerItem] {
-        (filteredTransactions.map(LedgerItem.transaction) + filteredAdvanceCases.map(LedgerItem.advanceCaseSummary))
-            .sorted { lhs, rhs in
-                if lhs.date == rhs.date {
-                    return lhs.id > rhs.id
-                }
-                return lhs.date > rhs.date
-            }
-    }
-
-    struct TransactionGroup { let title: String; let items: [LedgerItem] }
-
-    var groupedTransactions: [TransactionGroup] {
-        let formatter = DateFormatter()
-        let grouping: (Date) -> String = { date in
-            switch filterType {
-            case .all: formatter.dateFormat = "yyyy年"; return formatter.string(from: date)
-            case .year: formatter.dateFormat = "M月"; return formatter.string(from: date)
-            case .month: formatter.dateFormat = "d日 (EEEE)"; return formatter.string(from: date)
-            case .day: return "明細"
-            }
-        }
-        let groupedDict = Dictionary(grouping: filteredLedgerItems) { item in grouping(item.date) }
-        let sortedKeys = groupedDict.keys.sorted { title1, title2 in
-            guard let item1 = groupedDict[title1]?.first, let item2 = groupedDict[title2]?.first else { return title1 > title2 }
-            return item1.date > item2.date
-        }
-        return sortedKeys.map { TransactionGroup(title: $0, items: groupedDict[$0] ?? []) }
-    }
-    
     func calculateTotalEstimate() -> String {
         var total: Decimal = 0
-        for tx in filteredTransactions {
+        for tx in makeRenderState().filteredTransactions {
             if tx.type == .transfer { continue }
             // 🔥 使用交易本身的 currencyCode
             let converted = CurrencyService.shared.convert(amount: tx.amount, from: tx.currencyCode)
@@ -355,7 +283,7 @@ struct TransactionsListView: View {
     struct CurrencyTotal { let currency: String; let amount: Decimal }
     
     func calculateCurrencyBreakdown() -> [CurrencyTotal] {
-        let validTransactions = filteredTransactions.filter { $0.type != .transfer }
+        let validTransactions = makeRenderState().filteredTransactions.filter { $0.type != .transfer }
         // 🔥 使用交易本身的 currencyCode 分組
         let grouped = Dictionary(grouping: validTransactions) { $0.currencyCode }
         return grouped.map { (curr, txs) in
@@ -387,17 +315,7 @@ struct TransactionsListView: View {
         modelContext.delete(tx)
     }
     
-    private var advanceGroupIDs: Set<UUID> {
-        var ids = Set<UUID>(advanceParticipants.compactMap(\.initialTransferGroupID))
-        ids.formUnion(advanceRepayments.compactMap(\.linkedTransferGroupID))
-        return ids
-    }
-
-    private var initialAdvanceGroupIDs: Set<UUID> {
-        Set(advanceParticipants.compactMap(\.initialTransferGroupID))
-    }
-
-    private func isAdvanceTransfer(_ tx: FinancialTransaction) -> Bool {
+    private func isAdvanceTransfer(_ tx: FinancialTransaction, advanceGroupIDs: Set<UUID>) -> Bool {
         guard tx.type == .transfer else { return false }
         if let groupID = tx.transferGroupID, advanceGroupIDs.contains(groupID) {
             return true
@@ -408,8 +326,155 @@ struct TransactionsListView: View {
             || compacted.contains("(還款至")
             || compacted.contains("(還款給")
     }
-    
-    private func collapseTransferGroups(in items: [FinancialTransaction]) -> [FinancialTransaction] {
+}
+
+private struct TransactionsRenderState {
+    let filteredTransactions: [FinancialTransaction]
+    let filteredAdvanceCases: [AdvanceCase]
+    let ledgerItems: [TransactionsListView.LedgerItem]
+    let groupedTransactions: [TransactionsListView.TransactionGroup]
+    let transferCounterpartByID: [UUID: TransferCounterpartInfo]
+    let advanceGroupIDs: Set<UUID>
+    let initialAdvanceGroupIDs: Set<UUID>
+
+    init(
+        transactions: [FinancialTransaction],
+        advanceCases: [AdvanceCase],
+        advanceParticipants: [AdvanceParticipant],
+        advanceRepayments: [AdvanceRepayment],
+        filterType: FilterType,
+        selectedDate: Date,
+        searchText: String
+    ) {
+        let initialAdvanceGroupIDs = Set(advanceParticipants.compactMap(\.initialTransferGroupID))
+        var advanceGroupIDs = initialAdvanceGroupIDs
+        advanceGroupIDs.formUnion(advanceRepayments.compactMap(\.linkedTransferGroupID))
+
+        let filteredTransactions = Self.filteredTransactions(
+            from: transactions,
+            initialAdvanceGroupIDs: initialAdvanceGroupIDs,
+            filterType: filterType,
+            selectedDate: selectedDate,
+            searchText: searchText
+        )
+        let filteredAdvanceCases = Self.filteredAdvanceCases(
+            from: advanceCases,
+            filterType: filterType,
+            selectedDate: selectedDate,
+            searchText: searchText
+        )
+        let ledgerItems = Self.ledgerItems(
+            transactions: filteredTransactions,
+            advanceCases: filteredAdvanceCases
+        )
+
+        self.filteredTransactions = filteredTransactions
+        self.filteredAdvanceCases = filteredAdvanceCases
+        self.ledgerItems = ledgerItems
+        self.groupedTransactions = Self.groupedTransactions(from: ledgerItems, filterType: filterType)
+        self.transferCounterpartByID = TransferPresentationService.counterpartMap(transactions: transactions)
+        self.advanceGroupIDs = advanceGroupIDs
+        self.initialAdvanceGroupIDs = initialAdvanceGroupIDs
+    }
+
+    private static func filteredTransactions(
+        from transactions: [FinancialTransaction],
+        initialAdvanceGroupIDs: Set<UUID>,
+        filterType: FilterType,
+        selectedDate: Date,
+        searchText: String
+    ) -> [FinancialTransaction] {
+        let calendar = Calendar.current
+        let timeFiltered = transactions.filter { tx in
+            if tx.type == .transfer && tx.amount > 0 && !TransactionSemantics.isDebtForgiveness(note: tx.note) { return false }
+            if tx.type == .transfer,
+               tx.transferGroupID == nil,
+               tx.linkedTransactionID == nil,
+               isAssetAdjustment(note: tx.note) {
+                return false
+            }
+            if let groupID = tx.transferGroupID, initialAdvanceGroupIDs.contains(groupID) {
+                return false
+            }
+            switch filterType {
+            case .all: return true
+            case .year: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .year)
+            case .month: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .month)
+            case .day: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .day)
+            }
+        }
+        let searched = searchText.isEmpty ? timeFiltered : timeFiltered.filter { tx in
+            tx.note.localizedCaseInsensitiveContains(searchText) ||
+            (tx.category?.name.localizedCaseInsensitiveContains(searchText) ?? false) ||
+            tx.tags.contains { $0.name.localizedCaseInsensitiveContains(searchText) } ||
+            String(describing: abs(tx.amount)).contains(searchText)
+        }
+        return collapseTransferGroups(in: searched)
+    }
+
+    private static func filteredAdvanceCases(
+        from advanceCases: [AdvanceCase],
+        filterType: FilterType,
+        selectedDate: Date,
+        searchText: String
+    ) -> [AdvanceCase] {
+        let calendar = Calendar.current
+        let timeFiltered = advanceCases.filter { advanceCase in
+            switch filterType {
+            case .all: return true
+            case .year: return calendar.isDate(advanceCase.date, equalTo: selectedDate, toGranularity: .year)
+            case .month: return calendar.isDate(advanceCase.date, equalTo: selectedDate, toGranularity: .month)
+            case .day: return calendar.isDate(advanceCase.date, equalTo: selectedDate, toGranularity: .day)
+            }
+        }
+
+        guard !searchText.isEmpty else {
+            return timeFiltered
+        }
+
+        return timeFiltered.filter { advanceCase in
+            advanceCase.title.localizedCaseInsensitiveContains(searchText)
+                || advanceCase.note.localizedCaseInsensitiveContains(searchText)
+                || (advanceCase.payerAccount?.name.localizedCaseInsensitiveContains(searchText) ?? false)
+                || advanceCase.participants.contains { $0.name.localizedCaseInsensitiveContains(searchText) }
+        }
+    }
+
+    private static func ledgerItems(
+        transactions: [FinancialTransaction],
+        advanceCases: [AdvanceCase]
+    ) -> [TransactionsListView.LedgerItem] {
+        (transactions.map(TransactionsListView.LedgerItem.transaction) + advanceCases.map(TransactionsListView.LedgerItem.advanceCaseSummary))
+            .sorted { lhs, rhs in
+                if lhs.date == rhs.date {
+                    return lhs.id > rhs.id
+                }
+                return lhs.date > rhs.date
+            }
+    }
+
+    private static func groupedTransactions(
+        from ledgerItems: [TransactionsListView.LedgerItem],
+        filterType: FilterType
+    ) -> [TransactionsListView.TransactionGroup] {
+        let formatter = DateFormatter()
+        let grouping: (Date) -> String = { date in
+            switch filterType {
+            case .all: formatter.dateFormat = "yyyy年"; return formatter.string(from: date)
+            case .year: formatter.dateFormat = "M月"; return formatter.string(from: date)
+            case .month: formatter.dateFormat = "d日 (EEEE)"; return formatter.string(from: date)
+            case .day: return "明細"
+            }
+        }
+        let groupedDict = Dictionary(grouping: ledgerItems) { item in grouping(item.date) }
+        let sortedKeys = groupedDict.keys.sorted { title1, title2 in
+            guard let item1 = groupedDict[title1]?.first, let item2 = groupedDict[title2]?.first else { return title1 > title2 }
+            return item1.date > item2.date
+        }
+        return sortedKeys.map { TransactionsListView.TransactionGroup(title: $0, items: groupedDict[$0] ?? []) }
+    }
+
+    private static func collapseTransferGroups(in items: [FinancialTransaction]) -> [FinancialTransaction] {
         let representatives = Dictionary(grouping: items.compactMap { tx -> (UUID, FinancialTransaction)? in
             guard let groupID = tx.transferGroupID else { return nil }
             return (groupID, tx)
@@ -419,27 +484,27 @@ struct TransactionsListView: View {
                 ?? transfers.first(where: { $0.amount < 0 })
                 ?? transfers.first
         }
-        
+
         var seenGroupIDs = Set<UUID>()
         var output: [FinancialTransaction] = []
-        
+
         for tx in items {
             guard tx.type == .transfer, let groupID = tx.transferGroupID else {
                 output.append(tx)
                 continue
             }
-            
+
             if seenGroupIDs.contains(groupID) {
                 continue
             }
             seenGroupIDs.insert(groupID)
             output.append(representatives[groupID] ?? tx)
         }
-        
+
         return output
     }
-    
-    private func isAssetAdjustment(note: String) -> Bool {
+
+    private static func isAssetAdjustment(note: String) -> Bool {
         note.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(TransactionSemantics.assetAdjustmentMarker)
     }
 }

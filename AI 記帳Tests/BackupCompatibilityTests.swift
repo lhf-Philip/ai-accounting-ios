@@ -119,3 +119,82 @@ final class BackupCompatibilityTests: XCTestCase {
         return tempURL
     }
 }
+
+@MainActor
+final class TransferPresentationServiceTests: XCTestCase {
+    func testCounterpartMap_usesLinkedTransferPair() {
+        let outgoingID = UUID()
+        let incomingID = UUID()
+
+        let result = TransferPresentationService.counterpartMap(inputs: [
+            transferInput(id: outgoingID, amount: -100, currencyCode: "USD", linkedTransactionID: incomingID, transferSide: .outgoing),
+            transferInput(id: incomingID, amount: 780, currencyCode: "HKD", linkedTransactionID: outgoingID, transferSide: .incoming),
+        ])
+
+        XCTAssertEqual(result[outgoingID]?.amount, 780)
+        XCTAssertEqual(result[outgoingID]?.currencyCode, "HKD")
+        XCTAssertEqual(result[incomingID]?.amount, -100)
+        XCTAssertEqual(result[incomingID]?.currencyCode, "USD")
+    }
+
+    func testCounterpartMap_handlesTransferGroupSplitMerge() {
+        let groupID = UUID()
+        let outgoingID = UUID()
+        let firstIncomingID = UUID()
+        let secondIncomingID = UUID()
+
+        let result = TransferPresentationService.counterpartMap(inputs: [
+            transferInput(id: outgoingID, amount: -100, currencyCode: "HKD", transferGroupID: groupID, transferSide: .outgoing),
+            transferInput(id: firstIncomingID, amount: 40, currencyCode: "HKD", transferGroupID: groupID, transferSide: .incoming),
+            transferInput(id: secondIncomingID, amount: 60, currencyCode: "HKD", transferGroupID: groupID, transferSide: .incoming),
+        ])
+
+        XCTAssertNil(result[outgoingID])
+        XCTAssertEqual(result[firstIncomingID]?.amount, -100)
+        XCTAssertEqual(result[firstIncomingID]?.currencyCode, "HKD")
+        XCTAssertEqual(result[secondIncomingID]?.amount, -100)
+        XCTAssertEqual(result[secondIncomingID]?.currencyCode, "HKD")
+    }
+
+    func testCounterpartMap_ignoresMissingLinkedTransfer() {
+        let result = TransferPresentationService.counterpartMap(inputs: [
+            transferInput(id: UUID(), amount: -100, currencyCode: "HKD", linkedTransactionID: UUID(), transferSide: .outgoing),
+        ])
+
+        XCTAssertTrue(result.isEmpty)
+    }
+
+    func testCounterpartMap_supportsSameAccountCrossCurrencyTransferShape() {
+        let outgoingID = UUID()
+        let incomingID = UUID()
+
+        let result = TransferPresentationService.counterpartMap(inputs: [
+            transferInput(id: outgoingID, amount: -100, currencyCode: "HKD", linkedTransactionID: incomingID, transferSide: .outgoing),
+            transferInput(id: incomingID, amount: 92, currencyCode: "CNY", linkedTransactionID: outgoingID, transferSide: .incoming),
+        ])
+
+        XCTAssertEqual(result[outgoingID]?.amount, 92)
+        XCTAssertEqual(result[outgoingID]?.currencyCode, "CNY")
+        XCTAssertEqual(result[incomingID]?.amount, -100)
+        XCTAssertEqual(result[incomingID]?.currencyCode, "HKD")
+    }
+
+    private func transferInput(
+        id: UUID,
+        amount: Decimal,
+        currencyCode: String,
+        linkedTransactionID: UUID? = nil,
+        transferGroupID: UUID? = nil,
+        transferSide: TransferSide? = nil
+    ) -> TransferCounterpartInput {
+        TransferCounterpartInput(
+            id: id,
+            type: .transfer,
+            amount: amount,
+            currencyCode: currencyCode,
+            linkedTransactionID: linkedTransactionID,
+            transferGroupID: transferGroupID,
+            transferSide: transferSide
+        )
+    }
+}

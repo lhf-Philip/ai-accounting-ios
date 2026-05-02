@@ -5,11 +5,26 @@ struct TransferCounterpartInfo {
     let currencyCode: String
 }
 
+struct TransferCounterpartInput {
+    let id: UUID
+    let type: TransactionType
+    let amount: Decimal
+    let currencyCode: String
+    let linkedTransactionID: UUID?
+    let transferGroupID: UUID?
+    let transferSide: TransferSide?
+}
+
 enum TransferPresentationService {
+    @MainActor
     static func counterpartMap(transactions: [FinancialTransaction]) -> [UUID: TransferCounterpartInfo] {
-        let transferTransactions = transactions.filter { $0.type == .transfer }
+        counterpartMap(inputs: transactions.map(TransferCounterpartInput.init))
+    }
+
+    static func counterpartMap(inputs: [TransferCounterpartInput]) -> [UUID: TransferCounterpartInfo] {
+        let transferTransactions = inputs.filter { $0.type == .transfer }
         let idIndex = Dictionary(uniqueKeysWithValues: transferTransactions.map { ($0.id, $0) })
-        let groupIndex = Dictionary(grouping: transferTransactions.compactMap { tx -> (UUID, FinancialTransaction)? in
+        let groupIndex = Dictionary(grouping: transferTransactions.compactMap { tx -> (UUID, TransferCounterpartInput)? in
             guard let groupID = tx.transferGroupID else { return nil }
             return (groupID, tx)
         }, by: { $0.0 }).mapValues { $0.map(\.1) }
@@ -40,5 +55,19 @@ enum TransferPresentationService {
         }
         
         return result
+    }
+}
+
+private extension TransferCounterpartInput {
+    init(transaction: FinancialTransaction) {
+        self.init(
+            id: transaction.id,
+            type: transaction.type,
+            amount: transaction.amount,
+            currencyCode: transaction.currencyCode,
+            linkedTransactionID: transaction.linkedTransactionID,
+            transferGroupID: transaction.transferGroupID,
+            transferSide: transaction.transferSide
+        )
     }
 }
