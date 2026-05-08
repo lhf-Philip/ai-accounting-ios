@@ -55,10 +55,10 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
 
-private enum class DebtMode(val label: String) {
-    Borrow("借入 (我欠人)"),
-    Repay("還款 (還給人)"),
-    Forgive("免除債務")
+private enum class DebtMode(val routeValue: String, val fallbackLabel: String) {
+    Borrow("borrow", "借入 / 收款"),
+    Repay("repay", "借出 / 還款"),
+    Forgive("forgive", "免除債務")
 }
 
 private enum class DebtEntryMode(val label: String) {
@@ -83,6 +83,10 @@ private data class DebtMergeLeg(
 @Composable
 fun DebtEntryScreen(
     transactionId: String? = null,
+    presetDebtAccountId: String? = null,
+    presetMode: String? = null,
+    presetForgivenessDirection: String? = null,
+    presetNote: String? = null,
     onDone: () -> Unit
 ) {
     val repository = LocalRepository.current
@@ -92,6 +96,7 @@ fun DebtEntryScreen(
     val scrollState = rememberScrollState()
 
     val accounts by repository.accounts.collectAsState(initial = emptyList())
+    val transactions by repository.transactions.collectAsState(initial = emptyList())
     val debtAccounts = remember(accounts) { TransactionSemantics.debtAccounts(accounts).sortedBy { it.name } }
     val myAccounts = remember(accounts) { TransactionSemantics.ownAccounts(accounts).sortedBy { it.sortOrder } }
 
@@ -107,6 +112,14 @@ fun DebtEntryScreen(
     var splitLegs by remember { mutableStateOf(listOf(DebtSplitLeg())) }
     var mergeLegs by remember { mutableStateOf(listOf(DebtMergeLeg())) }
     var validationMessage by remember { mutableStateOf<String?>(null) }
+    var didApplyPreset by remember { mutableStateOf(false) }
+
+    val selectedDebtBalance = remember(selectedDebtAccount, transactions) {
+        val account = selectedDebtAccount ?: return@remember BigDecimal.ZERO
+        account.baseBalance + transactions
+            .filter { it.transaction.accountId == account.id }
+            .fold(BigDecimal.ZERO) { acc, item -> acc + item.transaction.amount }
+    }
 
     LaunchedEffect(currencyService.mainCurrency) {
         currencyService.fetchRates()
@@ -124,6 +137,20 @@ fun DebtEntryScreen(
         } else {
             selectedCurrency = selectedMyAccount?.currency ?: selectedCurrency
         }
+    }
+
+    LaunchedEffect(debtAccounts, presetDebtAccountId, presetMode, presetForgivenessDirection, presetNote) {
+        if (didApplyPreset) return@LaunchedEffect
+        val presetAccountId = presetDebtAccountId?.let(UUID::fromString)
+        if (presetAccountId != null) {
+            selectedDebtAccount = debtAccounts.firstOrNull { it.id == presetAccountId } ?: selectedDebtAccount
+        }
+        mode = debtModeFromRoute(presetMode) ?: mode
+        forgivenessDirection = forgivenessDirectionFromRoute(presetForgivenessDirection) ?: forgivenessDirection
+        if (note.isBlank() && !presetNote.isNullOrBlank()) {
+            note = presetNote
+        }
+        didApplyPreset = true
     }
 
     LaunchedEffect(mode, selectedDebtAccount, selectedMyAccount) {
@@ -176,7 +203,7 @@ fun DebtEntryScreen(
             ParitySegmentedControl(
                 options = DebtMode.values().toList(),
                 selected = mode,
-                label = { it.label },
+                label = { debtModeTitle(it, selectedDebtBalance) },
                 onSelect = { mode = it }
             )
             if (mode == DebtMode.Forgive) {
@@ -214,8 +241,8 @@ fun DebtEntryScreen(
                 )
                 AccountMenuPicker(
                     label = when (mode) {
-                        DebtMode.Borrow -> "跟誰借"
-                        DebtMode.Repay -> "還給誰"
+                        DebtMode.Borrow -> if (selectedDebtBalance.signum() > 0) "誰還你" else "跟誰借"
+                        DebtMode.Repay -> if (selectedDebtBalance.signum() > 0) "借給誰" else "還給誰"
                         DebtMode.Forgive -> "借貸對象"
                     },
                     options = debtAccounts,
@@ -335,8 +362,8 @@ fun DebtEntryScreen(
             title = "交易預覽",
             value = totalAmountPreview(mode, entryMode, amountInput, splitLegs, mergeLegs),
             supporting = when (mode) {
-                DebtMode.Borrow -> "借入會讓借貸帳戶出帳、你的帳戶入帳"
-                DebtMode.Repay -> "還款會讓你的帳戶出帳、借貸帳戶入帳"
+                DebtMode.Borrow -> if (selectedDebtBalance.signum() > 0) "收款會讓你的帳戶入帳、對方欠款減少" else "借入會讓你的帳戶入帳、你欠對方增加"
+                DebtMode.Repay -> if (selectedDebtBalance.signum() > 0) "借出會讓你的帳戶出帳、對方欠你增加" else "還款會讓你的帳戶出帳、你欠對方減少"
                 DebtMode.Forgive -> forgivenessDirection.label
             }
         )
@@ -379,7 +406,7 @@ fun DebtEntryScreen(
                         repository.upsertTransaction(transaction, emptyList())
                         onDone()
                     } else {
-                        val transactions = buildDebtTransactions(
+                        val debtTransactions = buildDebtTransactions(
                             mode = mode,
                             entryMode = entryMode,
                             debtAccount = debtAccount,
@@ -391,11 +418,11 @@ fun DebtEntryScreen(
                             splitLegs = splitLegs,
                             mergeLegs = mergeLegs
                         )
-                        if (transactions == null) {
+                        if (debtTransactions == null) {
                             validationMessage = "請輸入完整金額並選擇需要的帳戶。"
                             return@launch
                         }
-                        repository.upsertTransactions(transactions)
+                        repository.upsertTransactions(debtTransactions)
                         onDone()
                     }
                 }
@@ -573,7 +600,7 @@ private fun createDebtPair(
     date: Instant,
     memo: String
 ): List<TransactionEntity> {
-    val finalMemo = memo.trim().ifBlank { mode.label }
+    val finalMemo = memo.trim().ifBlank { mode.fallbackLabel }
     val groupId = UUID.randomUUID()
     val firstId = UUID.randomUUID()
     val secondId = UUID.randomUUID()
@@ -664,6 +691,22 @@ private fun totalAmountPreview(
         else -> mergeLegs.mapNotNull { it.amount.toBigDecimalOrNull() }.takeIf { it.size == mergeLegs.size }?.fold(BigDecimal.ZERO, BigDecimal::add)
     }
     return total?.toPlainString() ?: "尚未完成輸入"
+}
+
+private fun debtModeTitle(mode: DebtMode, selectedDebtBalance: BigDecimal): String {
+    return when (mode) {
+        DebtMode.Borrow -> if (selectedDebtBalance.signum() > 0) "收款（對方還你）" else "借入（你向對方借）"
+        DebtMode.Repay -> if (selectedDebtBalance.signum() > 0) "借出（對方欠你更多）" else "還款（你還給對方）"
+        DebtMode.Forgive -> "免除債務"
+    }
+}
+
+private fun debtModeFromRoute(value: String?): DebtMode? {
+    return DebtMode.values().firstOrNull { it.routeValue == value }
+}
+
+private fun forgivenessDirectionFromRoute(value: String?): DebtForgivenessDirection? {
+    return DebtForgivenessDirection.values().firstOrNull { it.name == value }
 }
 
 private fun sanitizeAmount(input: String): String {

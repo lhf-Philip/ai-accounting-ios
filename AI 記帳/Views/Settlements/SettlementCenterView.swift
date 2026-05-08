@@ -11,12 +11,14 @@ private enum SettlementCenterMode: String, CaseIterable, Identifiable {
 
 private struct SettlementPersonSummary: Identifiable {
     let id: UUID
+    let account: Account
     let name: String
     let balances: [SettlementCurrencyBalance]
     let netBalanceInMainCurrency: Decimal
     let advanceCaseCount: Int
     let repaymentCount: Int
     let forgivenessCount: Int
+    let latestActivityDate: Date?
 }
 
 private struct SettlementCurrencyBalance: Identifiable {
@@ -28,12 +30,31 @@ private struct SettlementCurrencyBalance: Identifiable {
 
 private struct SettlementTimelineItem: Identifiable {
     let id: String
+    let relatedAccountID: UUID?
     let date: Date
     let title: String
     let subtitle: String
     let amount: Decimal?
     let currencyCode: String
     let tint: Color
+}
+
+private struct SettlementTimelineFilter: Identifiable {
+    let accountID: UUID
+    let name: String
+
+    var id: UUID { accountID }
+}
+
+private struct SettlementDebtRoute: Identifiable, Hashable {
+    let accountID: UUID
+    let mode: AddDebtView.DebtMode
+    let forgivenessDirection: DebtForgivenessDirection?
+    let note: String
+
+    var id: String {
+        "\(accountID.uuidString)-\(mode.rawValue)-\(forgivenessDirection?.rawValue ?? "none")-\(note)"
+    }
 }
 
 struct SettlementCenterView: View {
@@ -43,6 +64,9 @@ struct SettlementCenterView: View {
     @StateObject private var currencyService = CurrencyService.shared
     @AppStorage("mainCurrency") private var mainCurrency: String = "HKD"
     @State private var mode: SettlementCenterMode = .people
+    @State private var selectedPerson: SettlementPersonSummary?
+    @State private var timelineFilter: SettlementTimelineFilter?
+    @State private var debtRoute: SettlementDebtRoute?
 
     private var activeDebtAccounts: [Account] {
         accounts.filter { $0.type == .debt && !$0.isArchived }
@@ -67,12 +91,14 @@ struct SettlementCenterView: View {
 
             return SettlementPersonSummary(
                 id: account.id,
+                account: account,
                 name: account.name,
                 balances: balances,
                 netBalanceInMainCurrency: netInMainCurrency,
                 advanceCaseCount: caseCount,
                 repaymentCount: repayments.count,
-                forgivenessCount: forgiveness.count
+                forgivenessCount: forgiveness.count,
+                latestActivityDate: latestActivityDate(for: account)
             )
         }
         .filter { !$0.balances.isEmpty || $0.advanceCaseCount > 0 || $0.repaymentCount > 0 || $0.forgivenessCount > 0 }
@@ -98,6 +124,7 @@ struct SettlementCenterView: View {
         var items: [SettlementTimelineItem] = advanceCases.map { advanceCase in
             SettlementTimelineItem(
                 id: "case-\(advanceCase.id.uuidString)",
+                relatedAccountID: nil,
                 date: advanceCase.date,
                 title: "建立代墊：\(advanceCase.title)",
                 subtitle: "\(advanceCase.participants.count) 位對象，未清 \(AdvanceService.outstandingAmount(for: advanceCase).formatted(.currency(code: advanceCase.currencyCode)))",
@@ -110,6 +137,7 @@ struct SettlementCenterView: View {
         items += advanceCases.flatMap(\.repayments).map { repayment in
             SettlementTimelineItem(
                 id: "repayment-\(repayment.id.uuidString)",
+                relatedAccountID: repayment.participant?.debtAccount?.id,
                 date: repayment.date,
                 title: "代墊還款：\(repayment.participant?.name ?? "未命名對象")",
                 subtitle: repayment.advanceCase?.title ?? "未連結代墊單",
@@ -141,8 +169,9 @@ struct SettlementCenterView: View {
 
             return SettlementTimelineItem(
                 id: "debt-\(transaction.id.uuidString)",
+                relatedAccountID: transaction.account?.id,
                 date: transaction.date,
-                title: title,
+                title: debtTimelineTitle(for: transaction, fallback: title),
                 subtitle: transaction.account?.name ?? "借貸帳戶",
                 amount: transaction.amount,
                 currencyCode: transaction.currencyCode,
@@ -151,6 +180,11 @@ struct SettlementCenterView: View {
         }
 
         return items.sorted { $0.date > $1.date }
+    }
+
+    private var displayedTimelineItems: [SettlementTimelineItem] {
+        guard let timelineFilter else { return timelineItems }
+        return timelineItems.filter { $0.relatedAccountID == timelineFilter.accountID }
     }
 
     private var totalNetInMainCurrency: Decimal {
@@ -228,6 +262,78 @@ struct SettlementCenterView: View {
         .task {
             await currencyService.fetchRates()
         }
+        .confirmationDialog("結算動作", isPresented: Binding(
+            get: { selectedPerson != nil },
+            set: { if !$0 { selectedPerson = nil } }
+        ), titleVisibility: .visible) {
+            if let summary = selectedPerson, summary.netBalanceInMainCurrency > 0 {
+                Button("記錄對方還款") {
+                    selectedPerson = nil
+                    debtRoute = SettlementDebtRoute(
+                        accountID: summary.id,
+                        mode: .borrow,
+                        forgivenessDirection: nil,
+                        note: "對方還款"
+                    )
+                }
+                Button("免除對方欠款", role: .destructive) {
+                    selectedPerson = nil
+                    debtRoute = SettlementDebtRoute(
+                        accountID: summary.id,
+                        mode: .forgive,
+                        forgivenessDirection: .forgiveOthers,
+                        note: "免除對方欠款"
+                    )
+                }
+            } else if let summary = selectedPerson, summary.netBalanceInMainCurrency < 0 {
+                Button("記錄你還款") {
+                    selectedPerson = nil
+                    debtRoute = SettlementDebtRoute(
+                        accountID: summary.id,
+                        mode: .repay,
+                        forgivenessDirection: nil,
+                        note: "你還款"
+                    )
+                }
+                Button("記錄對方免除", role: .destructive) {
+                    selectedPerson = nil
+                    debtRoute = SettlementDebtRoute(
+                        accountID: summary.id,
+                        mode: .forgive,
+                        forgivenessDirection: .forgivenByOthers,
+                        note: "對方免除"
+                    )
+                }
+            }
+            Button("查看相關時間線") {
+                if let summary = selectedPerson {
+                    timelineFilter = SettlementTimelineFilter(accountID: summary.id, name: summary.name)
+                    mode = .timeline
+                    selectedPerson = nil
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            if let summary = selectedPerson {
+                Text("\(summary.name)：\(directionText(for: summary.netBalanceInMainCurrency))")
+            }
+        }
+        .navigationDestination(isPresented: Binding(
+            get: { debtRoute != nil },
+            set: { if !$0 { debtRoute = nil } }
+        )) {
+            if let route = debtRoute,
+               let account = accounts.first(where: { $0.id == route.accountID }) {
+                AddDebtView(
+                    presetDebtAccount: account,
+                    presetMode: route.mode,
+                    presetForgivenessDirection: route.forgivenessDirection,
+                    presetNote: route.note
+                )
+            } else {
+                ContentUnavailableView("找不到對象", systemImage: "person.crop.circle.badge.exclamationmark")
+            }
+        }
     }
 
     @ViewBuilder
@@ -243,6 +349,9 @@ struct SettlementCenterView: View {
         } else {
             Section("按對象") {
                 ForEach(personSummaries) { summary in
+                    Button {
+                        selectedPerson = summary
+                    } label: {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             VStack(alignment: .leading, spacing: 3) {
@@ -271,12 +380,20 @@ struct SettlementCenterView: View {
                             settlementPill("免除 \(summary.forgivenessCount)")
                         }
 
+                        if let latest = summary.latestActivityDate {
+                            Text("最近：\(latest.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+
                         ForEach(summary.balances.dropFirst()) { balance in
                             Text("\(balance.currencyCode): \(balance.amount.formatted(.currency(code: balance.currencyCode)))")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    }
+                    .buttonStyle(.plain)
                     .padding(.vertical, 4)
                 }
             }
@@ -309,6 +426,14 @@ struct SettlementCenterView: View {
                             Text("\(advanceCase.participants.count) 位對象，總額 \(AdvanceService.totalAdvanced(for: advanceCase).formatted(.currency(code: advanceCase.currencyCode)))")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            Text(caseProgressText(for: advanceCase))
+                                .font(.caption)
+                                .foregroundStyle(AdvanceService.outstandingAmount(for: advanceCase) > 0 ? .orange : .secondary)
+                            if let top = topOutstandingParticipant(for: advanceCase) {
+                                Text("主要未清：\(top.name) \(max(top.owedAmount - top.repaidAmount, 0).formatted(.currency(code: advanceCase.currencyCode)))")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                             Text(advanceCase.date.formatted(date: .abbreviated, time: .omitted))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
@@ -321,7 +446,7 @@ struct SettlementCenterView: View {
 
     @ViewBuilder
     private var timelineSection: some View {
-        if timelineItems.isEmpty {
+        if displayedTimelineItems.isEmpty {
             Section {
                 ContentUnavailableView(
                     "沒有結算時間線",
@@ -330,8 +455,14 @@ struct SettlementCenterView: View {
                 )
             }
         } else {
-            Section("時間線") {
-                ForEach(timelineItems) { item in
+            Section(timelineFilter.map { "\($0.name) 的時間線" } ?? "時間線") {
+                if timelineFilter != nil {
+                    Button("顯示全部時間線") {
+                        timelineFilter = nil
+                    }
+                    .font(.caption)
+                }
+                ForEach(displayedTimelineItems) { item in
                     HStack(alignment: .top, spacing: 12) {
                         Circle()
                             .fill(item.tint)
@@ -378,6 +509,46 @@ struct SettlementCenterView: View {
             .filter { $0.value != 0 }
             .sorted { $0.key < $1.key }
             .map { SettlementCurrencyBalance(currencyCode: $0.key, amount: $0.value) }
+    }
+
+    private func latestActivityDate(for account: Account) -> Date? {
+        let transactionDates = transactions
+            .filter { $0.account?.id == account.id }
+            .map(\.date)
+        let repaymentDates = advanceCases
+            .flatMap(\.repayments)
+            .filter { $0.participant?.debtAccount?.id == account.id }
+            .map(\.date)
+        let caseDates = advanceCases
+            .filter { advanceCase in advanceCase.participants.contains { $0.debtAccount?.id == account.id } }
+            .map(\.date)
+        return (transactionDates + repaymentDates + caseDates).max()
+    }
+
+    private func caseProgressText(for advanceCase: AdvanceCase) -> String {
+        let total = AdvanceService.totalAdvanced(for: advanceCase)
+        let outstanding = AdvanceService.outstandingAmount(for: advanceCase)
+        guard total > 0 else { return "未清比例 0%" }
+        let percent = NSDecimalNumber(decimal: outstanding / total * 100).doubleValue
+        return String(format: "未清比例 %.0f%%", percent)
+    }
+
+    private func topOutstandingParticipant(for advanceCase: AdvanceCase) -> AdvanceParticipant? {
+        advanceCase.participants.max {
+            max($0.owedAmount - $0.repaidAmount, 0) < max($1.owedAmount - $1.repaidAmount, 0)
+        }
+    }
+
+    private func debtTimelineTitle(for transaction: FinancialTransaction, fallback: String) -> String {
+        let note = transaction.note
+        if TransactionSemantics.isDebtForgiveness(note: note) {
+            return fallback
+        }
+        if note.contains("對方還款") { return "對方還款" }
+        if note.contains("你還款") || note.contains("還款給") { return "你還款" }
+        if note.contains("借入至") { return "你借入" }
+        if note.contains("借出") { return "你借出" }
+        return transaction.amount < 0 ? "你借入 / 對方還款" : "你還款 / 你借出"
     }
 
     private func settlementPill(_ text: String) -> some View {
