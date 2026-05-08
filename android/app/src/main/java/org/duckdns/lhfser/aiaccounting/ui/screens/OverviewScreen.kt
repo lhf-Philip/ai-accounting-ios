@@ -163,7 +163,10 @@ fun OverviewScreen(
                     }
                     Button(
                         onClick = onOpenGuide,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.primary
+                        ),
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)

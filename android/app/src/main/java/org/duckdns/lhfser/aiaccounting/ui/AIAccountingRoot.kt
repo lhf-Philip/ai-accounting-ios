@@ -143,6 +143,7 @@ fun AIAccountingRoot(
     val currentRoute = backStackEntry?.destination?.route
     val topLevelRoutes = remember { topLevelDestinations.map { it.route }.toSet() }
     val showTopLevelChrome = currentRoute in topLevelRoutes
+    val showFloatingAddButton = showTopLevelChrome && currentRoute != AppDestination.Settings.route
     val startDestination = if (startOnOverview) AppDestination.Overview.route else AppDestination.Transactions.route
 
     LaunchedEffect(currencyService.mainCurrency) {
@@ -203,7 +204,7 @@ fun AIAccountingRoot(
             }
         },
         floatingActionButton = {
-            if (showTopLevelChrome) {
+            if (showFloatingAddButton) {
                 ParityFloatingAddButton(
                     modifier = Modifier.padding(bottom = 6.dp),
                     onClick = { showAddSheet = true }
