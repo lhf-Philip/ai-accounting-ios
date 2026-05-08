@@ -56,6 +56,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
+import org.duckdns.lhfser.aiaccounting.data.repository.LedgerDeletionResult
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
@@ -358,10 +359,9 @@ fun TransactionsScreen(
                 TextButton(onClick = {
                     showDeleteConfirm = false
                     scope.launch {
-                        if (isTransfer) {
-                            repository.deleteTransferGroup(UUID.fromString(groupId))
-                        } else {
-                            repository.deleteTransactionById(target.transaction.id)
+                        val result = repository.deleteLedgerTransactionById(target.transaction.id)
+                        if (result == LedgerDeletionResult.AdvanceInitialRequiresCase) {
+                            errorMessage = "這是代墊建立分錄，請進入代墊詳情刪除整個代墊案件。"
                         }
                     }
                 }) { Text("刪除", color = MaterialTheme.colorScheme.error) }
@@ -375,7 +375,7 @@ fun TransactionsScreen(
     if (errorMessage != null) {
         AlertDialog(
             onDismissRequest = { errorMessage = null },
-            title = { Text("無法執行捷徑") },
+            title = { Text("無法執行操作") },
             text = { Text(errorMessage ?: "") },
             confirmButton = {
                 TextButton(onClick = { errorMessage = null }) { Text("了解") }

@@ -64,6 +64,11 @@ data class AccountDeletionImpact(
         get() = !counts.hasBookkeeping
 }
 
+enum class LedgerDeletionResult {
+    Deleted,
+    AdvanceInitialRequiresCase
+}
+
 private const val RECURRING_STATUS_PENDING = "Pending"
 private const val RECURRING_STATUS_CONFIRMED = "Confirmed"
 private const val RECURRING_STATUS_SKIPPED = "Skipped"
@@ -320,6 +325,36 @@ class AccountingRepository(
         }
     }
 
+    suspend fun deleteLedgerTransactionById(transactionId: UUID): LedgerDeletionResult {
+        return database.withTransaction {
+            val existing = transactionDao.getTransaction(transactionId)?.transaction
+                ?: return@withTransaction LedgerDeletionResult.Deleted
+
+            existing.transferGroupId?.let { groupId ->
+                return@withTransaction deleteLedgerTransferGroupLocked(groupId)
+            }
+
+            val linkedId = existing.linkedTransactionId
+            if (existing.type == TransactionType.Transfer && linkedId != null) {
+                transactionDao.getTransaction(linkedId)?.transaction?.let { linked ->
+                    transactionDao.delete(linked)
+                    transactionDao.clearTransactionTags(linked.id)
+                }
+            }
+
+            val isAdvanceSelfExpense = advanceDao.getAllCases()
+                .any { it.selfExpenseTransactionId == existing.id }
+            if (isAdvanceSelfExpense) {
+                return@withTransaction LedgerDeletionResult.AdvanceInitialRequiresCase
+            }
+
+            transactionDao.delete(existing)
+            transactionDao.clearTransactionTags(existing.id)
+            syncAllBudgetHistory()
+            LedgerDeletionResult.Deleted
+        }
+    }
+
     suspend fun deleteTransferGroup(groupId: UUID) {
         database.withTransaction {
             val existing = transactionDao.getTransferGroup(groupId)
@@ -328,6 +363,12 @@ class AccountingRepository(
                 transactionDao.clearTransactionTags(tx.transaction.id)
             }
             syncAllBudgetHistory()
+        }
+    }
+
+    suspend fun deleteLedgerTransferGroup(groupId: UUID): LedgerDeletionResult {
+        return database.withTransaction {
+            deleteLedgerTransferGroupLocked(groupId)
         }
     }
 
@@ -1528,6 +1569,28 @@ class AccountingRepository(
             directTransactionsToDelete = directTransactionsToDelete,
             shortcutsToDetach = shortcutsToDetach
         )
+    }
+
+    private suspend fun deleteLedgerTransferGroupLocked(groupId: UUID): LedgerDeletionResult {
+        val repayment = advanceDao.getAllRepayments().firstOrNull { it.linkedTransferGroupId == groupId }
+        if (repayment != null) {
+            rollbackRepayments(listOf(repayment))
+            syncAllBudgetHistory()
+            return LedgerDeletionResult.Deleted
+        }
+
+        val isInitialAdvanceGroup = advanceDao.getAllParticipants().any { it.initialTransferGroupId == groupId }
+        if (isInitialAdvanceGroup) {
+            return LedgerDeletionResult.AdvanceInitialRequiresCase
+        }
+
+        val existing = transactionDao.getTransferGroup(groupId)
+        existing.forEach { tx ->
+            transactionDao.delete(tx.transaction)
+            transactionDao.clearTransactionTags(tx.transaction.id)
+        }
+        syncAllBudgetHistory()
+        return LedgerDeletionResult.Deleted
     }
 
     private suspend fun rollbackRepayments(repayments: List<AdvanceRepaymentEntity>) {
