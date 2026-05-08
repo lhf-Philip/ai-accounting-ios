@@ -40,6 +40,7 @@ import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyRateHint
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityMenuField
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySegmentedControl
+import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
 import org.duckdns.lhfser.aiaccounting.ui.components.TransferRateHint
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
@@ -164,7 +165,12 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
+            .padding(
+                start = AppSpacing.screenHorizontal,
+                top = AppSpacing.screenVertical,
+                end = AppSpacing.screenHorizontal,
+                bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
+            )
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {

@@ -173,9 +173,9 @@ fun AccountsScreen(
         if (visibleSummaries.isEmpty()) {
             item {
                 ParityEmptyState(
-                    title = if (showArchived) "沒有已歸檔帳戶" else "尚未建立帳戶",
+                    title = if (showArchived) "沒有帳戶" else "尚未建立帳戶",
                     message = if (showArchived) {
-                        "切回活動帳戶，或先把現有帳戶歸檔後再回來查看。"
+                        "目前沒有活動或已歸檔帳戶；新增帳戶後就能在這裡查看。"
                     } else {
                         "先新增一個帳戶，之後就能記錄資產、轉帳與日常交易。"
                     },

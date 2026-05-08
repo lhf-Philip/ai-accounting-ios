@@ -104,3 +104,12 @@
 - Bring the highest-traffic Android editor flows closer to iOS by replacing plain section titles with parity section headers and adding the same floating-action safe clearance used elsewhere.
 - Tighten transaction, transfer, and advance creation screens around parity segmented controls and parity picker fields so their form rhythm no longer falls back to generic Material defaults.
 - Keep deep editing flows in the same product voice as the top-level parity screens, especially for mode switching, account/category picking, and bottom CTA spacing.
+
+## Final Polish Checklist
+- Overview: title, range controls, quick start card, period summary, feature entry rows, and empty-safe bottom spacing match the iOS rhythm.
+- Ledger: pinned/unpinned controls, shortcut rail, search field, daily grouping, semantic edit/delete routing, and advance summary rows stay aligned.
+- Reports: income/expense and category/tag controls remain on one level; chart empty states and drill-down sheets use parity components.
+- Accounts: active-account asset summary, currency holdings, archived toggle, account-detail routing, and empty states are all present.
+- Settings: beginner/help, preferences, data/tools, data safety, and debug sections keep the same information architecture as iOS.
+- Deep editors: transaction, transfer, debt, advance, receipt review, and account detail use scrollable content with navigation-bar-safe bottom clearance.
+- Remaining known difference: Android widget stays Android-only; platform-native pickers remain acceptable where they do not change app flow semantics.
