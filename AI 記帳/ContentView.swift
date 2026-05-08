@@ -13,8 +13,6 @@ enum RootTab: Hashable {
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
-    @Query(sort: \CategoryMonthlyBudget.updatedAt, order: .reverse) private var budgets: [CategoryMonthlyBudget]
-    @Query(sort: \FinancialTransaction.updatedAt, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \RecurringRule.updatedAt, order: .reverse) private var recurringRules: [RecurringRule]
     @Query(sort: \RecurringOccurrence.updatedAt, order: .reverse) private var recurringOccurrences: [RecurringOccurrence]
 
@@ -37,32 +35,6 @@ struct ContentView: View {
 #if DEBUG
     @State private var uiTestSeeded = false
 #endif
-
-    private var budgetHistorySyncToken: Int {
-        var hasher = Hasher()
-
-        for budget in budgets {
-            hasher.combine(budget.id)
-            hasher.combine(budget.monthKey)
-            hasher.combine(NSDecimalNumber(decimal: budget.amount).stringValue)
-            hasher.combine(budget.currencyCode)
-            hasher.combine(budget.isEnabled)
-            hasher.combine(budget.updatedAt.timeIntervalSince1970)
-            hasher.combine(budget.category?.id)
-        }
-
-        for transaction in transactions {
-            hasher.combine(transaction.id)
-            hasher.combine(transaction.type.rawValue)
-            hasher.combine(NSDecimalNumber(decimal: transaction.amount).stringValue)
-            hasher.combine(transaction.currencyCode)
-            hasher.combine(transaction.date.timeIntervalSince1970)
-            hasher.combine(transaction.updatedAt.timeIntervalSince1970)
-            hasher.combine(transaction.category?.id)
-        }
-
-        return hasher.finalize()
-    }
 
     private var recurringSyncToken: Int {
         var hasher = Hasher()
@@ -201,19 +173,6 @@ struct ContentView: View {
             seedUITestDataIfNeeded()
         }
 #endif
-        .task(id: budgetHistorySyncToken) {
-            guard !isRunningXCTest else { return }
-            do {
-                try BudgetHistoryService.shared.syncAll(
-                    modelContext: modelContext,
-                    currencyService: CurrencyService.shared,
-                    budgets: budgets,
-                    transactions: transactions
-                )
-            } catch {
-                print("⚠️ 預算歷史同步失敗: \(error)")
-            }
-        }
         .task(id: recurringSyncToken) {
             guard !isRunningXCTest else { return }
             syncRecurringOccurrences()

@@ -392,6 +392,8 @@ struct AddTransactionView: View {
     }
 
     private func saveTransactions() {
+        var insertedTransactions: [FinancialTransaction] = []
+
         switch entryMode {
         case .normal:
             guard let account = selectedAccount,
@@ -401,12 +403,12 @@ struct AddTransactionView: View {
                 return
             }
 
-            insertTransaction(
+            insertedTransactions.append(insertTransaction(
                 amount: amount,
                 currencyCode: selectedCurrency,
                 account: account,
                 note: note
-            )
+            ))
 
         case .split:
             var legs: [(account: Account, amount: Decimal, currency: String)] = []
@@ -421,12 +423,12 @@ struct AddTransactionView: View {
             }
 
             for (index, leg) in legs.enumerated() {
-                insertTransaction(
+                insertedTransactions.append(insertTransaction(
                     amount: leg.amount,
                     currencyCode: leg.currency,
                     account: leg.account,
                     note: indexedNote(base: note, mode: .split, index: index, count: legs.count)
-                )
+                ))
             }
 
         case .merge:
@@ -445,19 +447,31 @@ struct AddTransactionView: View {
             }
 
             for (index, item) in items.enumerated() {
-                insertTransaction(
+                insertedTransactions.append(insertTransaction(
                     amount: item.amount,
                     currencyCode: item.currency,
                     account: account,
                     note: indexedNote(base: note, mode: .merge, index: index, count: items.count)
-                )
+                ))
             }
+        }
+
+        do {
+            try modelContext.save()
+            try BudgetHistoryService.shared.syncAffected(
+                by: insertedTransactions,
+                modelContext: modelContext,
+                currencyService: currencyService
+            )
+        } catch {
+            showValidation("儲存失敗：\(error.localizedDescription)")
+            return
         }
 
         dismiss()
     }
 
-    private func insertTransaction(amount: Decimal, currencyCode: String, account: Account, note: String) {
+    private func insertTransaction(amount: Decimal, currencyCode: String, account: Account, note: String) -> FinancialTransaction {
         let finalAmount = (selectedType == .expense) ? -abs(amount) : abs(amount)
 
         let tx = FinancialTransaction(
@@ -472,6 +486,7 @@ struct AddTransactionView: View {
         )
 
         modelContext.insert(tx)
+        return tx
     }
 
     private func indexedNote(base: String, mode: EntryMode, index: Int, count: Int) -> String {

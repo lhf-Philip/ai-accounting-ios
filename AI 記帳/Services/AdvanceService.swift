@@ -143,6 +143,7 @@ enum AdvanceService {
             expenseCategory: category
         )
         modelContext.insert(advanceCase)
+        var budgetHistoryTransactions: [FinancialTransaction] = []
         
         if myShareAmount > 0 {
             let expenseNote = finalNote.isEmpty
@@ -160,6 +161,7 @@ enum AdvanceService {
                 tags: tags
             )
             modelContext.insert(expenseTx)
+            budgetHistoryTransactions.append(expenseTx)
             advanceCase.selfExpenseTransactionID = expenseTx.id
         }
         
@@ -244,6 +246,11 @@ enum AdvanceService {
         }
         
         try modelContext.save()
+        try BudgetHistoryService.shared.syncAffected(
+            by: budgetHistoryTransactions,
+            modelContext: modelContext,
+            currencyService: CurrencyService.shared
+        )
         return advanceCase
     }
     
@@ -489,6 +496,7 @@ enum AdvanceService {
     ) throws -> DeleteAdvanceResult {
         var deletedTransactionCount = 0
         var missingLinkedRecordCount = 0
+        var affectedBudgetKeys: [BudgetHistoryAffectedKey] = []
         
         if deleteLinkedTransactions {
             var groupIDs = Set<UUID>()
@@ -525,6 +533,9 @@ enum AdvanceService {
                     predicate: #Predicate { $0.id == expenseID }
                 )
                 if let expenseTx = try? modelContext.fetch(descriptor).first {
+                    if let key = BudgetHistoryService.affectedKey(for: expenseTx) {
+                        affectedBudgetKeys.append(key)
+                    }
                     modelContext.delete(expenseTx)
                     deletedTransactionCount += 1
                 } else {
@@ -536,6 +547,11 @@ enum AdvanceService {
         modelContext.delete(advanceCase)
         if autosave {
             try modelContext.save()
+            try BudgetHistoryService.shared.syncAffected(
+                keys: affectedBudgetKeys,
+                modelContext: modelContext,
+                currencyService: CurrencyService.shared
+            )
         }
         
         return DeleteAdvanceResult(

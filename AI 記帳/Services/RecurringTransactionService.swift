@@ -90,6 +90,11 @@ enum RecurringTransactionService {
         occurrence.status = .confirmed
         rule.updatedAt = Date()
         try modelContext.save()
+        try BudgetHistoryService.shared.syncAffected(
+            by: [transaction],
+            modelContext: modelContext,
+            currencyService: CurrencyService.shared
+        )
         return transaction
     }
 

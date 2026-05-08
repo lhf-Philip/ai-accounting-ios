@@ -20,6 +20,8 @@ enum LedgerDeletionService {
             return
         }
 
+        let affectedKeys = [BudgetHistoryService.affectedKey(for: transaction)].compactMap { $0 }
+
         if isAdvanceSelfExpense(transaction, modelContext: modelContext) {
             throw LedgerDeletionError.advanceInitialTransferRequiresCase
         }
@@ -35,6 +37,11 @@ enum LedgerDeletionService {
 
         modelContext.delete(transaction)
         try modelContext.save()
+        try BudgetHistoryService.shared.syncAffected(
+            keys: affectedKeys,
+            modelContext: modelContext,
+            currencyService: CurrencyService.shared
+        )
     }
 
     private static func deleteTransferGroup(
@@ -61,6 +68,8 @@ enum LedgerDeletionService {
             predicate: #Predicate { $0.transferGroupID == groupID }
         )
         let groupedTransfers = try modelContext.fetch(descriptor)
+        let affectedKeys = (groupedTransfers.isEmpty ? [fallbackTransaction] : groupedTransfers)
+            .compactMap { BudgetHistoryService.affectedKey(for: $0) }
         if groupedTransfers.isEmpty {
             modelContext.delete(fallbackTransaction)
         } else {
@@ -69,6 +78,11 @@ enum LedgerDeletionService {
             }
         }
         try modelContext.save()
+        try BudgetHistoryService.shared.syncAffected(
+            keys: affectedKeys,
+            modelContext: modelContext,
+            currencyService: CurrencyService.shared
+        )
     }
 
     private static func repayment(for groupID: UUID, modelContext: ModelContext) throws -> AdvanceRepayment? {
