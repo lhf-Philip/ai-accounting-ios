@@ -112,7 +112,7 @@ fun OverviewScreen(
     fun OverviewControls() {
         ParityTopSection(
             title = "總覽",
-            subtitle = "今天是 ${LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年 M月d日"))} · ${filterDisplayString(filterType, selectedDate)}已記錄 $recordCount 筆收入/支出"
+            subtitle = "今天是 ${LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年 M月d日"))} · 目前區間：${filterDisplayString(filterType, selectedDate)} · 已記錄 $recordCount 筆收入/支出"
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {

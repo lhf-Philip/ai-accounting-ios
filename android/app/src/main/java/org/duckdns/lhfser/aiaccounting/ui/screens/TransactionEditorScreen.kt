@@ -177,7 +177,7 @@ fun TransactionEditorScreen(
                 start = AppSpacing.screenHorizontal,
                 top = AppSpacing.screenVertical,
                 end = AppSpacing.screenHorizontal,
-                bottom = ParityTokens.FloatingContentBottomPadding
+                bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
             )
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(12.dp)
