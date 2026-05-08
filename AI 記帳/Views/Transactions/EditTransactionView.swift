@@ -3,6 +3,7 @@ import SwiftData
 
 struct EditTransactionView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @Bindable var transaction: FinancialTransaction
     @StateObject private var currencyService = CurrencyService.shared
     
@@ -12,6 +13,8 @@ struct EditTransactionView: View {
     
     @State private var amountString: String = ""
     @State private var selectedTags: Set<Tag> = []
+    @State private var originalBudgetKey: BudgetHistoryAffectedKey?
+    @State private var errorMessage: String?
     
     // 🔥 新增：焦點控制
     @FocusState private var isAmountFocused: Bool
@@ -120,8 +123,7 @@ struct EditTransactionView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") {
-                        transaction.updatedAt = Date()
-                        dismiss()
+                        saveChanges()
                     }
                     .accessibilityIdentifier("transactionEditor.saveButton")
                 }
@@ -137,8 +139,34 @@ struct EditTransactionView: View {
             .onAppear {
                 amountString = String(format: "%.2f", abs(NSDecimalNumber(decimal: transaction.amount).doubleValue))
                 selectedTags = Set(transaction.tags)
+                originalBudgetKey = BudgetHistoryService.affectedKey(for: transaction)
                 Task { await currencyService.fetchRates() }
             }
+            .alert("儲存失敗", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("好", role: .cancel) { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    private func saveChanges() {
+        do {
+            let previousKey = originalBudgetKey
+            transaction.updatedAt = Date()
+            try modelContext.save()
+            let currentKey = BudgetHistoryService.affectedKey(for: transaction)
+            try BudgetHistoryService.shared.syncAffected(
+                keys: [previousKey, currentKey].compactMap { $0 },
+                modelContext: modelContext,
+                currencyService: currencyService
+            )
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
     

@@ -112,6 +112,16 @@ struct ScannedResultView: View {
         )
 
         modelContext.insert(tx)
+        do {
+            try modelContext.save()
+            try BudgetHistoryService.shared.syncAffected(
+                by: [tx],
+                modelContext: modelContext,
+                currencyService: CurrencyService.shared
+            )
+        } catch {
+            print("⚠️ 掃描交易預算歷史同步失敗: \(error)")
+        }
 
         // 這裡需要連續 dismiss 兩次 (回到主頁)，或者使用 Binding 控制
         // 簡單做法：發送 Notification 讓 ContentView 關閉 Sheet

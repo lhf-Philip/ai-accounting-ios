@@ -145,5 +145,9 @@ enum AccountDeletionCoordinator {
 
         modelContext.delete(impact.account)
         try modelContext.save()
+        try BudgetHistoryService.shared.syncAll(
+            modelContext: modelContext,
+            currencyService: CurrencyService.shared
+        )
     }
 }
