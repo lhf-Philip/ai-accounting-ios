@@ -8,6 +8,7 @@ struct HomeDashboardView: View {
     @State private var filterType: FilterType = .month
     @State private var selectedDate: Date = Date()
     @State private var showingFilterSheet = false
+    @AppStorage("pinOverviewControls") private var pinOverviewControls: Bool = true
 
     let onQuickAdd: () -> Void
     let onOpenGuide: () -> Void
@@ -57,16 +58,27 @@ struct HomeDashboardView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    summaryHeader
-                    filterControlRow
-                    quickActionPanel
-                    overviewCards
-                    shortcutsPanel
+            Group {
+                if pinOverviewControls {
+                    VStack(spacing: 0) {
+                        VStack(alignment: .leading, spacing: 16) {
+                            summaryHeader
+                            filterControlRow
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(uiColor: .systemBackground))
+
+                        ScrollView {
+                            dashboardScrollableContent(includeHeader: false)
+                        }
+                    }
+                } else {
+                    ScrollView {
+                        dashboardScrollableContent(includeHeader: true)
+                    }
                 }
-                .padding(.horizontal)
-                .padding(.vertical, 12)
             }
             .prominentInlineTitle("總覽")
             .task {
@@ -76,6 +88,20 @@ struct HomeDashboardView: View {
                 DateFilterView(filterType: $filterType, selectedDate: $selectedDate)
             }
         }
+    }
+
+    private func dashboardScrollableContent(includeHeader: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if includeHeader {
+                summaryHeader
+                filterControlRow
+            }
+            quickActionPanel
+            overviewCards
+            shortcutsPanel
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 12)
     }
 
     private var summaryHeader: some View {

@@ -3,6 +3,7 @@ package org.duckdns.lhfser.aiaccounting.data
 import android.content.Context
 import androidx.room.Room
 import org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService
+import org.duckdns.lhfser.aiaccounting.core.preferences.UiPreferencesStore
 import org.duckdns.lhfser.aiaccounting.data.db.AIAccountingDatabase
 import org.duckdns.lhfser.aiaccounting.data.db.SeedData
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
@@ -26,5 +27,9 @@ class AppContainer(context: Context) {
 
     val currencyService: CurrencyService by lazy {
         CurrencyService(appContext)
+    }
+
+    val uiPreferencesStore: UiPreferencesStore by lazy {
+        UiPreferencesStore(appContext)
     }
 }

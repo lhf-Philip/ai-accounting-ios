@@ -23,6 +23,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +41,7 @@ import kotlinx.coroutines.withContext
 import org.duckdns.lhfser.aiaccounting.core.ai.GeminiSettingsStore
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.LocalUiPreferences
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySettingRow
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
@@ -61,6 +63,7 @@ fun SettingsScreen(
 ) {
     val repository = LocalRepository.current
     val currencyService = LocalCurrencyService.current
+    val uiPreferencesStore = LocalUiPreferences.current
     val context = LocalContext.current
     val geminiSettingsStore = remember(context) { GeminiSettingsStore(context) }
     val scope = rememberCoroutineScope()
@@ -71,6 +74,7 @@ fun SettingsScreen(
     var mainCurrency by remember { mutableStateOf(currencyService.mainCurrency) }
     var currencyMenuExpanded by remember { mutableStateOf(false) }
     var apiKey by remember { mutableStateOf(geminiSettingsStore.apiKey) }
+    val uiPreferences by uiPreferencesStore.state.collectAsState()
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -183,6 +187,36 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
                     visualTransformation = PasswordVisualTransformation()
+                )
+                ParitySettingRow(
+                    title = "固定總覽頁頂部區塊",
+                    subtitle = "固定標題與日期篩選；關閉後會跟內容一起捲動",
+                    trailing = {
+                        Switch(
+                            checked = uiPreferences.pinOverviewControls,
+                            onCheckedChange = uiPreferencesStore::setPinOverviewControls
+                        )
+                    }
+                )
+                ParitySettingRow(
+                    title = "固定帳目頁頂部區塊",
+                    subtitle = "固定日期、捷徑與搜尋；關閉後日期標題也不吸頂",
+                    trailing = {
+                        Switch(
+                            checked = uiPreferences.pinLedgerControls,
+                            onCheckedChange = uiPreferencesStore::setPinLedgerControls
+                        )
+                    }
+                )
+                ParitySettingRow(
+                    title = "固定報表頁頂部區塊",
+                    subtitle = "固定日期與統計模式切換",
+                    trailing = {
+                        Switch(
+                            checked = uiPreferences.pinReportsControls,
+                            onCheckedChange = uiPreferencesStore::setPinReportsControls
+                        )
+                    }
                 )
             }
         }

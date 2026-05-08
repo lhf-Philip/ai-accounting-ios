@@ -10,6 +10,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import org.duckdns.lhfser.aiaccounting.ui.AIAccountingRoot
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.LocalUiPreferences
 import org.duckdns.lhfser.aiaccounting.ui.theme.AIAccountingTheme
 import org.duckdns.lhfser.aiaccounting.widget.SummaryWidgetProvider
 import org.duckdns.lhfser.aiaccounting.widget.WidgetSummaryStore
@@ -34,7 +35,8 @@ class MainActivity : ComponentActivity() {
             AIAccountingTheme {
                 CompositionLocalProvider(
                     LocalRepository provides appContainer.repository,
-                    LocalCurrencyService provides appContainer.currencyService
+                    LocalCurrencyService provides appContainer.currencyService,
+                    LocalUiPreferences provides appContainer.uiPreferencesStore
                 ) {
                     AIAccountingRoot(
                         startOnOverview = isFirstLaunch,

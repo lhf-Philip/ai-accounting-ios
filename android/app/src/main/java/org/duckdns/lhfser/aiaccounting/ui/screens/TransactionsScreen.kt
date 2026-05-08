@@ -59,6 +59,7 @@ import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.repository.LedgerDeletionResult
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.LocalUiPreferences
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityFilterCapsule
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySearchField
@@ -105,11 +106,13 @@ fun TransactionsScreen(
     onAddShortcut: () -> Unit
 ) {
     val repository = LocalRepository.current
+    val uiPreferencesStore = LocalUiPreferences.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val transactions by repository.transactions.collectAsState(initial = emptyList())
     val shortcuts by repository.shortcuts.collectAsState(initial = emptyList())
     val advanceCases by repository.advanceCases.collectAsState(initial = emptyList())
+    val uiPreferences by uiPreferencesStore.state.collectAsState()
 
     var pendingShortcut by remember { mutableStateOf<ShortcutWithDetails?>(null) }
     var showShortcutConfirm by remember { mutableStateOf(false) }
@@ -149,14 +152,15 @@ fun TransactionsScreen(
             .sortedByDescending { it.date }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        ParityTopSection(
-            title = "帳目明細",
-            modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = 4.dp),
-            subtitle = "搜尋、篩選、編輯所有交易與代墊摘要。"
-        )
+    @Composable
+    fun LedgerControls(modifier: Modifier = Modifier) {
+        Column(modifier = modifier.fillMaxWidth()) {
+            ParityTopSection(
+                title = "帳目明細",
+                modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = 4.dp),
+                subtitle = "搜尋、篩選、編輯所有交易與代墊摘要。"
+            )
 
-        Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -198,6 +202,12 @@ fun TransactionsScreen(
 
             HorizontalDivider()
         }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (uiPreferences.pinLedgerControls) {
+            LedgerControls()
+        }
 
         LazyColumn(
             modifier = Modifier.weight(1f),
@@ -209,6 +219,16 @@ fun TransactionsScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.item)
         ) {
+            if (!uiPreferences.pinLedgerControls) {
+                item(key = "ledger-controls") {
+                    LedgerControls(
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.background)
+                            .padding(bottom = AppSpacing.inline)
+                    )
+                }
+            }
+
             if (ledgerItems.isEmpty()) {
                 item {
                     ParityEmptyState(
@@ -222,18 +242,13 @@ fun TransactionsScreen(
                 }
             } else {
                 dailySections.forEach { section ->
-                    stickyHeader {
-                        Surface(
-                            color = MaterialTheme.colorScheme.background,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = formatHeaderDate(section.date),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                    if (uiPreferences.pinLedgerControls) {
+                        stickyHeader {
+                            LedgerDateHeader(section.date)
+                        }
+                    } else {
+                        item(key = "section-${section.date}") {
+                            LedgerDateHeader(section.date)
                         }
                     }
                     items(section.items, key = { it.stableId }) { item ->
@@ -400,6 +415,22 @@ fun TransactionsScreen(
                 showDatePicker(context, customEndDate) { customEndDate = it }
             },
             onDismiss = { showFilterDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun LedgerDateHeader(date: LocalDate) {
+    Surface(
+        color = MaterialTheme.colorScheme.background,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = formatHeaderDate(date),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(vertical = 8.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

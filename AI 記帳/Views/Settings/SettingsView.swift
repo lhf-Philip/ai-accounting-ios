@@ -12,6 +12,9 @@ struct SettingsView: View {
     @AppStorage("enableAutoBackup") private var enableAutoBackup: Bool = false
     @AppStorage("lastBackupDate") private var lastBackupDate: Double = 0
     @AppStorage("backupRetentionDays") private var backupRetentionDays: Int = 30
+    @AppStorage("pinOverviewControls") private var pinOverviewControls: Bool = true
+    @AppStorage("pinLedgerControls") private var pinLedgerControls: Bool = true
+    @AppStorage("pinReportsControls") private var pinReportsControls: Bool = true
 
     @State private var isExportingJSON = false
     @State private var isImportingJSON = false
@@ -134,6 +137,10 @@ struct SettingsView: View {
                         .onSubmit { hideKeyboard() }
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
+
+                    Toggle("固定總覽頁頂部區塊", isOn: $pinOverviewControls)
+                    Toggle("固定帳目頁頂部區塊", isOn: $pinLedgerControls)
+                    Toggle("固定報表頁頂部區塊", isOn: $pinReportsControls)
                 }
 
                 Section("資料安全") {
