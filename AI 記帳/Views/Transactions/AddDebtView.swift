@@ -8,6 +8,10 @@ struct AddDebtView: View {
 
     @Query(sort: \Account.sortOrder) private var allAccounts: [Account]
     private let existingForgivenessTransactionID: UUID?
+    private let presetDebtAccountID: UUID?
+    private let presetMode: DebtMode?
+    private let presetForgivenessDirection: DebtForgivenessDirection?
+    private let presetNote: String?
 
     private var debtAccounts: [Account] {
         allAccounts.filter { $0.type == .debt && !$0.isArchived }.sorted { $0.name < $1.name }
@@ -18,8 +22,8 @@ struct AddDebtView: View {
     }
 
     enum DebtMode: String, CaseIterable {
-        case borrow = "借入 (我欠人)"
-        case repay = "還款 (還給人)"
+        case borrow = "借入 / 收款"
+        case repay = "借出 / 還款"
         case forgive = "免除債務"
     }
 
@@ -72,8 +76,18 @@ struct AddDebtView: View {
 
     @FocusState private var isAmountFocused: Bool
 
-    init(existingForgivenessTransaction: FinancialTransaction? = nil) {
+    init(
+        existingForgivenessTransaction: FinancialTransaction? = nil,
+        presetDebtAccount: Account? = nil,
+        presetMode: DebtMode? = nil,
+        presetForgivenessDirection: DebtForgivenessDirection? = nil,
+        presetNote: String? = nil
+    ) {
         self.existingForgivenessTransactionID = existingForgivenessTransaction?.id
+        self.presetDebtAccountID = presetDebtAccount?.id
+        self.presetMode = presetMode
+        self.presetForgivenessDirection = presetForgivenessDirection
+        self.presetNote = presetNote
     }
 
     var body: some View {
@@ -82,7 +96,7 @@ struct AddDebtView: View {
                 Section {
                     Picker("操作", selection: $mode) {
                         ForEach(DebtMode.allCases, id: \.self) { option in
-                            Text(option.rawValue).tag(option)
+                            Text(debtModeTitle(option)).tag(option)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -124,7 +138,7 @@ struct AddDebtView: View {
                     }
 
                     if mode != .forgive && entryMode != .split {
-                        Picker(mode == .borrow ? "存入帳戶" : "付款帳戶", selection: $selectedMyAccount) {
+                        Picker(mode == .borrow ? "入帳帳戶" : "付款帳戶", selection: $selectedMyAccount) {
                             Text("請選擇帳戶").tag(nil as Account?)
                             ForEach(myAccounts) { acc in
                                 Text(acc.name).tag(acc as Account?)
@@ -195,6 +209,7 @@ struct AddDebtView: View {
                 if selectedDebtAccount == nil {
                     selectedDebtAccount = debtAccounts.first
                 }
+                applyPresetIfNeeded()
                 if let acc = selectedMyAccount {
                     selectedCurrency = acc.currency
                 }
@@ -350,10 +365,10 @@ struct AddDebtView: View {
 
                 if mode == .borrow {
                     Text("對象：\(debtAcc.name)")
-                    Text("動作：借入（我方資產增加）")
+                    Text("動作：\(debtModeTitle(.borrow))")
                 } else if mode == .repay {
                     Text("對象：\(debtAcc.name)")
-                    Text("動作：還款（我方資產減少）")
+                    Text("動作：\(debtModeTitle(.repay))")
                 } else {
                     Text("對象：\(debtAcc.name)")
                     Text("動作：\(forgivenessDirection.displayTitle)")
@@ -486,7 +501,7 @@ struct AddDebtView: View {
         let txID1 = UUID()
         let txID2 = UUID()
         let transferGroupID = UUID()
-        let finalMemo = memo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? mode.rawValue : memo
+        let finalMemo = memo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? debtModeTitle(mode) : memo
 
         if mode == .borrow {
             let debtTx = FinancialTransaction(
@@ -638,9 +653,9 @@ struct AddDebtView: View {
     private var debtAccountLabel: String {
         switch mode {
         case .borrow:
-            return "跟誰借"
+            return selectedDebtBalance > 0 ? "誰還你" : "跟誰借"
         case .repay:
-            return "還給誰"
+            return selectedDebtBalance > 0 ? "借給誰" : "還給誰"
         case .forgive:
             switch forgivenessDirection {
             case .forgivenByOthers:
@@ -663,5 +678,41 @@ struct AddDebtView: View {
             return cleaned[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return cleaned
+    }
+
+    private var selectedDebtBalance: Decimal {
+        guard let selectedDebtAccount else { return 0 }
+        return selectedDebtAccount.baseBalance + selectedDebtAccount.transactions.reduce(Decimal.zero) { $0 + $1.amount }
+    }
+
+    private func debtModeTitle(_ debtMode: DebtMode) -> String {
+        switch debtMode {
+        case .borrow:
+            return selectedDebtBalance > 0 ? "收款（對方還你）" : "借入（你向對方借）"
+        case .repay:
+            return selectedDebtBalance > 0 ? "借出（對方欠你更多）" : "還款（你還給對方）"
+        case .forgive:
+            return "免除債務"
+        }
+    }
+
+    private func applyPresetIfNeeded() {
+        if let presetMode {
+            mode = presetMode
+        }
+        if let presetForgivenessDirection {
+            forgivenessDirection = presetForgivenessDirection
+        }
+        if let presetDebtAccountID,
+           selectedDebtAccount?.id != presetDebtAccountID,
+           let presetAccount = debtAccounts.first(where: { $0.id == presetDebtAccountID }) {
+            selectedDebtAccount = presetAccount
+            if mode == .forgive {
+                selectedCurrency = presetAccount.currency
+            }
+        }
+        if note.isEmpty, let presetNote {
+            note = presetNote
+        }
     }
 }

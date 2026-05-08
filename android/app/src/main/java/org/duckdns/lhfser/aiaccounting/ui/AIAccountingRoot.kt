@@ -1,5 +1,6 @@
 package org.duckdns.lhfser.aiaccounting.ui
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -98,7 +99,10 @@ private sealed class AppDestination(
     data object AdvanceAdd : AppDestination("advance/add", "新增代墊")
     data object AdvanceDetail : AppDestination("advance/{caseId}", "代墊明細")
     data object ReceiptScan : AppDestination("receipt/scan", "掃描單據")
-    data object DebtAdd : AppDestination("debt/add", "借貸管理")
+    data object DebtAdd : AppDestination(
+        "debt/add?debtAccountId={debtAccountId}&mode={mode}&forgivenessDirection={forgivenessDirection}&note={note}",
+        "借貸管理"
+    )
     data object AccountDetail : AppDestination("accounts/{accountId}", "帳戶明細")
     data object Guide : AppDestination("guide", "使用教學")
 
@@ -313,8 +317,22 @@ fun AIAccountingRoot(
             composable(AppDestination.ReceiptScan.route) {
                 ReceiptScanScreen(onDone = { navController.popBackStack() })
             }
-            composable(AppDestination.DebtAdd.route) {
-                DebtEntryScreen(onDone = { navController.popBackStack() })
+            composable(
+                AppDestination.DebtAdd.route,
+                arguments = listOf(
+                    navArgument("debtAccountId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("mode") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("forgivenessDirection") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("note") { type = NavType.StringType; nullable = true; defaultValue = null }
+                )
+            ) { entry ->
+                DebtEntryScreen(
+                    presetDebtAccountId = entry.arguments?.getString("debtAccountId"),
+                    presetMode = entry.arguments?.getString("mode"),
+                    presetForgivenessDirection = entry.arguments?.getString("forgivenessDirection"),
+                    presetNote = entry.arguments?.getString("note"),
+                    onDone = { navController.popBackStack() }
+                )
             }
             composable(
                 "debt/edit/{transactionId}",
@@ -331,7 +349,14 @@ fun AIAccountingRoot(
             composable(AppDestination.Settlements.route) {
                 SettlementCenterScreen(
                     onOpenAdvanceCase = { caseId -> navController.navigate("advance/$caseId") },
-                    onOpenDebt = { navController.navigate(AppDestination.DebtAdd.route) }
+                    onOpenDebt = { navController.navigate("debt/add") },
+                    onOpenDebtAction = { accountId, mode, forgivenessDirection, note ->
+                        val encodedNote = Uri.encode(note)
+                        val direction = forgivenessDirection.orEmpty()
+                        navController.navigate(
+                            "debt/add?debtAccountId=$accountId&mode=$mode&forgivenessDirection=$direction&note=$encodedNote"
+                        )
+                    }
                 )
             }
             composable(
@@ -503,7 +528,7 @@ private fun AddActionSheet(
                 title = "債務管理",
                 subtitle = "借入、還款或免除債務",
                 icon = Icons.Default.AccountBalanceWallet
-            ) { onAction(AppDestination.DebtAdd.route) }
+            ) { onAction("debt/add") }
             ParityActionSheetRow(
                 title = "新增代墊單（多人分帳）",
                 subtitle = "建立多人代墊並追蹤後續還款",
@@ -522,7 +547,7 @@ private fun resolveTitle(backStackEntry: NavBackStackEntry?): String {
         route == AppDestination.IncomeAdd.route -> "新增收入"
         route == AppDestination.TransferAdd.route -> "轉帳"
         route == AppDestination.ReceiptScan.route -> "掃描單據"
-        route == AppDestination.DebtAdd.route -> "借貸管理"
+        route.startsWith("debt/add") -> "借貸管理"
         route.startsWith("debt/edit") -> "編輯免除債務"
         route == AppDestination.AdvanceAdd.route -> "新增代墊"
         route.startsWith("advance/") -> "代墊明細"

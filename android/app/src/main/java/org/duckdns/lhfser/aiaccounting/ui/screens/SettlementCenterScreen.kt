@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Groups
@@ -62,7 +63,8 @@ private data class SettlementPersonSummary(
     val netInMainCurrency: BigDecimal,
     val advanceCaseCount: Int,
     val repaymentCount: Int,
-    val forgivenessCount: Int
+    val forgivenessCount: Int,
+    val latestActivityDate: Instant?
 )
 
 private data class SettlementCurrencyBalance(
@@ -72,6 +74,7 @@ private data class SettlementCurrencyBalance(
 
 private data class TimelineItem(
     val id: String,
+    val relatedAccountId: UUID?,
     val date: Instant,
     val title: String,
     val subtitle: String,
@@ -83,7 +86,8 @@ private data class TimelineItem(
 @Composable
 fun SettlementCenterScreen(
     onOpenAdvanceCase: (String) -> Unit,
-    onOpenDebt: () -> Unit
+    onOpenDebt: () -> Unit,
+    onOpenDebtAction: (accountId: String, mode: String, forgivenessDirection: String?, note: String) -> Unit
 ) {
     val repository = LocalRepository.current
     val currencyService = LocalCurrencyService.current
@@ -95,6 +99,8 @@ fun SettlementCenterScreen(
     val mainCurrency = currencyService.mainCurrency
     val rateSnapshot = currencyService.rates
     var mode by rememberSaveable { mutableStateOf(SettlementMode.People) }
+    var selectedPerson by remember { mutableStateOf<SettlementPersonSummary?>(null) }
+    var timelineFilter by remember { mutableStateOf<SettlementPersonSummary?>(null) }
 
     val personSummaries = remember(accounts, transactions, advanceCases, mainCurrency, rateSnapshot) {
         buildPersonSummaries(accounts, transactions, advanceCases, currencyService, mainCurrency)
@@ -110,6 +116,9 @@ fun SettlementCenterScreen(
     }
     val timelineItems = remember(transactions, advanceCases) {
         buildTimelineItems(transactions, advanceCases)
+    }
+    val displayedTimelineItems = remember(timelineItems, timelineFilter) {
+        timelineFilter?.let { filter -> timelineItems.filter { it.relatedAccountId == filter.account.id } } ?: timelineItems
     }
     val shareText = remember(personSummaries, totalNet, mainCurrency) {
         buildShareText(personSummaries, totalNet, mainCurrency)
@@ -172,7 +181,11 @@ fun SettlementCenterScreen(
                     }
                 } else {
                     items(personSummaries, key = { it.account.id }) { summary ->
-                        PersonSummaryCard(summary = summary, mainCurrency = mainCurrency)
+                        PersonSummaryCard(
+                            summary = summary,
+                            mainCurrency = mainCurrency,
+                            onClick = { selectedPerson = summary }
+                        )
                     }
                 }
             }
@@ -195,7 +208,7 @@ fun SettlementCenterScreen(
                 }
             }
             SettlementMode.Timeline -> {
-                if (timelineItems.isEmpty()) {
+                if (displayedTimelineItems.isEmpty()) {
                     item {
                         ParityEmptyState(
                             title = "沒有結算時間線",
@@ -204,7 +217,14 @@ fun SettlementCenterScreen(
                         )
                     }
                 } else {
-                    items(timelineItems, key = { it.id }) { item ->
+                    if (timelineFilter != null) {
+                        item {
+                            TextButton(onClick = { timelineFilter = null }) {
+                                Text("顯示全部時間線")
+                            }
+                        }
+                    }
+                    items(displayedTimelineItems, key = { it.id }) { item ->
                         TimelineCard(item = item)
                     }
                 }
@@ -226,12 +246,51 @@ fun SettlementCenterScreen(
             }
         }
     }
+
+    selectedPerson?.let { summary ->
+        AlertDialog(
+            onDismissRequest = { selectedPerson = null },
+            title = { Text(summary.account.name) },
+            text = { Text("${directionText(summary.netInMainCurrency)} · ${summary.netInMainCurrency.asCurrencyText(mainCurrency)}") },
+            confirmButton = {
+                Column {
+                    if (summary.netInMainCurrency.signum() > 0) {
+                        TextButton(onClick = {
+                            selectedPerson = null
+                            onOpenDebtAction(summary.account.id.toString(), "borrow", null, "對方還款")
+                        }) { Text("記錄對方還款") }
+                        TextButton(onClick = {
+                            selectedPerson = null
+                            onOpenDebtAction(summary.account.id.toString(), "forgive", "ForgiveOthers", "免除對方欠款")
+                        }) { Text("免除對方欠款") }
+                    } else if (summary.netInMainCurrency.signum() < 0) {
+                        TextButton(onClick = {
+                            selectedPerson = null
+                            onOpenDebtAction(summary.account.id.toString(), "repay", null, "你還款")
+                        }) { Text("記錄你還款") }
+                        TextButton(onClick = {
+                            selectedPerson = null
+                            onOpenDebtAction(summary.account.id.toString(), "forgive", "ForgivenByOthers", "對方免除")
+                        }) { Text("記錄對方免除") }
+                    }
+                    TextButton(onClick = {
+                        timelineFilter = summary
+                        mode = SettlementMode.Timeline
+                        selectedPerson = null
+                    }) { Text("查看相關時間線") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedPerson = null }) { Text("取消") }
+            }
+        )
+    }
 }
 
 @Composable
-private fun PersonSummaryCard(summary: SettlementPersonSummary, mainCurrency: String) {
+private fun PersonSummaryCard(summary: SettlementPersonSummary, mainCurrency: String, onClick: () -> Unit) {
     val primaryBalance = summary.balances.firstOrNull()
-    PressableCard(modifier = Modifier.fillMaxWidth(), onClick = {}) {
+    PressableCard(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
         Column(
             modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 15.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -269,6 +328,13 @@ private fun PersonSummaryCard(summary: SettlementPersonSummary, mainCurrency: St
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            if (summary.latestActivityDate != null) {
+                Text(
+                    "最近：${summary.latestActivityDate.toDateText()}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -293,6 +359,10 @@ private fun CaseSummaryCard(advanceCase: AdvanceCaseWithDetails, onClick: () -> 
                 }
             }
             Text("總額 ${total.asCurrencyText(advanceCase.advanceCase.currencyCode)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(caseProgressText(advanceCase), style = MaterialTheme.typography.bodySmall, color = amountColor(outstanding))
+            topOutstandingParticipantText(advanceCase)?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
@@ -354,13 +424,15 @@ private fun buildPersonSummaries(
         }
         val caseCount = participantsByAccount[account.id].orEmpty().map { it.first.advanceCase.id }.toSet().size
         val repaymentCount = repaymentsByAccount[account.id].orEmpty().size
+        val latestActivityDate = latestActivityDate(account, transactions, advanceCases)
         SettlementPersonSummary(
             account = account,
             balances = balances,
             netInMainCurrency = netInMain,
             advanceCaseCount = caseCount,
             repaymentCount = repaymentCount,
-            forgivenessCount = forgivenessByAccount[account.id] ?: 0
+            forgivenessCount = forgivenessByAccount[account.id] ?: 0,
+            latestActivityDate = latestActivityDate
         )
     }
         .filter { it.netInMainCurrency != BigDecimal.ZERO || it.advanceCaseCount > 0 || it.repaymentCount > 0 || it.forgivenessCount > 0 }
@@ -403,6 +475,7 @@ private fun buildTimelineItems(
     advanceCases.forEach { advanceCase ->
         items += TimelineItem(
             id = "case-${advanceCase.advanceCase.id}",
+            relatedAccountId = null,
             date = advanceCase.advanceCase.date,
             title = "建立代墊：${advanceCase.advanceCase.title}",
             subtitle = "${advanceCase.participants.size} 位對象，未清 ${outstandingAmount(advanceCase).asCurrencyText(advanceCase.advanceCase.currencyCode)}",
@@ -414,6 +487,7 @@ private fun buildTimelineItems(
             val participant = advanceCase.participants.firstOrNull { it.id == repayment.participantId }
             items += TimelineItem(
                 id = "repayment-${repayment.id}",
+                relatedAccountId = participant?.debtAccountId,
                 date = repayment.date,
                 title = "代墊還款：${participant?.name ?: "未命名對象"}",
                 subtitle = advanceCase.advanceCase.title,
@@ -431,11 +505,16 @@ private fun buildTimelineItems(
         if (!isForgiveness && transaction.transferGroupId != null && transaction.transferGroupId in advanceGroupIds) return@forEach
         items += TimelineItem(
             id = "debt-${transaction.id}",
+            relatedAccountId = transaction.accountId,
             date = transaction.date,
             title = when {
                 isForgiveness -> TransactionSemantics.debtForgivenessDisplayTitle(transaction.note)
-                transaction.amount.signum() < 0 -> "債務增加"
-                else -> "債務減少"
+                transaction.note.contains("對方還款") -> "對方還款"
+                transaction.note.contains("你還款") || transaction.note.contains("還款給") -> "你還款"
+                transaction.note.contains("借入至") -> "你借入"
+                transaction.note.contains("借出") -> "你借出"
+                transaction.amount.signum() < 0 -> "你借入 / 對方還款"
+                else -> "你還款 / 你借出"
             },
             subtitle = tx.account.name,
             amount = transaction.amount,
@@ -461,6 +540,43 @@ private fun totalAdvanced(advanceCase: AdvanceCaseWithDetails): BigDecimal {
     return advanceCase.advanceCase.myShareAmount + advanceCase.participants.fold(BigDecimal.ZERO) { acc, participant ->
         acc + participant.owedAmount
     }
+}
+
+private fun caseProgressText(advanceCase: AdvanceCaseWithDetails): String {
+    val total = totalAdvanced(advanceCase)
+    if (total <= BigDecimal.ZERO) return "未清比例 0%"
+    val percent = outstandingAmount(advanceCase)
+        .multiply(BigDecimal(100))
+        .divide(total, 0, java.math.RoundingMode.HALF_UP)
+    return "未清比例 ${percent.toPlainString()}%"
+}
+
+private fun topOutstandingParticipantText(advanceCase: AdvanceCaseWithDetails): String? {
+    val participant = advanceCase.participants.maxByOrNull { (it.owedAmount - it.repaidAmount).max(BigDecimal.ZERO) }
+    val outstanding = participant?.let { (it.owedAmount - it.repaidAmount).max(BigDecimal.ZERO) } ?: return null
+    if (outstanding <= BigDecimal.ZERO) return null
+    return "主要未清：${participant.name} ${outstanding.asCurrencyText(advanceCase.advanceCase.currencyCode)}"
+}
+
+private fun latestActivityDate(
+    account: AccountEntity,
+    transactions: List<TransactionWithDetails>,
+    advanceCases: List<AdvanceCaseWithDetails>
+): Instant? {
+    val dates = mutableListOf<Instant>()
+    dates += transactions.filter { it.transaction.accountId == account.id }.map { it.transaction.date }
+    advanceCases.forEach { advanceCase ->
+        if (advanceCase.participants.any { it.debtAccountId == account.id }) {
+            dates += advanceCase.advanceCase.date
+        }
+        advanceCase.repayments.forEach { repayment ->
+            val participant = advanceCase.participants.firstOrNull { it.id == repayment.participantId }
+            if (participant?.debtAccountId == account.id) {
+                dates += repayment.date
+            }
+        }
+    }
+    return dates.maxOrNull()
 }
 
 private fun buildShareText(
