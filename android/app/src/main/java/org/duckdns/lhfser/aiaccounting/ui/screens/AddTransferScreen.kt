@@ -1,5 +1,7 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
@@ -40,8 +43,11 @@ import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
 import org.duckdns.lhfser.aiaccounting.ui.components.TransferRateHint
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
+import org.duckdns.lhfser.aiaccounting.ui.utils.toDateTimeText
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 private enum class AddTransferMode(val label: String) {
     OneToOne("一般 (1 -> 1)"),
@@ -60,6 +66,7 @@ private data class AddTransferLegInput(
 fun AddTransferScreen(onDone: () -> Unit) {
     val repository = LocalRepository.current
     val currencyService = LocalCurrencyService.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val accounts by repository.accounts.collectAsState(initial = emptyList())
     val scrollState = rememberScrollState()
@@ -89,6 +96,7 @@ fun AddTransferScreen(onDone: () -> Unit) {
     var sourceLegs by remember { mutableStateOf(listOf(AddTransferLegInput())) }
 
     var note by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf(Instant.now()) }
 
     Column(
         modifier = Modifier
@@ -235,6 +243,16 @@ fun AddTransferScreen(onDone: () -> Unit) {
             )
         }
 
+        ParitySectionHeader(
+            title = "日期與時間",
+            detail = "預設為現在，也可以補記過去的轉帳。"
+        )
+        SectionCard {
+            TextButton(onClick = { showDateTimePicker(context, date) { picked -> date = picked } }) {
+                Text(date.toDateTimeText())
+            }
+        }
+
         Button(
             onClick = {
                 scope.launch {
@@ -252,7 +270,7 @@ fun AddTransferScreen(onDone: () -> Unit) {
                                 currencyOut = currencyOut,
                                 amountIn = amountInValue,
                                 currencyIn = currencyIn,
-                                date = Instant.now(),
+                                date = date,
                                 note = note
                             )
                         }
@@ -270,7 +288,7 @@ fun AddTransferScreen(onDone: () -> Unit) {
                                 sourceAmount = sourceValue,
                                 sourceCurrency = sourceCurrency,
                                 destinations = legs,
-                                date = Instant.now(),
+                                date = date,
                                 note = note
                             )
                         }
@@ -288,7 +306,7 @@ fun AddTransferScreen(onDone: () -> Unit) {
                                 destinationAmount = destinationValue,
                                 destinationCurrency = destinationCurrency,
                                 sources = legs,
-                                date = Instant.now(),
+                                date = date,
                                 note = note
                             )
                         }
@@ -418,4 +436,31 @@ private fun sanitizeAmount(input: String): String {
 
 private fun parsePositive(input: String): BigDecimal? {
     return input.toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO }
+}
+
+private fun showDateTimePicker(
+    context: android.content.Context,
+    initial: Instant,
+    onPicked: (Instant) -> Unit
+) {
+    val zone = ZoneId.systemDefault()
+    val initialDateTime = initial.atZone(zone).toLocalDateTime()
+    DatePickerDialog(
+        context,
+        { _, year, month, day ->
+            val pickedDate = LocalDate.of(year, month + 1, day)
+            TimePickerDialog(
+                context,
+                { _, hour, minute ->
+                    onPicked(pickedDate.atTime(hour, minute).atZone(zone).toInstant())
+                },
+                initialDateTime.hour,
+                initialDateTime.minute,
+                true
+            ).show()
+        },
+        initialDateTime.year,
+        initialDateTime.monthValue - 1,
+        initialDateTime.dayOfMonth
+    ).show()
 }
