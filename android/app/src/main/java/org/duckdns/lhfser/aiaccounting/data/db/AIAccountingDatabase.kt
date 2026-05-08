@@ -16,6 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ShortcutEntity::class,
         ShortcutTagCrossRef::class,
         RecurringRuleEntity::class,
+        RecurringRuleTagCrossRef::class,
         RecurringOccurrenceEntity::class,
         CategoryMonthlyBudgetEntity::class,
         BudgetMonthlyHistoryEntity::class,
@@ -24,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AdvanceParticipantEntity::class,
         AdvanceRepaymentEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -126,6 +127,21 @@ abstract class AIAccountingDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_occurrences_ruleId` ON `recurring_occurrences` (`ruleId`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_occurrences_dueDate` ON `recurring_occurrences` (`dueDate`)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_recurring_occurrences_ruleId_dueDate` ON `recurring_occurrences` (`ruleId`, `dueDate`)")
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `recurring_rule_tag_cross_ref` (
+                        `ruleId` TEXT NOT NULL,
+                        `tagId` TEXT NOT NULL,
+                        PRIMARY KEY(`ruleId`, `tagId`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_rule_tag_cross_ref_tagId` ON `recurring_rule_tag_cross_ref` (`tagId`)")
             }
         }
     }

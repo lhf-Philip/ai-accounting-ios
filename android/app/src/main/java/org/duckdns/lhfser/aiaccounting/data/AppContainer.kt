@@ -15,6 +15,7 @@ class AppContainer(context: Context) {
             .addMigrations(AIAccountingDatabase.MIGRATION_1_2)
             .addMigrations(AIAccountingDatabase.MIGRATION_2_3)
             .addMigrations(AIAccountingDatabase.MIGRATION_3_4)
+            .addMigrations(AIAccountingDatabase.MIGRATION_4_5)
             .addCallback(SeedData.callback(appContext))
             .build()
     }

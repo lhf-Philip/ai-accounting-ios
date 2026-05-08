@@ -59,6 +59,8 @@ fun RemoteBackupScreen() {
     var message by remember { mutableStateOf<String?>(null) }
     var isBusy by remember { mutableStateOf(false) }
     var showRestoreConfirm by remember { mutableStateOf(false) }
+    var showHttpRiskConfirm by remember { mutableStateOf(false) }
+    var pendingHttpAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     fun saveSettings() {
         settingsStore.baseUrl = baseUrl
@@ -76,11 +78,20 @@ fun RemoteBackupScreen() {
         )
     }
 
-    fun runRemote(successMessage: String, block: suspend () -> Unit) {
+    fun isInsecureHttp(url: String): Boolean {
+        return url.trim().startsWith("http://", ignoreCase = true)
+    }
+
+    fun runRemote(successMessage: String, allowInsecureHttp: Boolean = false, block: suspend () -> Unit) {
         if (isBusy) return
         val creds = credentials()
         if (!creds.isComplete) {
             message = "請先填寫 WebDAV URL、帳戶、密碼和加密 passphrase。"
+            return
+        }
+        if (!allowInsecureHttp && isInsecureHttp(creds.baseUrl)) {
+            pendingHttpAction = { runRemote(successMessage, allowInsecureHttp = true, block = block) }
+            showHttpRiskConfirm = true
             return
         }
         saveSettings()
@@ -267,6 +278,41 @@ fun RemoteBackupScreen() {
             },
             dismissButton = {
                 TextButton(onClick = { showRestoreConfirm = false }) { Text("取消") }
+            }
+        )
+    }
+
+    if (showHttpRiskConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                showHttpRiskConfirm = false
+                pendingHttpAction = null
+            },
+            title = { Text("HTTP 連線不安全") },
+            text = {
+                Text("目前 WebDAV URL 使用 http://，傳輸途中可能被讀取或竄改。localhost / LAN 可以用作測試，但仍不建議放敏感備份。確定要繼續？")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val action = pendingHttpAction
+                        showHttpRiskConfirm = false
+                        pendingHttpAction = null
+                        action?.invoke()
+                    }
+                ) {
+                    Text("仍然繼續", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showHttpRiskConfirm = false
+                        pendingHttpAction = null
+                    }
+                ) {
+                    Text("取消")
+                }
             }
         )
     }

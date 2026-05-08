@@ -28,6 +28,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.BudgetMonthlyHistoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.BudgetSettingsEntity
 import org.duckdns.lhfser.aiaccounting.data.db.RecurringOccurrenceEntity
 import org.duckdns.lhfser.aiaccounting.data.db.RecurringRuleEntity
+import org.duckdns.lhfser.aiaccounting.data.db.RecurringRuleTagCrossRef
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutEntity
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutTagCrossRef
 import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
@@ -392,13 +393,24 @@ class AccountingRepository(
         return recurringDao.getRule(ruleId)
     }
 
-    suspend fun upsertRecurringRule(rule: RecurringRuleEntity) {
-        recurringDao.upsertRule(rule)
+    suspend fun getRecurringRuleTagIds(ruleId: UUID): List<UUID> {
+        return recurringDao.getRuleTags(ruleId).map { it.tagId }
+    }
+
+    suspend fun upsertRecurringRule(rule: RecurringRuleEntity, tagIds: List<UUID> = emptyList()) {
+        database.withTransaction {
+            recurringDao.upsertRule(rule)
+            recurringDao.clearRuleTags(rule.id)
+            if (tagIds.isNotEmpty()) {
+                recurringDao.insertRuleTags(tagIds.map { RecurringRuleTagCrossRef(rule.id, it) })
+            }
+        }
     }
 
     suspend fun deleteRecurringRule(rule: RecurringRuleEntity) {
         database.withTransaction {
             recurringDao.deleteOccurrencesForRule(rule.id)
+            recurringDao.clearRuleTags(rule.id)
             recurringDao.deleteRule(rule)
         }
     }
@@ -482,6 +494,13 @@ class AccountingRepository(
                 categoryId = rule.categoryId
             )
             transactionDao.upsert(transaction)
+            val ruleTags = recurringDao.getRuleTags(rule.id)
+            if (ruleTags.isNotEmpty()) {
+                transactionDao.clearTransactionTags(transactionId)
+                transactionDao.insertTransactionTags(
+                    ruleTags.map { TransactionTagCrossRef(transactionId, it.tagId) }
+                )
+            }
             recurringDao.upsertOccurrence(
                 occurrence.copy(
                     status = RECURRING_STATUS_CONFIRMED,
@@ -980,6 +999,7 @@ class AccountingRepository(
         val shortcuts = shortcutDao.getAll()
         val shortcutTags = shortcutDao.getShortcutTags()
         val recurringRules = recurringDao.getAllRules()
+        val recurringRuleTags = recurringDao.getRuleTags()
         val recurringOccurrences = recurringDao.getAllOccurrences()
         val budgets = budgetDao.getAll()
         val budgetHistories = budgetDao.getAllHistory()
@@ -990,6 +1010,7 @@ class AccountingRepository(
 
         val transactionTagMap = transactionTags.groupBy { it.transactionId }
         val shortcutTagMap = shortcutTags.groupBy { it.shortcutId }
+        val recurringRuleTagMap = recurringRuleTags.groupBy { it.ruleId }
 
         return FullBackupData(
             version = "1.8",
@@ -1062,7 +1083,7 @@ class AccountingRepository(
                     isPaused = rule.isPaused,
                     accountID = rule.accountId,
                     categoryID = rule.categoryId,
-                    tagIDs = emptyList(),
+                    tagIDs = recurringRuleTagMap[rule.id]?.map { it.tagId } ?: emptyList(),
                     createdAt = rule.createdAt,
                     updatedAt = rule.updatedAt
                 )
@@ -1263,6 +1284,9 @@ class AccountingRepository(
                 categoryId = rule.categoryID
             )
         }.orEmpty()
+        val recurringRuleTags = data.recurringRules?.flatMap { rule ->
+            rule.tagIDs.map { tagId -> RecurringRuleTagCrossRef(rule.id, tagId) }
+        }.orEmpty()
 
         val recurringOccurrenceEntities = data.recurringOccurrences?.map { occurrence ->
             RecurringOccurrenceEntity(
@@ -1383,6 +1407,9 @@ class AccountingRepository(
             if (recurringRuleEntities.isNotEmpty()) {
                 recurringDao.upsertRules(recurringRuleEntities)
             }
+            if (recurringRuleTags.isNotEmpty()) {
+                recurringDao.insertRuleTags(recurringRuleTags)
+            }
             if (recurringOccurrenceEntities.isNotEmpty()) {
                 recurringDao.upsertOccurrences(recurringOccurrenceEntities)
             }
@@ -1484,6 +1511,7 @@ class AccountingRepository(
         budgetDao.deleteAllHistory()
         budgetDao.deleteAll()
         recurringDao.deleteAllOccurrences()
+        recurringDao.deleteAllRuleTags()
         recurringDao.deleteAllRules()
         shortcutDao.deleteAllShortcuts()
         transactionDao.deleteAllTransactions()

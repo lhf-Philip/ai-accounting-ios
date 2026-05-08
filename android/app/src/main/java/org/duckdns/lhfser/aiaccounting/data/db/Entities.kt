@@ -120,6 +120,16 @@ data class RecurringRuleEntity(
 )
 
 @Entity(
+    tableName = "recurring_rule_tag_cross_ref",
+    primaryKeys = ["ruleId", "tagId"],
+    indices = [Index("tagId")]
+)
+data class RecurringRuleTagCrossRef(
+    val ruleId: UUID,
+    val tagId: UUID
+)
+
+@Entity(
     tableName = "recurring_occurrences",
     indices = [
         Index("ruleId"),
