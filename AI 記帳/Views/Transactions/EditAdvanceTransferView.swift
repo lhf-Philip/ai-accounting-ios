@@ -191,8 +191,10 @@ struct EditAdvanceTransferView: View {
 
                     Section("其他") {
                         DatePicker("日期", selection: $date, displayedComponents: [.date, .hourAndMinute])
+                            .accessibilityIdentifier("advanceTransferEditor.datePicker")
                         TextField("備註", text: $note)
                             .focused($focusedField, equals: .note)
+                            .accessibilityIdentifier("advanceTransferEditor.noteField")
                     }
                 }
             }
@@ -214,6 +216,7 @@ struct EditAdvanceTransferView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("儲存") { saveChanges() }
                         .disabled(!canSubmit)
+                        .accessibilityIdentifier("advanceTransferEditor.saveButton")
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()

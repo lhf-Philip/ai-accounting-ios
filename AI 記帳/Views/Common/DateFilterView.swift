@@ -25,6 +25,7 @@ struct DateFilterView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .accessibilityIdentifier("dateFilter.modePicker")
                 }
                 
                 if filterType == .year {
@@ -69,6 +70,7 @@ struct DateFilterView: View {
             .navigationTitle("篩選時間")
             .toolbar {
                 Button("完成") { dismiss() }
+                    .accessibilityIdentifier("dateFilter.doneButton")
             }
         }
         .presentationDetents([.medium, .large])

@@ -34,6 +34,9 @@ struct ContentView: View {
     @State private var idleBackupTask: Task<Void, Never>?
     @State private var showingUserGuide = false
     @State private var initialGuideChecked = false
+#if DEBUG
+    @State private var uiTestSeeded = false
+#endif
 
     private var budgetHistorySyncToken: Int {
         var hasher = Hasher()
@@ -79,6 +82,8 @@ struct ContentView: View {
 
     private var isRunningXCTest: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || ProcessInfo.processInfo.environment["AI_ACCOUNTING_UI_TESTS"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("-UITestSeedLedgerPerformanceData")
     }
 
     var body: some View {
@@ -191,6 +196,11 @@ struct ContentView: View {
                 showingUserGuide = true
             }
         }
+#if DEBUG
+        .task {
+            seedUITestDataIfNeeded()
+        }
+#endif
         .task(id: budgetHistorySyncToken) {
             guard !isRunningXCTest else { return }
             do {
@@ -230,6 +240,7 @@ struct ContentView: View {
             }
         }
         .accessibilityLabel("新增記錄")
+        .accessibilityIdentifier("global.addButton")
     }
 
     private func floatingButtonBottomPadding(safeAreaBottom: CGFloat) -> CGFloat {
@@ -258,4 +269,15 @@ struct ContentView: View {
             print("⚠️ 定期記帳同步失敗: \(error)")
         }
     }
+
+#if DEBUG
+    @MainActor
+    private func seedUITestDataIfNeeded() {
+        guard ProcessInfo.processInfo.arguments.contains("-UITestSeedLedgerPerformanceData") else { return }
+        guard !uiTestSeeded else { return }
+        uiTestSeeded = true
+        selectedTab = .ledger
+        UITestSeedService.seedLedgerPerformanceData(in: modelContext)
+    }
+#endif
 }
