@@ -39,6 +39,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.RecurringOccurrenceEntity
 import org.duckdns.lhfser.aiaccounting.data.db.RecurringRuleEntity
+import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
@@ -262,6 +263,7 @@ fun RecurringRuleEditorScreen(
     val scope = rememberCoroutineScope()
     val accounts by repository.accounts.collectAsState(initial = emptyList())
     val categories by repository.categories.collectAsState(initial = emptyList())
+    val tags by repository.tags.collectAsState(initial = emptyList())
     val rules by repository.recurringRules.collectAsState(initial = emptyList())
     val scrollState = rememberScrollState()
 
@@ -281,6 +283,7 @@ fun RecurringRuleEditorScreen(
     var isPaused by remember { mutableStateOf(false) }
     var selectedAccount by remember { mutableStateOf<AccountEntity?>(null) }
     var selectedCategory by remember { mutableStateOf<CategoryEntity?>(null) }
+    var selectedTags by remember { mutableStateOf<List<TagEntity>>(emptyList()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     val filteredCategories = categories.filter { it.kind.supports(type) }
@@ -299,6 +302,8 @@ fun RecurringRuleEditorScreen(
             isPaused = existingRule.isPaused
             selectedAccount = ownAccounts.firstOrNull { it.id == existingRule.accountId }
             selectedCategory = filteredCategories.firstOrNull { it.id == existingRule.categoryId }
+            val existingTagIds = repository.getRecurringRuleTagIds(existingRule.id).toSet()
+            selectedTags = tags.filter { it.id in existingTagIds }
             loaded = true
         } else if (ownAccounts.isNotEmpty()) {
             selectedAccount = ownAccounts.first()
@@ -373,6 +378,7 @@ fun RecurringRuleEditorScreen(
                     selected = selectedCategory,
                     onSelect = { selectedCategory = it }
                 )
+                RecurringTagPicker(tags = tags, selected = selectedTags, onChange = { selectedTags = it })
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
@@ -437,7 +443,7 @@ fun RecurringRuleEditorScreen(
                         categoryId = selectedCategory?.id
                     )
                     scope.launch {
-                        repository.upsertRecurringRule(rule)
+                        repository.upsertRecurringRule(rule, selectedTags.map { it.id })
                         repository.syncDueRecurringOccurrences()
                         onDone()
                     }
@@ -534,6 +540,37 @@ private fun CategoryDropdown(
                     onSelect(category)
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun RecurringTagPicker(
+    tags: List<TagEntity>,
+    selected: List<TagEntity>,
+    onChange: (List<TagEntity>) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("標籤", style = MaterialTheme.typography.titleSmall)
+        if (tags.isEmpty()) {
+            Text("尚未建立標籤", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            tags.forEach { tag ->
+                val isSelected = selected.any { it.id == tag.id }
+                TextButton(
+                    onClick = {
+                        onChange(
+                            if (isSelected) {
+                                selected.filterNot { it.id == tag.id }
+                            } else {
+                                selected + tag
+                            }
+                        )
+                    }
+                ) {
+                    Text(if (isSelected) "✓ ${tag.name}" else tag.name)
+                }
+            }
         }
     }
 }

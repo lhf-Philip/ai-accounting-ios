@@ -187,6 +187,18 @@ interface RecurringDao {
     suspend fun upsertRules(rules: List<RecurringRuleEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRuleTags(tags: List<RecurringRuleTagCrossRef>)
+
+    @Query("SELECT * FROM recurring_rule_tag_cross_ref")
+    suspend fun getRuleTags(): List<RecurringRuleTagCrossRef>
+
+    @Query("SELECT * FROM recurring_rule_tag_cross_ref WHERE ruleId = :ruleId")
+    suspend fun getRuleTags(ruleId: UUID): List<RecurringRuleTagCrossRef>
+
+    @Query("DELETE FROM recurring_rule_tag_cross_ref WHERE ruleId = :ruleId")
+    suspend fun clearRuleTags(ruleId: UUID)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertOccurrence(occurrence: RecurringOccurrenceEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -203,6 +215,9 @@ interface RecurringDao {
 
     @Query("DELETE FROM recurring_rules")
     suspend fun deleteAllRules()
+
+    @Query("DELETE FROM recurring_rule_tag_cross_ref")
+    suspend fun deleteAllRuleTags()
 }
 
 @Dao
