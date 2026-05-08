@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -45,6 +46,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.LocalUiPreferences
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityFilterCapsule
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySegmentedControl
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySummaryCard
@@ -71,8 +73,11 @@ fun OverviewScreen(
 ) {
     val repository = LocalRepository.current
     val currencyService = LocalCurrencyService.current
+    val uiPreferencesStore = LocalUiPreferences.current
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+    val pinnedBodyScrollState = rememberScrollState()
+    val uiPreferences by uiPreferencesStore.state.collectAsState()
 
     val transactions by repository.transactions.collectAsState(initial = emptyList())
     val advanceCases by repository.advanceCases.collectAsState(initial = emptyList())
@@ -103,18 +108,8 @@ fun OverviewScreen(
         acc + currencyService.convert(outstandingAmount(advanceCase), advanceCase.advanceCase.currencyCode, baseCurrency)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(scrollState)
-            .padding(
-                start = AppSpacing.screenHorizontal,
-                end = AppSpacing.screenHorizontal,
-                top = AppSpacing.screenVertical,
-                bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
-            ),
-        verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
-    ) {
+    @Composable
+    fun OverviewControls() {
         ParityTopSection(
             title = "總覽",
             subtitle = "今天是 ${LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年 M月d日"))} · ${filterDisplayString(filterType, selectedDate)}已記錄 $recordCount 筆收入/支出"
@@ -132,7 +127,10 @@ fun OverviewScreen(
                 onSelect = { filterType = it }
             )
         }
+    }
 
+    @Composable
+    fun OverviewBody() {
         PressableCard(
             modifier = Modifier.fillMaxWidth(),
             onClick = onQuickAdd,
@@ -214,6 +212,55 @@ fun OverviewScreen(
                 subtitle = "查看資產估算與各幣別餘額",
                 onClick = onOpenAccounts
             )
+        }
+    }
+
+    if (uiPreferences.pinOverviewControls) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = AppSpacing.screenHorizontal,
+                        end = AppSpacing.screenHorizontal,
+                        top = AppSpacing.screenVertical,
+                        bottom = AppSpacing.inline
+                    ),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
+            ) {
+                OverviewControls()
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(pinnedBodyScrollState)
+                    .padding(
+                        start = AppSpacing.screenHorizontal,
+                        end = AppSpacing.screenHorizontal,
+                        top = AppSpacing.inline,
+                        bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
+                    ),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
+            ) {
+                OverviewBody()
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(scrollState)
+                .padding(
+                    start = AppSpacing.screenHorizontal,
+                    end = AppSpacing.screenHorizontal,
+                    top = AppSpacing.screenVertical,
+                    bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
+                ),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
+        ) {
+            OverviewControls()
+            OverviewBody()
         }
     }
 

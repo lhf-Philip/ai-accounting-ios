@@ -13,6 +13,7 @@ struct TransactionsListView: View {
     @State private var selectedDate: Date = Date()
     @State private var showingFilterSheet = false
     @State private var searchText = ""
+    @AppStorage("pinLedgerControls") private var pinLedgerControls: Bool = true
     
     @State private var transactionToEdit: FinancialTransaction?
     
@@ -56,157 +57,221 @@ struct TransactionsListView: View {
         let renderState = makeRenderState()
 
         NavigationStack {
-            VStack(spacing: 0) {
-                // MARK: - 1. 日期選擇器 (固定)
-                HStack {
-                    Spacer()
-                    Button(action: { showingFilterSheet = true }) {
-                        HStack {
-                            Image(systemName: "line.3.horizontal.decrease.circle.fill")
-                            Text(filterDisplayString).bold()
-                            Image(systemName: "chevron.down").font(.caption)
-                        }
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 16)
-                        .background(Color.blue.opacity(0.1))
-                        .foregroundColor(.blue)
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("ledger.dateFilter.button")
-                    Spacer()
+            ledgerContent(renderState: renderState)
+        }
+        .sheet(isPresented: $showingFilterSheet) {
+            DateFilterView(filterType: $filterType, selectedDate: $selectedDate)
+        }
+        .sheet(isPresented: $showingAddShortcut) {
+            AddShortcutView()
+        }
+        .sheet(item: $transactionToEdit) { tx in
+            transactionEditor(for: tx, renderState: renderState)
+        }
+        // 捷徑確認彈窗
+        .alert("確認快速記帳？", isPresented: $showingShortcutConfirm) {
+            Button("確認", role: .none) { executeShortcut() }
+            Button("取消", role: .cancel) { }
+        } message: {
+            if let sc = pendingShortcut {
+                Text("\(sc.name)\n\(sc.type == .expense ? "支出" : "收入") \(sc.amount.formatted()) \(sc.account?.currency ?? "")")
+            }
+        }
+        .confirmationDialog(
+            "刪除捷徑？",
+            isPresented: $showingShortcutDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("刪除", role: .destructive) {
+                if let shortcut = shortcutToDelete {
+                    modelContext.delete(shortcut)
                 }
+                shortcutToDelete = nil
+            }
+            Button("取消", role: .cancel) {
+                shortcutToDelete = nil
+            }
+        } message: {
+            Text(shortcutToDelete?.name ?? "")
+        }
+        .alert("無法刪除", isPresented: Binding(
+            get: { deletionErrorMessage != nil },
+            set: { if !$0 { deletionErrorMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { deletionErrorMessage = nil }
+        } message: {
+            Text(deletionErrorMessage ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private func ledgerContent(renderState: TransactionsRenderState) -> some View {
+        Group {
+            if pinLedgerControls {
+                VStack(spacing: 0) {
+                    pinnedLedgerControls
+                    ledgerList(renderState: renderState, includeScrollableControls: false)
+                }
+            } else {
+                ledgerList(renderState: renderState, includeScrollableControls: true)
+            }
+        }
+        .prominentInlineTitle("帳目明細")
+        .modifier(LedgerSearchModifier(isEnabled: pinLedgerControls, text: $searchText))
+    }
+
+    @ViewBuilder
+    private func transactionEditor(for tx: FinancialTransaction, renderState: TransactionsRenderState) -> some View {
+        if tx.type == .transfer {
+            if isAdvanceTransfer(tx, advanceGroupIDs: renderState.advanceGroupIDs) {
+                EditAdvanceTransferView(originalTransaction: tx)
+            } else if TransactionSemantics.isDebtForgiveness(note: tx.note) {
+                AddDebtView(existingForgivenessTransaction: tx)
+            } else {
+                EditTransferView(originalTransaction: tx)
+            }
+        } else {
+            EditTransactionView(transaction: tx)
+        }
+    }
+
+    private var pinnedLedgerControls: some View {
+        VStack(spacing: 0) {
+            dateFilterControl
                 .padding(.vertical, 8)
                 .background(Color(uiColor: .systemBackground))
 
-                Divider()
+            Divider()
 
-                // MARK: - 2. 捷徑列 (Shortcuts Bar)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        // 新增按鈕
-                        Button(action: { showingAddShortcut = true }) {
-                            VStack(spacing: 4) {
-                                Image(systemName: "plus")
-                                    .font(.headline)
-                                    .frame(width: 44, height: 44)
-                                    .background(Color.blue.opacity(0.1))
-                                    .clipShape(Circle())
-                                Text("捷徑")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        
-                        // 捷徑列表
-                        ForEach(shortcuts) { shortcut in
-                            shortcutTile(shortcut)
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                }
+            shortcutsBar
                 .background(Color(uiColor: .systemBackground))
-                
-                Divider()
-                
-                // MARK: - 3. 列表內容 (List)
-                List {
-                    // 交易分組
-                    ForEach(renderState.groupedTransactions, id: \.title) { group in
-                        Section(header: Text(group.title)) {
-                            ForEach(group.items) { item in
-                                switch item {
-                                case .transaction(let transaction):
-                                    TransactionRow(
-                                        transaction: transaction,
-                                        transferCounterpart: renderState.transferCounterpartByID[transaction.id]
-                                    )
-                                        .accessibilityIdentifier("ledger.transaction.row")
-                                        .accessibilityValue(transaction.note)
-                                        .onTapGesture {
-                                            transactionToEdit = transaction
-                                        }
-                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                            Button(role: .destructive) { deleteTransaction(transaction) } label: { Label("刪除", systemImage: "trash") }
-                                            Button {
-                                                transactionToEdit = transaction
-                                            } label: { Label("編輯", systemImage: "pencil") }.tint(.blue)
-                                        }
-                                case .advanceCaseSummary(let advanceCase):
-                                    NavigationLink(destination: AdvanceCaseDetailView(advanceCase: advanceCase)) {
-                                        AdvanceCaseSummaryRow(advanceCase: advanceCase)
-                                    }
-                                }
+
+            Divider()
+        }
+    }
+
+    private func ledgerList(renderState: TransactionsRenderState, includeScrollableControls: Bool) -> some View {
+        List {
+            if includeScrollableControls {
+                Section {
+                    dateFilterControl
+                    shortcutsBar
+                    inlineSearchField
+                }
+                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                .listRowBackground(Color.clear)
+            }
+
+            if renderState.ledgerItems.isEmpty {
+                Section {
+                    ContentUnavailableView("無交易紀錄", systemImage: "list.bullet.clipboard", description: Text("該區間或搜尋條件下無資料"))
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
+                }
+            }
+
+            ForEach(renderState.groupedTransactions, id: \.title) { group in
+                Section(header: Text(group.title)) {
+                    ForEach(group.items) { item in
+                        switch item {
+                        case .transaction(let transaction):
+                            TransactionRow(
+                                transaction: transaction,
+                                transferCounterpart: renderState.transferCounterpartByID[transaction.id]
+                            )
+                            .accessibilityIdentifier("ledger.transaction.row")
+                            .accessibilityValue(transaction.note)
+                            .onTapGesture {
+                                transactionToEdit = transaction
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) { deleteTransaction(transaction) } label: { Label("刪除", systemImage: "trash") }
+                                Button {
+                                    transactionToEdit = transaction
+                                } label: { Label("編輯", systemImage: "pencil") }.tint(.blue)
+                            }
+                        case .advanceCaseSummary(let advanceCase):
+                            NavigationLink(destination: AdvanceCaseDetailView(advanceCase: advanceCase)) {
+                                AdvanceCaseSummaryRow(advanceCase: advanceCase)
                             }
                         }
                     }
                 }
-                .listStyle(.insetGrouped)
-                .accessibilityIdentifier("ledger.list")
-            }
-            .prominentInlineTitle("帳目明細")
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜尋備註、分類、金額")
-            .sheet(isPresented: $showingFilterSheet) {
-                DateFilterView(filterType: $filterType, selectedDate: $selectedDate)
-            }
-            .sheet(isPresented: $showingAddShortcut) {
-                AddShortcutView()
-            }
-            .sheet(item: $transactionToEdit) { tx in
-                if tx.type == .transfer {
-                    if isAdvanceTransfer(tx, advanceGroupIDs: renderState.advanceGroupIDs) {
-                        EditAdvanceTransferView(originalTransaction: tx)
-                    } else if TransactionSemantics.isDebtForgiveness(note: tx.note) {
-                        AddDebtView(existingForgivenessTransaction: tx)
-                    } else {
-                        EditTransferView(originalTransaction: tx)
-                    }
-                } else {
-                    EditTransactionView(transaction: tx)
-                }
-            }
-            .overlay {
-                if renderState.ledgerItems.isEmpty {
-                    ContentUnavailableView("無交易紀錄", systemImage: "list.bullet.clipboard", description: Text("該區間或搜尋條件下無資料"))
-                }
-            }
-            // 捷徑確認彈窗
-            .alert("確認快速記帳？", isPresented: $showingShortcutConfirm) {
-                Button("確認", role: .none) { executeShortcut() }
-                Button("取消", role: .cancel) { }
-            } message: {
-                if let sc = pendingShortcut {
-                    Text("\(sc.name)\n\(sc.type == .expense ? "支出" : "收入") \(sc.amount.formatted()) \(sc.account?.currency ?? "")")
-                }
-            }
-            .confirmationDialog(
-                "刪除捷徑？",
-                isPresented: $showingShortcutDeleteConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("刪除", role: .destructive) {
-                    if let shortcut = shortcutToDelete {
-                        modelContext.delete(shortcut)
-                    }
-                    shortcutToDelete = nil
-                }
-                Button("取消", role: .cancel) {
-                    shortcutToDelete = nil
-                }
-            } message: {
-                Text(shortcutToDelete?.name ?? "")
-            }
-            .alert("無法刪除", isPresented: Binding(
-                get: { deletionErrorMessage != nil },
-                set: { if !$0 { deletionErrorMessage = nil } }
-            )) {
-                Button("好", role: .cancel) { deletionErrorMessage = nil }
-            } message: {
-                Text(deletionErrorMessage ?? "")
             }
         }
+        .listStyle(.insetGrouped)
+        .accessibilityIdentifier("ledger.list")
+    }
+
+    private var dateFilterControl: some View {
+        HStack {
+            Spacer()
+            Button(action: { showingFilterSheet = true }) {
+                HStack {
+                    Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                    Text(filterDisplayString).bold()
+                    Image(systemName: "chevron.down").font(.caption)
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 16)
+                .background(Color.blue.opacity(0.1))
+                .foregroundColor(.blue)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("ledger.dateFilter.button")
+            Spacer()
+        }
+    }
+
+    private var shortcutsBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                Button(action: { showingAddShortcut = true }) {
+                    VStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.headline)
+                            .frame(width: 44, height: 44)
+                            .background(Color.blue.opacity(0.1))
+                            .clipShape(Circle())
+                        Text("捷徑")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                ForEach(shortcuts) { shortcut in
+                    shortcutTile(shortcut)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private var inlineSearchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("搜尋備註、分類、金額", text: $searchText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal)
     }
     
     @ViewBuilder
@@ -503,6 +568,23 @@ private struct TransactionsRenderState {
 
     private static func isAssetAdjustment(note: String) -> Bool {
         note.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(TransactionSemantics.assetAdjustmentMarker)
+    }
+}
+
+private struct LedgerSearchModifier: ViewModifier {
+    let isEnabled: Bool
+    @Binding var text: String
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.searchable(
+                text: $text,
+                placement: .navigationBarDrawer(displayMode: .automatic),
+                prompt: "搜尋備註、分類、金額"
+            )
+        } else {
+            content
+        }
     }
 }
 

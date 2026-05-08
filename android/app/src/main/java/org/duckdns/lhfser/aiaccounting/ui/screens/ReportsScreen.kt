@@ -62,6 +62,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.LocalUiPreferences
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityFilterCapsule
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
@@ -116,11 +117,13 @@ private data class BudgetAlert(
 fun ReportsScreen() {
     val repository = LocalRepository.current
     val currencyService = LocalCurrencyService.current
+    val uiPreferencesStore = LocalUiPreferences.current
     val context = LocalContext.current
 
     val transactions by repository.transactions.collectAsState(initial = emptyList())
     val categories by repository.categories.collectAsState(initial = emptyList())
     val budgets by repository.budgets.collectAsState(initial = emptyList())
+    val uiPreferences by uiPreferencesStore.state.collectAsState()
 
     var filterType by remember { mutableStateOf(ReportFilterType.Month) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
@@ -162,18 +165,19 @@ fun ReportsScreen() {
         buildBudgetAlerts(budgets, categories, filteredTransactions, currencyService)
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        ParityTopSection(
-            title = "報表",
-            modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = 4.dp),
-            subtitle = "切換收支、分類與標籤，查看和 iOS 對齊的統計視圖。"
-        )
+    @Composable
+    fun ReportControls() {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            ParityTopSection(
+                title = "報表",
+                subtitle = "切換收支、分類與標籤，查看和 iOS 對齊的統計視圖。"
+            )
+
             ParityFilterCapsule(
                 label = filterLabel(filterType, selectedDate),
                 icon = Icons.Default.DateRange,
@@ -206,6 +210,12 @@ fun ReportsScreen() {
                 )
             }
         }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (uiPreferences.pinReportsControls) {
+            ReportControls()
+        }
 
         LazyColumn(
             modifier = Modifier.weight(1f),
@@ -217,6 +227,12 @@ fun ReportsScreen() {
             ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.item)
         ) {
+            if (!uiPreferences.pinReportsControls) {
+                item(key = "report-controls") {
+                    ReportControls()
+                }
+            }
+
             if (chartMode == ReportChartMode.Tag && selectedTag != null) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {

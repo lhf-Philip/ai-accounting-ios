@@ -12,6 +12,7 @@ struct ChartsView: View {
     @State private var showingFilterSheet = false
     @State private var chartMode: ChartMode = .category
     @State private var flowMode: FlowMode = .expense
+    @AppStorage("pinReportsControls") private var pinReportsControls: Bool = true
     
     // 互動狀態
     @State private var selectedTagForDetail: String?
@@ -59,45 +60,15 @@ struct ChartsView: View {
 
         NavigationStack {
             VStack(spacing: 0) {
-                // 頂部控制列
-                VStack(spacing: 10) {
-                    HStack {
-                        Button(action: { showingFilterSheet = true }) {
-                            HStack(spacing: 4) {
-                                Text(filterDisplayString).font(.headline)
-                                Image(systemName: "chevron.down").font(.caption).bold()
-                            }
-                            .foregroundStyle(.primary)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .background(Color.gray.opacity(0.1))
-                            .clipShape(Capsule())
-                        }
-                        Spacer()
-                    }
-                    
-                    HStack(spacing: 8) {
-                        Picker("收支", selection: $flowMode) {
-                            ForEach(FlowMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: flowMode) { _, _ in
-                            selectedTagForDetail = nil
-                        }
-                        
-                        Picker("模式", selection: $chartMode) {
-                            ForEach(ChartMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: chartMode) { _, _ in
-                            selectedTagForDetail = nil
-                        }
-                    }
+                if pinReportsControls {
+                    reportControls
                 }
-                .padding()
-                
-                // 內容區
+
                 ScrollView {
+                    if !pinReportsControls {
+                        reportControls
+                    }
+
                     if renderState.currentData.isEmpty {
                         ContentUnavailableView(flowMode.emptyTitle, systemImage: "chart.pie", description: Text("試試切換日期或記一筆帳"))
                             .padding(.top, 40)
@@ -140,6 +111,45 @@ struct ChartsView: View {
                 ReportTransactionListView(title: detail.title, transactions: detail.transactions)
             }
         }
+    }
+
+    private var reportControls: some View {
+        VStack(spacing: 10) {
+            HStack {
+                Button(action: { showingFilterSheet = true }) {
+                    HStack(spacing: 4) {
+                        Text(filterDisplayString).font(.headline)
+                        Image(systemName: "chevron.down").font(.caption).bold()
+                    }
+                    .foregroundStyle(.primary)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12)
+                    .background(Color.gray.opacity(0.1))
+                    .clipShape(Capsule())
+                }
+                Spacer()
+            }
+
+            HStack(spacing: 8) {
+                Picker("收支", selection: $flowMode) {
+                    ForEach(FlowMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: flowMode) { _, _ in
+                    selectedTagForDetail = nil
+                }
+
+                Picker("模式", selection: $chartMode) {
+                    ForEach(ChartMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: chartMode) { _, _ in
+                    selectedTagForDetail = nil
+                }
+            }
+        }
+        .padding()
+        .background(Color(uiColor: .systemBackground))
     }
     
     // MARK: - 主圖表視圖
