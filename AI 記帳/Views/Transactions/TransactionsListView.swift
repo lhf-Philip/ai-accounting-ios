@@ -22,6 +22,7 @@ struct TransactionsListView: View {
     @State private var showingShortcutConfirm = false
     @State private var shortcutToDelete: Shortcut?
     @State private var showingShortcutDeleteConfirm = false
+    @State private var deletionErrorMessage: String?
 
     enum LedgerItem: Identifiable {
         case transaction(FinancialTransaction)
@@ -197,6 +198,14 @@ struct TransactionsListView: View {
             } message: {
                 Text(shortcutToDelete?.name ?? "")
             }
+            .alert("無法刪除", isPresented: Binding(
+                get: { deletionErrorMessage != nil },
+                set: { if !$0 { deletionErrorMessage = nil } }
+            )) {
+                Button("好", role: .cancel) { deletionErrorMessage = nil }
+            } message: {
+                Text(deletionErrorMessage ?? "")
+            }
         }
     }
     
@@ -296,27 +305,11 @@ struct TransactionsListView: View {
     }
     
     private func deleteTransaction(_ tx: FinancialTransaction) {
-        if tx.type == .transfer, let groupID = tx.transferGroupID {
-            let descriptor = FetchDescriptor<FinancialTransaction>(
-                predicate: #Predicate { $0.transferGroupID == groupID }
-            )
-            if let groupedTransfers = try? modelContext.fetch(descriptor) {
-                for transfer in groupedTransfers {
-                    modelContext.delete(transfer)
-                }
-                return
-            }
+        do {
+            try LedgerDeletionService.delete(transaction: tx, modelContext: modelContext)
+        } catch {
+            deletionErrorMessage = error.localizedDescription
         }
-        
-        if tx.type == .transfer, let linkedID = tx.linkedTransactionID {
-            let descriptor = FetchDescriptor<FinancialTransaction>(
-                predicate: #Predicate { $0.id == linkedID }
-            )
-            if let linked = try? modelContext.fetch(descriptor).first {
-                modelContext.delete(linked)
-            }
-        }
-        modelContext.delete(tx)
     }
     
     private func isAdvanceTransfer(_ tx: FinancialTransaction, advanceGroupIDs: Set<UUID>) -> Bool {

@@ -5,6 +5,7 @@ struct AccountDetailView: View {
     let account: Account
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var allTransactions: [FinancialTransaction]
     @Environment(\.modelContext) private var modelContext
+    @State private var deletionErrorMessage: String?
     
     // 🔥 修正 1：定義一個結構體來代替 Tuple，讓 ForEach 能識別
     struct CurrencyBalance: Identifiable {
@@ -87,31 +88,22 @@ struct AccountDetailView: View {
         }
         .navigationTitle(account.name)
         .navigationBarTitleDisplayMode(.inline)
+        .alert("無法刪除", isPresented: Binding(
+            get: { deletionErrorMessage != nil },
+            set: { if !$0 { deletionErrorMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { deletionErrorMessage = nil }
+        } message: {
+            Text(deletionErrorMessage ?? "")
+        }
     }
     
     private func deleteTransaction(_ transaction: FinancialTransaction) {
-        if transaction.type == .transfer, let groupID = transaction.transferGroupID {
-            let descriptor = FetchDescriptor<FinancialTransaction>(
-                predicate: #Predicate { $0.transferGroupID == groupID }
-            )
-            if let groupedTransfers = try? modelContext.fetch(descriptor) {
-                for transfer in groupedTransfers {
-                    modelContext.delete(transfer)
-                }
-                return
-            }
+        do {
+            try LedgerDeletionService.delete(transaction: transaction, modelContext: modelContext)
+        } catch {
+            deletionErrorMessage = error.localizedDescription
         }
-        
-        if transaction.type == .transfer, let linkedID = transaction.linkedTransactionID {
-            let descriptor = FetchDescriptor<FinancialTransaction>(
-                predicate: #Predicate { $0.id == linkedID }
-            )
-            if let linkedTx = try? modelContext.fetch(descriptor).first {
-                modelContext.delete(linkedTx)
-            }
-        }
-        
-        modelContext.delete(transaction)
     }
 }
 

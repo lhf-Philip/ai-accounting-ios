@@ -41,6 +41,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
+import org.duckdns.lhfser.aiaccounting.data.repository.LedgerDeletionResult
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyRateHint
@@ -101,6 +102,7 @@ fun TransactionEditorScreen(
     var selectedCurrency by remember { mutableStateOf("HKD") }
     var date by remember { mutableStateOf(Instant.now()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     var showCreateCategoryDialog by remember { mutableStateOf(false) }
     var newCategoryName by remember { mutableStateOf("") }
     var newCategoryIcon by remember { mutableStateOf("square.grid.2x2") }
@@ -374,13 +376,28 @@ fun TransactionEditorScreen(
                 TextButton(onClick = {
                     showDeleteConfirm = false
                     scope.launch {
-                        repository.deleteTransactionById(UUID.fromString(transactionId))
-                        onDone()
+                        val result = repository.deleteLedgerTransactionById(UUID.fromString(transactionId))
+                        if (result == LedgerDeletionResult.AdvanceInitialRequiresCase) {
+                            errorMessage = "這是代墊建立分錄，請進入代墊詳情刪除整個代墊案件。"
+                        } else {
+                            onDone()
+                        }
                     }
                 }) { Text("刪除", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+            }
+        )
+    }
+
+    if (errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { errorMessage = null },
+            title = { Text("無法刪除") },
+            text = { Text(errorMessage ?: "") },
+            confirmButton = {
+                TextButton(onClick = { errorMessage = null }) { Text("了解") }
             }
         )
     }
