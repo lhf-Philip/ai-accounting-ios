@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -180,7 +181,8 @@ fun SettingsScreen(
                     label = { Text("Gemini API Key（可選）") },
                     placeholder = { Text("輸入後可使用 AI 預算與掃描功能") },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp)
+                    shape = RoundedCornerShape(18.dp),
+                    visualTransformation = PasswordVisualTransformation()
                 )
             }
         }
