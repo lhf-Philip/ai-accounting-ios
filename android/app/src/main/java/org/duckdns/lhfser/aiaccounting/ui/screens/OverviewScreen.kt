@@ -1,6 +1,5 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
-import android.app.DatePickerDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,12 +19,10 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.PieChart
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -58,6 +55,8 @@ import org.duckdns.lhfser.aiaccounting.ui.components.ParitySummaryCard
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
+import org.duckdns.lhfser.aiaccounting.ui.components.SharedDateFilterSheet
+import org.duckdns.lhfser.aiaccounting.ui.components.showSharedDatePicker
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 
@@ -81,7 +80,6 @@ fun OverviewScreen(
     val advanceCases by repository.advanceCases.collectAsState(initial = emptyList())
 
     var showFilterDialog by remember { mutableStateOf(false) }
-    var showCustomDateDialog by remember { mutableStateOf(false) }
     val dateFilter = uiPreferences.dateFilter
     val filterType = dateFilter.type
     val selectedDate = dateFilter.selectedDate
@@ -123,13 +121,7 @@ fun OverviewScreen(
         Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
             ParityFilterCapsule(
                 label = filterDisplayString(filterType, selectedDate, customStartDate, customEndDate),
-                onClick = {
-                    when (filterType) {
-                        SharedDateFilterType.All -> Unit
-                        SharedDateFilterType.Custom -> showCustomDateDialog = true
-                        else -> showFilterDialog = true
-                    }
-                }
+                onClick = { showFilterDialog = true }
             )
             ParitySegmentedControl(
                 options = SharedDateFilterType.entries.toList(),
@@ -138,7 +130,7 @@ fun OverviewScreen(
                 onSelect = {
                     uiPreferencesStore.setDateFilterType(it)
                     if (it == SharedDateFilterType.Custom) {
-                        showCustomDateDialog = true
+                        showFilterDialog = true
                     }
                 }
             )
@@ -284,41 +276,28 @@ fun OverviewScreen(
     }
 
     if (showFilterDialog) {
-        DatePickerDialog(
-            context,
-            { _, year, month, day ->
-                uiPreferencesStore.setDateFilterSelectedDate(LocalDate.of(year, month + 1, day))
+        SharedDateFilterSheet(
+            title = "選擇區間",
+            description = "切換總覽摘要區間，會同步套用到帳目與報表。",
+            filterType = filterType,
+            selectedDate = selectedDate,
+            customStartDate = customStartDate,
+            customEndDate = customEndDate,
+            onSelectFilterType = uiPreferencesStore::setDateFilterType,
+            onPickSelectedDate = {
+                showSharedDatePicker(context, selectedDate, uiPreferencesStore::setDateFilterSelectedDate)
             },
-            selectedDate.year,
-            selectedDate.monthValue - 1,
-            selectedDate.dayOfMonth
-        ).show()
-        showFilterDialog = false
-    }
-
-    if (showCustomDateDialog) {
-        AlertDialog(
-            onDismissRequest = { showCustomDateDialog = false },
-            title = { androidx.compose.material3.Text("自訂區間") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)) {
-                    TextButton(onClick = {
-                        showDatePicker(context, customStartDate, uiPreferencesStore::setDateFilterCustomStartDate)
-                    }) {
-                        androidx.compose.material3.Text("開始日期：${customStartDate.format(DateTimeFormatter.ISO_DATE)}")
-                    }
-                    TextButton(onClick = {
-                        showDatePicker(context, customEndDate, uiPreferencesStore::setDateFilterCustomEndDate)
-                    }) {
-                        androidx.compose.material3.Text("結束日期：${customEndDate.format(DateTimeFormatter.ISO_DATE)}")
-                    }
-                }
+            onPickCustomStart = {
+                showSharedDatePicker(context, customStartDate, uiPreferencesStore::setDateFilterCustomStartDate)
             },
-            confirmButton = {
-                TextButton(onClick = { showCustomDateDialog = false }) {
-                    androidx.compose.material3.Text("完成")
-                }
-            }
+            onPickCustomEnd = {
+                showSharedDatePicker(context, customEndDate, uiPreferencesStore::setDateFilterCustomEndDate)
+            },
+            onDismiss = { showFilterDialog = false },
+            allSubtitle = "查看所有時間的總覽摘要",
+            yearSubtitle = "聚焦本年收入、支出與代墊",
+            monthSubtitle = "查看本月重點摘要",
+            daySubtitle = "只看當日收入、支出與代墊"
         )
     }
 }
@@ -430,20 +409,4 @@ private fun filterDisplayString(
     customEndDate: LocalDate
 ): String {
     return sharedDateFilterLabel(type, selectedDate, customStartDate, customEndDate)
-}
-
-private fun showDatePicker(
-    context: android.content.Context,
-    initialDate: LocalDate,
-    onDateSelected: (LocalDate) -> Unit
-) {
-    DatePickerDialog(
-        context,
-        { _, year, month, day ->
-            onDateSelected(LocalDate.of(year, month + 1, day))
-        },
-        initialDate.year,
-        initialDate.monthValue - 1,
-        initialDate.dayOfMonth
-    ).show()
 }
