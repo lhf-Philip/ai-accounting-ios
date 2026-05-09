@@ -1,6 +1,5 @@
 package org.duckdns.lhfser.aiaccounting.ui.screens
 
-import android.app.DatePickerDialog
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -25,11 +24,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -52,7 +49,6 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
-import org.duckdns.lhfser.aiaccounting.core.preferences.SharedDateFilterType
 import org.duckdns.lhfser.aiaccounting.core.preferences.resolveSharedDateRange
 import org.duckdns.lhfser.aiaccounting.core.preferences.sharedDateFilterLabel
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
@@ -66,12 +62,12 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalUiPreferences
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityFilterCapsule
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySearchField
-import org.duckdns.lhfser.aiaccounting.ui.components.ParitySelectionSheetRow
-import org.duckdns.lhfser.aiaccounting.ui.components.ParitySheetHandle
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityStatusPill
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTopSection
 import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
+import org.duckdns.lhfser.aiaccounting.ui.components.SharedDateFilterSheet
+import org.duckdns.lhfser.aiaccounting.ui.components.showSharedDatePicker
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
@@ -397,22 +393,28 @@ fun TransactionsScreen(
     }
 
     if (showFilterDialog) {
-        TransactionFilterSheet(
+        SharedDateFilterSheet(
+            title = "篩選區間",
+            description = "選擇要在帳目頁固定顯示的日期範圍。",
             filterType = filterType,
             selectedDate = selectedDate,
             customStartDate = customStartDate,
             customEndDate = customEndDate,
             onSelectFilterType = uiPreferencesStore::setDateFilterType,
             onPickSelectedDate = {
-                showDatePicker(context, selectedDate, uiPreferencesStore::setDateFilterSelectedDate)
+                showSharedDatePicker(context, selectedDate, uiPreferencesStore::setDateFilterSelectedDate)
             },
             onPickCustomStart = {
-                showDatePicker(context, customStartDate, uiPreferencesStore::setDateFilterCustomStartDate)
+                showSharedDatePicker(context, customStartDate, uiPreferencesStore::setDateFilterCustomStartDate)
             },
             onPickCustomEnd = {
-                showDatePicker(context, customEndDate, uiPreferencesStore::setDateFilterCustomEndDate)
+                showSharedDatePicker(context, customEndDate, uiPreferencesStore::setDateFilterCustomEndDate)
             },
-            onDismiss = { showFilterDialog = false }
+            onDismiss = { showFilterDialog = false },
+            allSubtitle = "查看所有帳目與代墊摘要",
+            yearSubtitle = "查看本年累積的收支紀錄",
+            monthSubtitle = "聚焦本月帳目與代墊摘要",
+            daySubtitle = "只查看指定日期的明細"
         )
     }
 }
@@ -430,136 +432,6 @@ private fun LedgerDateHeader(date: LocalDate) {
             modifier = Modifier.padding(vertical = 8.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TransactionFilterSheet(
-    filterType: SharedDateFilterType,
-    selectedDate: LocalDate,
-    customStartDate: LocalDate,
-    customEndDate: LocalDate,
-    onSelectFilterType: (SharedDateFilterType) -> Unit,
-    onPickSelectedDate: () -> Unit,
-    onPickCustomStart: () -> Unit,
-    onPickCustomEnd: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.background,
-        dragHandle = { ParitySheetHandle() }
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("篩選區間", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                "選擇要在帳目頁固定顯示的日期範圍。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            SharedDateFilterType.entries.forEach { type ->
-                ParitySelectionSheetRow(
-                    title = type.label,
-                    subtitle = transactionFilterSubtitle(type),
-                    selected = filterType == type,
-                    onClick = { onSelectFilterType(type) }
-                )
-            }
-
-            when (filterType) {
-                SharedDateFilterType.Month, SharedDateFilterType.Year, SharedDateFilterType.Day -> {
-                    PressableCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = onPickSelectedDate,
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        pressedContainerColor = MaterialTheme.colorScheme.surface
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text("基準日期", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    if (filterType == SharedDateFilterType.Year) {
-                                        "${selectedDate.year}年"
-                                    } else if (filterType == SharedDateFilterType.Day) {
-                                        selectedDate.format(DateTimeFormatter.ofPattern("yyyy年 M月d日"))
-                                    } else {
-                                        selectedDate.format(DateTimeFormatter.ofPattern("yyyy年 M月"))
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Text("調整", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
-                SharedDateFilterType.Custom -> {
-                    PressableCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = onPickCustomStart,
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        pressedContainerColor = MaterialTheme.colorScheme.surface
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text("開始日期", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                                Text(customStartDate.format(DateTimeFormatter.ISO_DATE), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Text("選擇", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                    PressableCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = onPickCustomEnd,
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        pressedContainerColor = MaterialTheme.colorScheme.surface
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text("結束日期", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                                Text(customEndDate.format(DateTimeFormatter.ISO_DATE), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Text("選擇", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
-                SharedDateFilterType.All -> Unit
-            }
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("完成") }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-    }
-}
-
-private fun transactionFilterSubtitle(type: SharedDateFilterType): String {
-    return when (type) {
-        SharedDateFilterType.All -> "查看所有帳目與代墊摘要"
-        SharedDateFilterType.Year -> "查看本年累積的收支紀錄"
-        SharedDateFilterType.Month -> "聚焦本月帳目與代墊摘要"
-        SharedDateFilterType.Day -> "只查看指定日期的明細"
-        SharedDateFilterType.Custom -> "自訂開始與結束日期"
     }
 }
 
@@ -899,22 +771,6 @@ private fun buildLedgerItems(
 ): List<LedgerItem> {
     return (transactions.map { LedgerItem.TransactionEntry(it) } + advanceCases.map { LedgerItem.AdvanceSummary(it) })
         .sortedByDescending { it.date }
-}
-
-private fun showDatePicker(
-    context: android.content.Context,
-    initialDate: LocalDate,
-    onSelected: (LocalDate) -> Unit
-) {
-    DatePickerDialog(
-        context,
-        { _, year, month, day ->
-            onSelected(LocalDate.of(year, month + 1, day))
-        },
-        initialDate.year,
-        initialDate.monthValue - 1,
-        initialDate.dayOfMonth
-    ).show()
 }
 
 private fun formatHeaderDate(date: LocalDate): String {
