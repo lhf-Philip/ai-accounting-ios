@@ -30,14 +30,27 @@ data class WebDavCredentials(
     val password: String,
     val passphrase: String
 ) {
-    val isComplete: Boolean
-        get() = baseUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank() && passphrase.isNotBlank()
+    val isConnectionComplete: Boolean
+        get() = baseUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank()
+
+    val hasPassphrase: Boolean
+        get() = passphrase.isNotBlank()
+}
+
+enum class RemoteBackupFormat(val label: String) {
+    ENCRYPTED("已加密"),
+    PLAIN_JSON("未加密"),
+    UNKNOWN("未知格式")
 }
 
 data class RemoteBackupFile(
     val name: String,
-    val url: String
-)
+    val url: String,
+    val format: RemoteBackupFormat
+) {
+    val isEncrypted: Boolean
+        get() = format == RemoteBackupFormat.ENCRYPTED
+}
 
 data class RemoteBackupPreview(
     val title: String,
@@ -60,6 +73,7 @@ class RemoteBackupService(
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val xmlMediaType = "application/xml; charset=utf-8".toMediaType()
     private val backupExtension = "aibackup"
+    private val plainBackupExtension = "json"
 
     suspend fun testConnection(credentials: WebDavCredentials) = withContext(Dispatchers.IO) {
         val request = baseRequest(credentials, credentials.baseUrl)
@@ -83,25 +97,40 @@ class RemoteBackupService(
         }
     }
 
-    suspend fun uploadBackup(json: String, credentials: WebDavCredentials): RemoteBackupFile = withContext(Dispatchers.IO) {
-        val encrypted = encrypt(json.toByteArray(Charsets.UTF_8), credentials.passphrase)
-        val name = "AIAccounting_Backup_${filenameFormatter.format(Instant.now())}.$backupExtension"
+    suspend fun uploadBackup(json: String, credentials: WebDavCredentials, encryptBackup: Boolean): RemoteBackupFile = withContext(Dispatchers.IO) {
+        if (encryptBackup) {
+            require(credentials.hasPassphrase) { "此操作需要加密 passphrase" }
+        }
+        val payload = if (encryptBackup) encrypt(json.toByteArray(Charsets.UTF_8), credentials.passphrase) else json.toByteArray(Charsets.UTF_8)
+        val extension = if (encryptBackup) backupExtension else plainBackupExtension
+        val name = "AIAccounting_Backup_${filenameFormatter.format(Instant.now())}.$extension"
         val target = credentials.baseUrl.trimEnd('/') + "/" + name
         val request = baseRequest(credentials, target)
-            .put(encrypted.toRequestBody(jsonMediaType))
+            .put(payload.toRequestBody(jsonMediaType))
             .build()
         client.newCall(request).execute().use { response ->
             require(response.code in setOf(200, 201, 204)) { "WebDAV HTTP ${response.code}" }
         }
-        RemoteBackupFile(name = name, url = target)
+        RemoteBackupFile(
+            name = name,
+            url = target,
+            format = if (encryptBackup) RemoteBackupFormat.ENCRYPTED else RemoteBackupFormat.PLAIN_JSON
+        )
     }
 
     suspend fun downloadBackup(file: RemoteBackupFile, credentials: WebDavCredentials): String = withContext(Dispatchers.IO) {
         val request = baseRequest(credentials, file.url).get().build()
         client.newCall(request).execute().use { response ->
             require(response.code == 200) { "WebDAV HTTP ${response.code}" }
-            val encrypted = response.body?.bytes() ?: error("遠端備份內容為空")
-            decrypt(encrypted, credentials.passphrase).toString(Charsets.UTF_8)
+            val data = response.body?.bytes() ?: error("遠端備份內容為空")
+            when (detectFormat(file, data)) {
+                RemoteBackupFormat.ENCRYPTED -> {
+                    require(credentials.hasPassphrase) { "此操作需要加密 passphrase" }
+                    decrypt(data, credentials.passphrase).toString(Charsets.UTF_8)
+                }
+                RemoteBackupFormat.PLAIN_JSON -> data.toString(Charsets.UTF_8)
+                RemoteBackupFormat.UNKNOWN -> error("遠端備份格式不支援")
+            }
         }
     }
 
@@ -158,15 +187,35 @@ class RemoteBackupService(
                     .replace("&amp;", "&")
                 val name = href.substringAfterLast('/').ifBlank { return@mapNotNull null }
                 val decodedName = java.net.URLDecoder.decode(name, Charsets.UTF_8.name())
-                if (!decodedName.endsWith(".$backupExtension")) return@mapNotNull null
+                val format = formatFromName(decodedName)
+                if (format == RemoteBackupFormat.UNKNOWN) return@mapNotNull null
                 RemoteBackupFile(
                     name = decodedName,
-                    url = baseUrl.trimEnd('/') + "/" + decodedName
+                    url = baseUrl.trimEnd('/') + "/" + decodedName,
+                    format = format
                 )
             }
             .distinctBy { it.name }
             .sortedByDescending { it.name }
             .toList()
+    }
+
+    private fun detectFormat(file: RemoteBackupFile, data: ByteArray): RemoteBackupFormat {
+        if (file.format != RemoteBackupFormat.UNKNOWN) return file.format
+        val text = data.toString(Charsets.UTF_8)
+        return when {
+            runCatching { BackupJsonAdapter.gson.fromJson(text, EncryptedBackupEnvelope::class.java) }.getOrNull()?.algorithm == "AES.GCM.PBKDF2.HMACSHA256" -> RemoteBackupFormat.ENCRYPTED
+            runCatching { BackupJsonAdapter.gson.fromJson(text, FullBackupData::class.java) }.isSuccess -> RemoteBackupFormat.PLAIN_JSON
+            else -> RemoteBackupFormat.UNKNOWN
+        }
+    }
+
+    private fun formatFromName(name: String): RemoteBackupFormat {
+        return when {
+            name.endsWith(".$backupExtension") -> RemoteBackupFormat.ENCRYPTED
+            name.startsWith("AIAccounting_Backup_") && name.endsWith(".$plainBackupExtension") -> RemoteBackupFormat.PLAIN_JSON
+            else -> RemoteBackupFormat.UNKNOWN
+        }
     }
 
     private fun encrypt(data: ByteArray, passphrase: String): ByteArray {
@@ -235,6 +284,14 @@ class WebDavSettingsStore(context: Context) {
     var passphrase: String
         get() = prefs.getString("passphrase", null)?.let(cipher::decrypt).orEmpty()
         set(value) { prefs.edit().putString("passphrase", cipher.encrypt(value.trim())).apply() }
+
+    var encryptRemoteBackups: Boolean
+        get() = prefs.getBoolean("encrypt_remote_backups", true)
+        set(value) { prefs.edit().putBoolean("encrypt_remote_backups", value).apply() }
+
+    var didConfirmPlainWebDavBackup: Boolean
+        get() = prefs.getBoolean("did_confirm_plain_webdav_backup", false)
+        set(value) { prefs.edit().putBoolean("did_confirm_plain_webdav_backup", value).apply() }
 
     fun credentials(): WebDavCredentials {
         return WebDavCredentials(baseUrl = baseUrl, username = username, password = password, passphrase = passphrase)
