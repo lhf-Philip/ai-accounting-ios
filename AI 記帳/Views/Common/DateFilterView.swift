@@ -6,6 +6,7 @@ enum FilterType: String, CaseIterable {
     case year = "按年份"
     case month = "按月份"
     case day = "按日"
+    case custom = "自訂區間"
 }
 
 struct DateFilterView: View {
@@ -14,6 +15,8 @@ struct DateFilterView: View {
     
     @Binding var filterType: FilterType
     @Binding var selectedDate: Date
+    @Binding var customStartDate: Date
+    @Binding var customEndDate: Date
     
     var body: some View {
         NavigationStack {
@@ -64,6 +67,16 @@ struct DateFilterView: View {
                     Section("選擇日期") {
                         DatePicker("選擇日期", selection: $selectedDate, displayedComponents: [.date])
                             .datePickerStyle(.graphical)
+                    }
+                } else if filterType == .custom {
+                    Section("自訂區間") {
+                        DatePicker("開始日期", selection: $customStartDate, displayedComponents: [.date])
+                        DatePicker("結束日期", selection: $customEndDate, displayedComponents: [.date])
+
+                        let range = normalizedCustomRange(start: customStartDate, end: customEndDate)
+                        Text("將顯示 \(range.start.formatted(date: .abbreviated, time: .omitted)) 至 \(range.end.formatted(date: .abbreviated, time: .omitted)) 的資料")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }

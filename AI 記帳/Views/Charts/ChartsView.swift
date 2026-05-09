@@ -7,8 +7,10 @@ struct ChartsView: View {
     @Query(sort: \CategoryMonthlyBudget.monthKey, order: .reverse) private var budgets: [CategoryMonthlyBudget]
     @StateObject private var currencyService = CurrencyService.shared
     
-    @State private var filterType: FilterType = .month
-    @State private var selectedDate: Date = Date()
+    @AppStorage(DateFilterPreferenceKeys.filterType) private var filterTypeRaw: String = FilterType.month.rawValue
+    @AppStorage(DateFilterPreferenceKeys.selectedDate) private var selectedDateTimeInterval: Double = Date().timeIntervalSince1970
+    @AppStorage(DateFilterPreferenceKeys.customStartDate) private var customStartDateTimeInterval: Double = Date().timeIntervalSince1970
+    @AppStorage(DateFilterPreferenceKeys.customEndDate) private var customEndDateTimeInterval: Double = Date().timeIntervalSince1970
     @State private var showingFilterSheet = false
     @State private var chartMode: ChartMode = .category
     @State private var flowMode: FlowMode = .expense
@@ -105,7 +107,12 @@ struct ChartsView: View {
             }
             .prominentInlineTitle("報表")
             .sheet(isPresented: $showingFilterSheet) {
-                DateFilterView(filterType: $filterType, selectedDate: $selectedDate)
+                DateFilterView(
+                    filterType: filterTypeBinding,
+                    selectedDate: selectedDateBinding,
+                    customStartDate: customStartDateBinding,
+                    customEndDate: customEndDateBinding
+                )
             }
             .sheet(item: $selectedReportDetail) { detail in
                 ReportTransactionListView(title: detail.title, transactions: detail.transactions)
@@ -285,6 +292,8 @@ struct ChartsView: View {
             currencyService: currencyService,
             filterType: filterType,
             selectedDate: selectedDate,
+            customStartDate: customStartDate,
+            customEndDate: customEndDate,
             chartMode: chartMode,
             flowMode: flowMode
         )
@@ -314,14 +323,56 @@ struct ChartsView: View {
     func totalAmount(data: [ChartData]) -> Decimal { data.reduce(0) { $0 + $1.amount } }
     
     var filterDisplayString: String {
-        switch filterType {
-        case .all: return "全部時間"
-        case .year: return "\(Calendar.current.component(.year, from: selectedDate))年"
-        case .month:
-            let f = DateFormatter(); f.dateFormat = "yyyy年 M月"; return f.string(from: selectedDate)
-        case .day:
-            let f = DateFormatter(); f.dateFormat = "M月d日"; return f.string(from: selectedDate)
-        }
+        filterType.displayString(
+            selectedDate: selectedDate,
+            customStartDate: customStartDate,
+            customEndDate: customEndDate,
+            allTitle: "全部時間"
+        )
+    }
+
+    private var filterType: FilterType {
+        FilterType(rawValue: filterTypeRaw) ?? .month
+    }
+
+    private var selectedDate: Date {
+        Date(timeIntervalSince1970: selectedDateTimeInterval)
+    }
+
+    private var customStartDate: Date {
+        Date(timeIntervalSince1970: customStartDateTimeInterval)
+    }
+
+    private var customEndDate: Date {
+        Date(timeIntervalSince1970: customEndDateTimeInterval)
+    }
+
+    private var filterTypeBinding: Binding<FilterType> {
+        Binding(
+            get: { FilterType(rawValue: filterTypeRaw) ?? .month },
+            set: { filterTypeRaw = $0.rawValue }
+        )
+    }
+
+    private var selectedDateBinding: Binding<Date> {
+        Binding(
+            get: { Date(timeIntervalSince1970: selectedDateTimeInterval) },
+            set: { selectedDateTimeInterval = $0.timeIntervalSince1970 }
+        )
+    }
+
+    private var customStartDateBinding: Binding<Date> {
+        Binding(
+            get: { Date(timeIntervalSince1970: customStartDateTimeInterval) },
+            set: { customStartDateTimeInterval = $0.timeIntervalSince1970 }
+        )
+    }
+
+    private var customEndDateBinding: Binding<Date> {
+        Binding(
+            get: { Date(timeIntervalSince1970: customEndDateTimeInterval) },
+            set: { customEndDateTimeInterval = $0.timeIntervalSince1970 }
+        )
     }
 }
 
@@ -338,6 +389,8 @@ private struct ChartsRenderState {
         currencyService: CurrencyService,
         filterType: FilterType,
         selectedDate: Date,
+        customStartDate: Date,
+        customEndDate: Date,
         chartMode: ChartsView.ChartMode,
         flowMode: ChartsView.FlowMode
     ) {
@@ -345,6 +398,8 @@ private struct ChartsRenderState {
             from: transactions,
             filterType: filterType,
             selectedDate: selectedDate,
+            customStartDate: customStartDate,
+            customEndDate: customEndDate,
             flowMode: flowMode
         )
 
@@ -381,17 +436,18 @@ private struct ChartsRenderState {
         from transactions: [FinancialTransaction],
         filterType: FilterType,
         selectedDate: Date,
+        customStartDate: Date,
+        customEndDate: Date,
         flowMode: ChartsView.FlowMode
     ) -> [FinancialTransaction] {
-        let calendar = Calendar.current
         return transactions.filter { tx in
             if tx.type != flowMode.transactionType { return false }
-            switch filterType {
-            case .all: return true
-            case .year: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .year)
-            case .month: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .month)
-            case .day: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .day)
-            }
+            return filterType.matches(
+                date: tx.date,
+                selectedDate: selectedDate,
+                customStartDate: customStartDate,
+                customEndDate: customEndDate
+            )
         }
     }
 

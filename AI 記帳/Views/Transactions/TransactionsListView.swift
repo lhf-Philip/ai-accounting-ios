@@ -9,8 +9,10 @@ struct TransactionsListView: View {
     @Query private var advanceParticipants: [AdvanceParticipant]
     @Query private var advanceRepayments: [AdvanceRepayment]
     
-    @State private var filterType: FilterType = .month
-    @State private var selectedDate: Date = Date()
+    @AppStorage(DateFilterPreferenceKeys.filterType) private var filterTypeRaw: String = FilterType.month.rawValue
+    @AppStorage(DateFilterPreferenceKeys.selectedDate) private var selectedDateTimeInterval: Double = Date().timeIntervalSince1970
+    @AppStorage(DateFilterPreferenceKeys.customStartDate) private var customStartDateTimeInterval: Double = Date().timeIntervalSince1970
+    @AppStorage(DateFilterPreferenceKeys.customEndDate) private var customEndDateTimeInterval: Double = Date().timeIntervalSince1970
     @State private var showingFilterSheet = false
     @State private var searchText = ""
     @AppStorage("pinLedgerControls") private var pinLedgerControls: Bool = true
@@ -60,7 +62,12 @@ struct TransactionsListView: View {
             ledgerContent(renderState: renderState)
         }
         .sheet(isPresented: $showingFilterSheet) {
-            DateFilterView(filterType: $filterType, selectedDate: $selectedDate)
+            DateFilterView(
+                filterType: filterTypeBinding,
+                selectedDate: selectedDateBinding,
+                customStartDate: customStartDateBinding,
+                customEndDate: customEndDateBinding
+            )
         }
         .sheet(isPresented: $showingAddShortcut) {
             AddShortcutView()
@@ -311,6 +318,8 @@ struct TransactionsListView: View {
             advanceRepayments: advanceRepayments,
             filterType: filterType,
             selectedDate: selectedDate,
+            customStartDate: customStartDate,
+            customEndDate: customEndDate,
             searchText: searchText
         )
     }
@@ -338,13 +347,56 @@ struct TransactionsListView: View {
     }
     
     var filterDisplayString: String {
-        let formatter = DateFormatter()
-        switch filterType {
-        case .all: return "全部紀錄"
-        case .year: return "\(Calendar.current.component(.year, from: selectedDate))年"
-        case .month: formatter.dateFormat = "yyyy年 M月"; return formatter.string(from: selectedDate)
-        case .day: formatter.dateFormat = "M月d日"; return formatter.string(from: selectedDate)
-        }
+        filterType.displayString(
+            selectedDate: selectedDate,
+            customStartDate: customStartDate,
+            customEndDate: customEndDate,
+            allTitle: "全部紀錄"
+        )
+    }
+
+    private var filterType: FilterType {
+        FilterType(rawValue: filterTypeRaw) ?? .month
+    }
+
+    private var selectedDate: Date {
+        Date(timeIntervalSince1970: selectedDateTimeInterval)
+    }
+
+    private var customStartDate: Date {
+        Date(timeIntervalSince1970: customStartDateTimeInterval)
+    }
+
+    private var customEndDate: Date {
+        Date(timeIntervalSince1970: customEndDateTimeInterval)
+    }
+
+    private var filterTypeBinding: Binding<FilterType> {
+        Binding(
+            get: { FilterType(rawValue: filterTypeRaw) ?? .month },
+            set: { filterTypeRaw = $0.rawValue }
+        )
+    }
+
+    private var selectedDateBinding: Binding<Date> {
+        Binding(
+            get: { Date(timeIntervalSince1970: selectedDateTimeInterval) },
+            set: { selectedDateTimeInterval = $0.timeIntervalSince1970 }
+        )
+    }
+
+    private var customStartDateBinding: Binding<Date> {
+        Binding(
+            get: { Date(timeIntervalSince1970: customStartDateTimeInterval) },
+            set: { customStartDateTimeInterval = $0.timeIntervalSince1970 }
+        )
+    }
+
+    private var customEndDateBinding: Binding<Date> {
+        Binding(
+            get: { Date(timeIntervalSince1970: customEndDateTimeInterval) },
+            set: { customEndDateTimeInterval = $0.timeIntervalSince1970 }
+        )
     }
     
     func calculateTotalEstimate() -> String {
@@ -406,6 +458,8 @@ private struct TransactionsRenderState {
         advanceRepayments: [AdvanceRepayment],
         filterType: FilterType,
         selectedDate: Date,
+        customStartDate: Date,
+        customEndDate: Date,
         searchText: String
     ) {
         let initialAdvanceGroupIDs = Set(advanceParticipants.compactMap(\.initialTransferGroupID))
@@ -417,12 +471,16 @@ private struct TransactionsRenderState {
             initialAdvanceGroupIDs: initialAdvanceGroupIDs,
             filterType: filterType,
             selectedDate: selectedDate,
+            customStartDate: customStartDate,
+            customEndDate: customEndDate,
             searchText: searchText
         )
         let filteredAdvanceCases = Self.filteredAdvanceCases(
             from: advanceCases,
             filterType: filterType,
             selectedDate: selectedDate,
+            customStartDate: customStartDate,
+            customEndDate: customEndDate,
             searchText: searchText
         )
         let ledgerItems = Self.ledgerItems(
@@ -444,9 +502,10 @@ private struct TransactionsRenderState {
         initialAdvanceGroupIDs: Set<UUID>,
         filterType: FilterType,
         selectedDate: Date,
+        customStartDate: Date,
+        customEndDate: Date,
         searchText: String
     ) -> [FinancialTransaction] {
-        let calendar = Calendar.current
         let timeFiltered = transactions.filter { tx in
             if tx.type == .transfer && tx.amount > 0 && !TransactionSemantics.isDebtForgiveness(note: tx.note) { return false }
             if tx.type == .transfer,
@@ -458,12 +517,12 @@ private struct TransactionsRenderState {
             if let groupID = tx.transferGroupID, initialAdvanceGroupIDs.contains(groupID) {
                 return false
             }
-            switch filterType {
-            case .all: return true
-            case .year: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .year)
-            case .month: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .month)
-            case .day: return calendar.isDate(tx.date, equalTo: selectedDate, toGranularity: .day)
-            }
+            return filterType.matches(
+                date: tx.date,
+                selectedDate: selectedDate,
+                customStartDate: customStartDate,
+                customEndDate: customEndDate
+            )
         }
         let searched = searchText.isEmpty ? timeFiltered : timeFiltered.filter { tx in
             tx.note.localizedCaseInsensitiveContains(searchText) ||
@@ -478,16 +537,17 @@ private struct TransactionsRenderState {
         from advanceCases: [AdvanceCase],
         filterType: FilterType,
         selectedDate: Date,
+        customStartDate: Date,
+        customEndDate: Date,
         searchText: String
     ) -> [AdvanceCase] {
-        let calendar = Calendar.current
         let timeFiltered = advanceCases.filter { advanceCase in
-            switch filterType {
-            case .all: return true
-            case .year: return calendar.isDate(advanceCase.date, equalTo: selectedDate, toGranularity: .year)
-            case .month: return calendar.isDate(advanceCase.date, equalTo: selectedDate, toGranularity: .month)
-            case .day: return calendar.isDate(advanceCase.date, equalTo: selectedDate, toGranularity: .day)
-            }
+            filterType.matches(
+                date: advanceCase.date,
+                selectedDate: selectedDate,
+                customStartDate: customStartDate,
+                customEndDate: customEndDate
+            )
         }
 
         guard !searchText.isEmpty else {
@@ -525,7 +585,7 @@ private struct TransactionsRenderState {
             case .all: formatter.dateFormat = "yyyy年"; return formatter.string(from: date)
             case .year: formatter.dateFormat = "M月"; return formatter.string(from: date)
             case .month: formatter.dateFormat = "d日 (EEEE)"; return formatter.string(from: date)
-            case .day: return "明細"
+            case .day, .custom: formatter.dateFormat = "M月d日 (EEEE)"; return formatter.string(from: date)
             }
         }
         let groupedDict = Dictionary(grouping: ledgerItems) { item in grouping(item.date) }
