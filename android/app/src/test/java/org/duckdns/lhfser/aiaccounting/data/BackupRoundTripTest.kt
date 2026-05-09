@@ -12,8 +12,10 @@ import org.duckdns.lhfser.aiaccounting.data.backup.BackupJsonAdapter
 import org.duckdns.lhfser.aiaccounting.data.backup.FullBackupData
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.AIAccountingDatabase
+import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.RecurringRuleEntity
+import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -145,6 +147,116 @@ class BackupRoundTripTest {
             assertFalse(secondReport.issues.any { it.title == "收入交易記到了借貸帳戶" })
             assertFalse(secondReport.issues.any { it.title == "收入捷徑綁到了借貸帳戶" })
             assertEquals(0, secondReport.errorCount)
+        } finally {
+            secondDatabase.close()
+        }
+    }
+
+    @Test
+    fun sameAccountCrossCurrencyTransferAndBudgetHistory_exportReimport_preservesDataAndExcludesUiPreferences() = runBlocking {
+        val accountId = UUID.fromString("aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa")
+        val categoryId = UUID.fromString("bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb")
+        val expenseId = UUID.fromString("cccccccc-3333-3333-3333-cccccccccccc")
+        val transferDate = Instant.parse("2026-03-15T12:34:00Z")
+        val expenseDate = Instant.parse("2026-03-20T08:00:00Z")
+
+        val account = AccountEntity(
+            id = accountId,
+            name = "Multi-currency bank",
+            currency = "HKD",
+            type = AccountType.Bank,
+            baseBalance = BigDecimal.ZERO,
+            sortOrder = 0,
+            isArchived = false
+        )
+        val category = CategoryEntity(
+            id = categoryId,
+            name = "Food",
+            icon = "fork.knife",
+            colorHex = "#FF8800",
+            kind = CategoryKind.Expense
+        )
+        database.accountDao().upsert(account)
+        database.categoryDao().upsert(category)
+
+        repository.createTransferOneToOne(
+            from = account,
+            to = account,
+            amountOut = BigDecimal("100"),
+            currencyOut = "HKD",
+            amountIn = BigDecimal("92"),
+            currencyIn = "CNY",
+            date = transferDate,
+            note = "同帳戶跨幣種兌換"
+        )
+        repository.upsertBudget(
+            CategoryMonthlyBudgetEntity(
+                id = UUID.randomUUID(),
+                monthKey = "2026-03",
+                amount = BigDecimal("3000"),
+                currencyCode = "HKD",
+                isEnabled = true,
+                createdAt = transferDate,
+                updatedAt = transferDate,
+                categoryId = categoryId
+            )
+        )
+        repository.upsertTransaction(
+            TransactionEntity(
+                id = expenseId,
+                amount = BigDecimal("-128.50"),
+                currencyCode = "HKD",
+                date = expenseDate,
+                note = "Budget history sample",
+                photoPath = null,
+                type = TransactionType.Expense,
+                linkedTransactionId = null,
+                transferGroupId = null,
+                transferSide = null,
+                createdAt = expenseDate,
+                updatedAt = expenseDate,
+                accountId = accountId,
+                categoryId = categoryId
+            ),
+            tagIds = emptyList()
+        )
+
+        val exportedJson = repository.exportBackupJson()
+        assertFalse(exportedJson.contains("sharedDateFilter"))
+        assertFalse(exportedJson.contains("dateFilterType"))
+        assertFalse(exportedJson.contains("pinLedgerControls"))
+
+        val exported = BackupJsonAdapter.gson.fromJson(exportedJson, FullBackupData::class.java)
+        val sameAccountTransfer = exported.transactions
+            .filter { it.type == "Transfer" }
+            .groupBy { it.transferGroupID }
+            .values
+            .single { it.size == 2 }
+        assertEquals(setOf(accountId), sameAccountTransfer.mapNotNull { it.accountID }.toSet())
+        assertEquals(setOf("HKD", "CNY"), sameAccountTransfer.map { it.currencyCode }.toSet())
+        assertEquals(setOf("Outgoing", "Incoming"), sameAccountTransfer.mapNotNull { it.transferSide }.toSet())
+        assertEquals(
+            "128.50",
+            exported.budgetHistory?.single()?.spentAmount?.setScale(2)?.toPlainString()
+        )
+
+        val secondDatabase = buildDatabase()
+        try {
+            val secondRepository = AccountingRepository(secondDatabase, currencyService)
+            secondRepository.importBackupJson(exportedJson, replaceExisting = true)
+            val roundTrip = BackupJsonAdapter.gson.fromJson(secondRepository.exportBackupJson(), FullBackupData::class.java)
+            val roundTripTransfer = roundTrip.transactions
+                .filter { it.type == "Transfer" }
+                .groupBy { it.transferGroupID }
+                .values
+                .single { it.size == 2 }
+
+            assertEquals(setOf(accountId), roundTripTransfer.mapNotNull { it.accountID }.toSet())
+            assertEquals(setOf("HKD", "CNY"), roundTripTransfer.map { it.currencyCode }.toSet())
+            assertEquals(
+                "128.50",
+                roundTrip.budgetHistory?.single()?.spentAmount?.setScale(2)?.toPlainString()
+            )
         } finally {
             secondDatabase.close()
         }
