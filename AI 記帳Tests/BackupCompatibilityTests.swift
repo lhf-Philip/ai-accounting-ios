@@ -84,6 +84,142 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertEqual(0, secondReport.errorCount)
     }
 
+    func testExportImport_preservesSameAccountCrossCurrencyTransferAndBudgetHistory_excludesUIPreferences() async throws {
+        UserDefaults.standard.set("All", forKey: "sharedDateFilterType")
+        UserDefaults.standard.set("2026-03-01T00:00:00Z", forKey: "sharedDateFilterCustomStartDate")
+        UserDefaults.standard.set("2026-03-31T23:59:59Z", forKey: "sharedDateFilterCustomEndDate")
+        UserDefaults.standard.set(false, forKey: "pinLedgerControls")
+        defer {
+            UserDefaults.standard.removeObject(forKey: "sharedDateFilterType")
+            UserDefaults.standard.removeObject(forKey: "sharedDateFilterCustomStartDate")
+            UserDefaults.standard.removeObject(forKey: "sharedDateFilterCustomEndDate")
+            UserDefaults.standard.removeObject(forKey: "pinLedgerControls")
+        }
+
+        let container = try makeInMemoryContainer()
+        let modelContext = ModelContext(container)
+
+        let accountID = UUID(uuidString: "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa")!
+        let categoryID = UUID(uuidString: "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb")!
+        let groupID = UUID(uuidString: "cccccccc-3333-3333-3333-cccccccccccc")!
+        let outgoingID = UUID(uuidString: "dddddddd-4444-4444-4444-dddddddddddd")!
+        let incomingID = UUID(uuidString: "eeeeeeee-5555-5555-5555-eeeeeeeeeeee")!
+        let historyID = UUID(uuidString: "ffffffff-6666-6666-6666-ffffffffffff")!
+        let expenseID = UUID(uuidString: "99999999-7777-7777-7777-999999999999")!
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-15T12:34:00Z"))
+
+        let account = Account(
+            id: accountID,
+            name: "Multi-currency bank",
+            currency: "HKD",
+            type: .bank,
+            baseBalance: 0,
+            sortOrder: 0
+        )
+        let category = Category(
+            id: categoryID,
+            name: "Food",
+            icon: "fork.knife",
+            colorHex: "#FF8800",
+            kind: .expense
+        )
+        let outgoing = FinancialTransaction(
+            id: outgoingID,
+            amount: -100,
+            currencyCode: "HKD",
+            date: date,
+            note: "同帳戶跨幣種兌換",
+            type: .transfer,
+            linkedTransactionID: incomingID,
+            transferGroupID: groupID,
+            transferSide: .outgoing,
+            account: account
+        )
+        let incoming = FinancialTransaction(
+            id: incomingID,
+            amount: 92,
+            currencyCode: "CNY",
+            date: date,
+            note: "同帳戶跨幣種兌換",
+            type: .transfer,
+            linkedTransactionID: outgoingID,
+            transferGroupID: groupID,
+            transferSide: .incoming,
+            account: account
+        )
+        let expense = FinancialTransaction(
+            id: expenseID,
+            amount: -128.5,
+            currencyCode: "HKD",
+            date: date,
+            note: "Budget history sample",
+            type: .expense,
+            account: account,
+            category: category
+        )
+        let budget = CategoryMonthlyBudget(
+            monthKey: "2026-03",
+            amount: 3000,
+            currencyCode: "HKD",
+            isEnabled: true,
+            category: category
+        )
+        let history = BudgetMonthlyHistory(
+            id: historyID,
+            historyKey: "2026-03|\(categoryID.uuidString)",
+            monthKey: "2026-03",
+            categoryID: categoryID,
+            categoryNameSnapshot: "Food",
+            budgetAmount: 3000,
+            spentAmount: 128.5,
+            remainingAmount: 2871.5,
+            usageRatio: Decimal(string: "0.042833")!,
+            isOverBudget: false,
+            currencyCode: "HKD",
+            updatedAt: date
+        )
+
+        modelContext.insert(account)
+        modelContext.insert(category)
+        modelContext.insert(outgoing)
+        modelContext.insert(incoming)
+        modelContext.insert(expense)
+        modelContext.insert(budget)
+        modelContext.insert(history)
+        try modelContext.save()
+
+        let exported = BackupManager.shared.createBackupData(modelContext: modelContext)
+        XCTAssertEqual(3, exported.transactions.count)
+        XCTAssertEqual(1, exported.budgetHistory?.count)
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let jsonData = try encoder.encode(exported)
+        let jsonString = try XCTUnwrap(String(data: jsonData, encoding: .utf8))
+        XCTAssertFalse(jsonString.contains("sharedDateFilter"))
+        XCTAssertFalse(jsonString.contains("pinLedgerControls"))
+
+        let secondContainer = try makeInMemoryContainer()
+        let secondContext = ModelContext(secondContainer)
+        let exportedURL = try writeBackup(exported, named: "same-account-cross-currency-roundtrip.json")
+        try await BackupManager.shared.restoreFromJSON(url: exportedURL, modelContext: secondContext)
+
+        let roundTrippedTransactions = try secondContext.fetch(FetchDescriptor<FinancialTransaction>())
+        let transferGroup = roundTrippedTransactions.filter { $0.transferGroupID == groupID }
+        XCTAssertEqual(2, transferGroup.count)
+        XCTAssertEqual(Set([accountID]), Set(transferGroup.compactMap { $0.account?.id }))
+        XCTAssertEqual(Set(["HKD", "CNY"]), Set(transferGroup.map(\.currencyCode)))
+        XCTAssertEqual(incomingID, transferGroup.first(where: { $0.id == outgoingID })?.linkedTransactionID)
+        XCTAssertEqual(outgoingID, transferGroup.first(where: { $0.id == incomingID })?.linkedTransactionID)
+        XCTAssertEqual(.outgoing, transferGroup.first(where: { $0.id == outgoingID })?.transferSide)
+        XCTAssertEqual(.incoming, transferGroup.first(where: { $0.id == incomingID })?.transferSide)
+
+        let histories = try secondContext.fetch(FetchDescriptor<BudgetMonthlyHistory>())
+        XCTAssertEqual(1, histories.count)
+        XCTAssertEqual("2026-03|\(categoryID.uuidString)", histories.first?.historyKey)
+        XCTAssertEqual(Decimal(string: "128.5"), histories.first?.spentAmount)
+    }
+
     private func makeInMemoryContainer() throws -> ModelContainer {
         let schema = Schema([
             Account.self,
