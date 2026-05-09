@@ -7,6 +7,27 @@ struct WebDAVCredentials {
     let username: String
     let password: String
     let passphrase: String
+
+    var hasPassphrase: Bool {
+        !passphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+enum RemoteBackupFormat: String, Hashable {
+    case encrypted
+    case plainJSON
+    case unknown
+
+    var displayName: String {
+        switch self {
+        case .encrypted:
+            "已加密"
+        case .plainJSON:
+            "未加密"
+        case .unknown:
+            "未知格式"
+        }
+    }
 }
 
 struct RemoteBackupFile: Identifiable, Hashable {
@@ -15,6 +36,7 @@ struct RemoteBackupFile: Identifiable, Hashable {
     let url: URL
     let size: Int?
     let modifiedAt: Date?
+    let format: RemoteBackupFormat
 }
 
 struct RemoteBackupPreview {
@@ -35,9 +57,11 @@ private struct EncryptedBackupEnvelope: Codable {
 enum RemoteBackupError: LocalizedError {
     case invalidURL
     case invalidCredentials
+    case missingPassphrase
     case invalidResponse
     case httpStatus(Int)
     case invalidEnvelope
+    case unsupportedBackupFormat
     case decryptFailed
     case keyDerivationFailed
 
@@ -46,13 +70,17 @@ enum RemoteBackupError: LocalizedError {
         case .invalidURL:
             "WebDAV URL 無效。"
         case .invalidCredentials:
-            "請先填寫 WebDAV URL、帳戶、密碼與加密 passphrase。"
+            "請先填寫 WebDAV URL、帳戶與密碼。"
+        case .missingPassphrase:
+            "此操作需要加密 passphrase。"
         case .invalidResponse:
             "WebDAV 回應無效。"
         case .httpStatus(let status):
             "WebDAV 回應錯誤：HTTP \(status)。"
         case .invalidEnvelope:
             "遠端備份格式無效。"
+        case .unsupportedBackupFormat:
+            "遠端備份格式不支援。"
         case .decryptFailed:
             "無法解密備份，請確認 passphrase 是否正確。"
         case .keyDerivationFailed:
@@ -65,6 +93,7 @@ final class RemoteBackupService {
     static let shared = RemoteBackupService()
 
     private let backupExtension = "aibackup"
+    private let plainBackupExtension = "json"
     private let keyDerivationIterations: UInt32 = 120_000
     private let gcmTagByteCount = 16
 
@@ -90,17 +119,28 @@ final class RemoteBackupService {
         return parseBackupFiles(from: xml, baseURL: credentials.baseURL)
     }
 
-    func uploadBackup(jsonData: Data, credentials: WebDAVCredentials) async throws -> RemoteBackupFile {
-        let encrypted = try encrypt(jsonData, passphrase: credentials.passphrase)
-        let filename = "AIAccounting_Backup_\(Self.filenameDateFormatter.string(from: Date())).\(backupExtension)"
+    func uploadBackup(jsonData: Data, credentials: WebDAVCredentials, encrypt shouldEncrypt: Bool) async throws -> RemoteBackupFile {
+        if shouldEncrypt, !credentials.hasPassphrase {
+            throw RemoteBackupError.missingPassphrase
+        }
+
+        let payload = shouldEncrypt ? try encrypt(jsonData, passphrase: credentials.passphrase) : jsonData
+        let fileExtension = shouldEncrypt ? backupExtension : plainBackupExtension
+        let filename = "AIAccounting_Backup_\(Self.filenameDateFormatter.string(from: Date())).\(fileExtension)"
         let targetURL = credentials.baseURL.appendingPathComponent(filename)
         var request = try makeRequest(credentials: credentials, url: targetURL)
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = encrypted
+        request.httpBody = payload
         let (_, response) = try await URLSession.shared.data(for: request)
         try validate(response: response, accepted: [200, 201, 204])
-        return RemoteBackupFile(name: filename, url: targetURL, size: encrypted.count, modifiedAt: Date())
+        return RemoteBackupFile(
+            name: filename,
+            url: targetURL,
+            size: payload.count,
+            modifiedAt: Date(),
+            format: shouldEncrypt ? .encrypted : .plainJSON
+        )
     }
 
     func downloadBackup(_ file: RemoteBackupFile, credentials: WebDAVCredentials) async throws -> Data {
@@ -108,7 +148,17 @@ final class RemoteBackupService {
         request.httpMethod = "GET"
         let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response, accepted: [200])
-        return try decrypt(data, passphrase: credentials.passphrase)
+        switch detectedFormat(for: file, data: data) {
+        case .encrypted:
+            guard credentials.hasPassphrase else {
+                throw RemoteBackupError.missingPassphrase
+            }
+            return try decrypt(data, passphrase: credentials.passphrase)
+        case .plainJSON:
+            return data
+        case .unknown:
+            throw RemoteBackupError.unsupportedBackupFormat
+        }
     }
 
     func makePreview(from backup: FullBackupData) -> RemoteBackupPreview {
@@ -247,10 +297,37 @@ final class RemoteBackupService {
                 .replacingOccurrences(of: "&amp;", with: "&")
                 .removingPercentEncoding ?? rawHref
             let name = (decoded as NSString).lastPathComponent
-            guard name.hasSuffix(".\(backupExtension)") else { return nil }
-            return RemoteBackupFile(name: name, url: baseURL.appendingPathComponent(name), size: nil, modifiedAt: nil)
+            let format = formatFromFilename(name)
+            guard format != .unknown else { return nil }
+            return RemoteBackupFile(name: name, url: baseURL.appendingPathComponent(name), size: nil, modifiedAt: nil, format: format)
         }
         .sorted { $0.name > $1.name }
+    }
+
+    private func detectedFormat(for file: RemoteBackupFile, data: Data) -> RemoteBackupFormat {
+        let filenameFormat = formatFromFilename(file.name)
+        if filenameFormat != .unknown {
+            return filenameFormat
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if (try? decoder.decode(EncryptedBackupEnvelope.self, from: data)) != nil {
+            return .encrypted
+        }
+        if (try? JSONSerialization.jsonObject(with: data)) != nil {
+            return .plainJSON
+        }
+        return .unknown
+    }
+
+    private func formatFromFilename(_ name: String) -> RemoteBackupFormat {
+        if name.hasSuffix(".\(backupExtension)") {
+            return .encrypted
+        }
+        if name.hasPrefix("AIAccounting_Backup_"), name.hasSuffix(".\(plainBackupExtension)") {
+            return .plainJSON
+        }
+        return .unknown
     }
 
     private func matches(pattern: String, in text: String) -> [String] {
