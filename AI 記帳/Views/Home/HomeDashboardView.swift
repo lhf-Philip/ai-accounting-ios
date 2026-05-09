@@ -5,8 +5,10 @@ struct HomeDashboardView: View {
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \AdvanceCase.date, order: .reverse) private var advanceCases: [AdvanceCase]
     @StateObject private var currencyService = CurrencyService.shared
-    @State private var filterType: FilterType = .month
-    @State private var selectedDate: Date = Date()
+    @AppStorage(DateFilterPreferenceKeys.filterType) private var filterTypeRaw: String = FilterType.month.rawValue
+    @AppStorage(DateFilterPreferenceKeys.selectedDate) private var selectedDateTimeInterval: Double = Date().timeIntervalSince1970
+    @AppStorage(DateFilterPreferenceKeys.customStartDate) private var customStartDateTimeInterval: Double = Date().timeIntervalSince1970
+    @AppStorage(DateFilterPreferenceKeys.customEndDate) private var customEndDateTimeInterval: Double = Date().timeIntervalSince1970
     @State private var showingFilterSheet = false
     @AppStorage("pinOverviewControls") private var pinOverviewControls: Bool = true
 
@@ -85,7 +87,12 @@ struct HomeDashboardView: View {
                 await currencyService.fetchRates()
             }
             .sheet(isPresented: $showingFilterSheet) {
-                DateFilterView(filterType: $filterType, selectedDate: $selectedDate)
+                DateFilterView(
+                    filterType: filterTypeBinding,
+                    selectedDate: selectedDateBinding,
+                    customStartDate: customStartDateBinding,
+                    customEndDate: customEndDateBinding
+                )
             }
         }
     }
@@ -271,32 +278,64 @@ struct HomeDashboardView: View {
     }
 
     private var filterDisplayString: String {
-        let formatter = DateFormatter()
-        switch filterType {
-        case .all:
-            return "全部紀錄"
-        case .year:
-            return "\(Calendar.current.component(.year, from: selectedDate))年"
-        case .month:
-            formatter.dateFormat = "yyyy年 M月"
-            return formatter.string(from: selectedDate)
-        case .day:
-            formatter.dateFormat = "M月d日"
-            return formatter.string(from: selectedDate)
-        }
+        filterType.displayString(
+            selectedDate: selectedDate,
+            customStartDate: customStartDate,
+            customEndDate: customEndDate,
+            allTitle: "全部紀錄"
+        )
     }
 
     private func matchesFilter(date: Date) -> Bool {
-        let calendar = Calendar.current
-        switch filterType {
-        case .all:
-            return true
-        case .year:
-            return calendar.isDate(date, equalTo: selectedDate, toGranularity: .year)
-        case .month:
-            return calendar.isDate(date, equalTo: selectedDate, toGranularity: .month)
-        case .day:
-            return calendar.isDate(date, equalTo: selectedDate, toGranularity: .day)
-        }
+        filterType.matches(
+            date: date,
+            selectedDate: selectedDate,
+            customStartDate: customStartDate,
+            customEndDate: customEndDate
+        )
+    }
+
+    private var filterType: FilterType {
+        FilterType(rawValue: filterTypeRaw) ?? .month
+    }
+
+    private var selectedDate: Date {
+        Date(timeIntervalSince1970: selectedDateTimeInterval)
+    }
+
+    private var customStartDate: Date {
+        Date(timeIntervalSince1970: customStartDateTimeInterval)
+    }
+
+    private var customEndDate: Date {
+        Date(timeIntervalSince1970: customEndDateTimeInterval)
+    }
+
+    private var filterTypeBinding: Binding<FilterType> {
+        Binding(
+            get: { FilterType(rawValue: filterTypeRaw) ?? .month },
+            set: { filterTypeRaw = $0.rawValue }
+        )
+    }
+
+    private var selectedDateBinding: Binding<Date> {
+        Binding(
+            get: { Date(timeIntervalSince1970: selectedDateTimeInterval) },
+            set: { selectedDateTimeInterval = $0.timeIntervalSince1970 }
+        )
+    }
+
+    private var customStartDateBinding: Binding<Date> {
+        Binding(
+            get: { Date(timeIntervalSince1970: customStartDateTimeInterval) },
+            set: { customStartDateTimeInterval = $0.timeIntervalSince1970 }
+        )
+    }
+
+    private var customEndDateBinding: Binding<Date> {
+        Binding(
+            get: { Date(timeIntervalSince1970: customEndDateTimeInterval) },
+            set: { customEndDateTimeInterval = $0.timeIntervalSince1970 }
+        )
     }
 }

@@ -52,6 +52,9 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
+import org.duckdns.lhfser.aiaccounting.core.preferences.SharedDateFilterType
+import org.duckdns.lhfser.aiaccounting.core.preferences.resolveSharedDateRange
+import org.duckdns.lhfser.aiaccounting.core.preferences.sharedDateFilterLabel
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
@@ -72,12 +75,6 @@ import org.duckdns.lhfser.aiaccounting.ui.components.PressableCard
 import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
-
-private enum class DateFilterType(val label: String) {
-    Month("本月"),
-    Year("本年"),
-    Custom("自訂區間")
-}
 
 private sealed interface LedgerItem {
     val stableId: String
@@ -122,15 +119,16 @@ fun TransactionsScreen(
     var transactionToDelete by remember { mutableStateOf<TransactionWithDetails?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    var filterType by remember { mutableStateOf(DateFilterType.Month) }
-    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
-    var customStartDate by remember { mutableStateOf(LocalDate.now()) }
-    var customEndDate by remember { mutableStateOf(LocalDate.now()) }
     var showFilterDialog by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
+    val dateFilter = uiPreferences.dateFilter
+    val filterType = dateFilter.type
+    val selectedDate = dateFilter.selectedDate
+    val customStartDate = dateFilter.customStartDate
+    val customEndDate = dateFilter.customEndDate
 
     val (rangeStart, rangeEnd) = remember(filterType, selectedDate, customStartDate, customEndDate) {
-        resolveDateRange(filterType, selectedDate, customStartDate, customEndDate)
+        resolveSharedDateRange(filterType, selectedDate, customStartDate, customEndDate)
     }
     val initialAdvanceGroupIds = remember(advanceCases) {
         advanceCases.flatMap { it.participants.mapNotNull { participant -> participant.initialTransferGroupId } }.toSet()
@@ -169,7 +167,7 @@ fun TransactionsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 ParityFilterCapsule(
-                    label = filterLabel(filterType, selectedDate, customStartDate, customEndDate),
+                    label = sharedDateFilterLabel(filterType, selectedDate, customStartDate, customEndDate, allLabel = "全部紀錄"),
                     icon = Icons.Default.DateRange,
                     onClick = { showFilterDialog = true }
                 )
@@ -404,15 +402,15 @@ fun TransactionsScreen(
             selectedDate = selectedDate,
             customStartDate = customStartDate,
             customEndDate = customEndDate,
-            onSelectFilterType = { filterType = it },
+            onSelectFilterType = uiPreferencesStore::setDateFilterType,
             onPickSelectedDate = {
-                showDatePicker(context, selectedDate) { selectedDate = it }
+                showDatePicker(context, selectedDate, uiPreferencesStore::setDateFilterSelectedDate)
             },
             onPickCustomStart = {
-                showDatePicker(context, customStartDate) { customStartDate = it }
+                showDatePicker(context, customStartDate, uiPreferencesStore::setDateFilterCustomStartDate)
             },
             onPickCustomEnd = {
-                showDatePicker(context, customEndDate) { customEndDate = it }
+                showDatePicker(context, customEndDate, uiPreferencesStore::setDateFilterCustomEndDate)
             },
             onDismiss = { showFilterDialog = false }
         )
@@ -438,11 +436,11 @@ private fun LedgerDateHeader(date: LocalDate) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TransactionFilterSheet(
-    filterType: DateFilterType,
+    filterType: SharedDateFilterType,
     selectedDate: LocalDate,
     customStartDate: LocalDate,
     customEndDate: LocalDate,
-    onSelectFilterType: (DateFilterType) -> Unit,
+    onSelectFilterType: (SharedDateFilterType) -> Unit,
     onPickSelectedDate: () -> Unit,
     onPickCustomStart: () -> Unit,
     onPickCustomEnd: () -> Unit,
@@ -466,7 +464,7 @@ private fun TransactionFilterSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            DateFilterType.values().forEach { type ->
+            SharedDateFilterType.entries.forEach { type ->
                 ParitySelectionSheetRow(
                     title = type.label,
                     subtitle = transactionFilterSubtitle(type),
@@ -476,7 +474,7 @@ private fun TransactionFilterSheet(
             }
 
             when (filterType) {
-                DateFilterType.Month, DateFilterType.Year -> {
+                SharedDateFilterType.Month, SharedDateFilterType.Year, SharedDateFilterType.Day -> {
                     PressableCard(
                         modifier = Modifier.fillMaxWidth(),
                         onClick = onPickSelectedDate,
@@ -491,8 +489,10 @@ private fun TransactionFilterSheet(
                             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text("基準日期", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    if (filterType == DateFilterType.Year) {
+                                    if (filterType == SharedDateFilterType.Year) {
                                         "${selectedDate.year}年"
+                                    } else if (filterType == SharedDateFilterType.Day) {
+                                        selectedDate.format(DateTimeFormatter.ofPattern("yyyy年 M月d日"))
                                     } else {
                                         selectedDate.format(DateTimeFormatter.ofPattern("yyyy年 M月"))
                                     },
@@ -504,7 +504,7 @@ private fun TransactionFilterSheet(
                         }
                     }
                 }
-                DateFilterType.Custom -> {
+                SharedDateFilterType.Custom -> {
                     PressableCard(
                         modifier = Modifier.fillMaxWidth(),
                         onClick = onPickCustomStart,
@@ -542,6 +542,7 @@ private fun TransactionFilterSheet(
                         }
                     }
                 }
+                SharedDateFilterType.All -> Unit
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -552,11 +553,13 @@ private fun TransactionFilterSheet(
     }
 }
 
-private fun transactionFilterSubtitle(type: DateFilterType): String {
+private fun transactionFilterSubtitle(type: SharedDateFilterType): String {
     return when (type) {
-        DateFilterType.Month -> "聚焦本月帳目與代墊摘要"
-        DateFilterType.Year -> "查看本年累積的收支紀錄"
-        DateFilterType.Custom -> "自訂開始與結束日期"
+        SharedDateFilterType.All -> "查看所有帳目與代墊摘要"
+        SharedDateFilterType.Year -> "查看本年累積的收支紀錄"
+        SharedDateFilterType.Month -> "聚焦本月帳目與代墊摘要"
+        SharedDateFilterType.Day -> "只查看指定日期的明細"
+        SharedDateFilterType.Custom -> "自訂開始與結束日期"
     }
 }
 
@@ -840,51 +843,6 @@ private fun transferTintForNote(note: String): Color {
         compact.contains("(代墊給") || compact.contains("(代墊給我") -> Color(0xFFEF6C00)
         compact.contains("(還款至") || compact.contains("(還款給") -> Color(0xFF00897B)
         else -> MaterialTheme.colorScheme.onSurface
-    }
-}
-
-private fun filterLabel(
-    filterType: DateFilterType,
-    selectedDate: LocalDate,
-    customStart: LocalDate,
-    customEnd: LocalDate
-): String {
-    return when (filterType) {
-        DateFilterType.Month -> selectedDate.format(DateTimeFormatter.ofPattern("yyyy-MM"))
-        DateFilterType.Year -> selectedDate.year.toString()
-        DateFilterType.Custom -> {
-            val start = customStart
-            val end = customEnd
-            "${start.format(DateTimeFormatter.ISO_DATE)} ~ ${end.format(DateTimeFormatter.ISO_DATE)}"
-        }
-    }
-}
-
-private fun resolveDateRange(
-    filterType: DateFilterType,
-    selectedDate: LocalDate,
-    customStart: LocalDate,
-    customEnd: LocalDate
-): Pair<Instant?, Instant?> {
-    val zone = ZoneId.systemDefault()
-    return when (filterType) {
-        DateFilterType.Month -> {
-            val start = selectedDate.withDayOfMonth(1).atStartOfDay(zone).toInstant()
-            val end = selectedDate.withDayOfMonth(1).plusMonths(1).atStartOfDay(zone).toInstant()
-            start to end
-        }
-        DateFilterType.Year -> {
-            val start = LocalDate.of(selectedDate.year, 1, 1).atStartOfDay(zone).toInstant()
-            val end = LocalDate.of(selectedDate.year + 1, 1, 1).atStartOfDay(zone).toInstant()
-            start to end
-        }
-        DateFilterType.Custom -> {
-            val startDate = if (customEnd.isBefore(customStart)) customEnd else customStart
-            val endDate = if (customEnd.isBefore(customStart)) customStart else customEnd
-            val start = startDate.atStartOfDay(zone).toInstant()
-            val end = endDate.plusDays(1).atStartOfDay(zone).toInstant()
-            start to end
-        }
     }
 }
 
