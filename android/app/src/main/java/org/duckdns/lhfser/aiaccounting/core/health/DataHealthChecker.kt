@@ -381,13 +381,14 @@ object DataHealthChecker {
         issues: MutableList<HealthIssue>
     ) {
         val groupedTransfers = transactions
-            .filter { it.transaction.type == TransactionType.Transfer && it.transaction.transferGroupId != null }
+            .filter { it.transaction.transferGroupId != null }
             .groupBy { it.transaction.transferGroupId!! }
         val payerAccountByCaseId = cases.associate { it.advanceCase.id to it.advanceCase.payerAccountId }
         val participantById = participants.associateBy { it.id }
 
         var malformedInitialGroups = 0
         var initialMappingMismatches = 0
+        var legacyBorrowedAdvanceInflatedAccounts = 0
 
         participants.forEach { participant ->
             val groupId = participant.initialTransferGroupId ?: return@forEach
@@ -399,23 +400,34 @@ object DataHealthChecker {
 
             val outgoingAccountIds = group.accountIdsFor(TransferSide.Outgoing)
             val incomingAccountIds = group.accountIdsFor(TransferSide.Incoming)
-            if (outgoingAccountIds.isEmpty() || incomingAccountIds.isEmpty()) {
+            if (outgoingAccountIds.isEmpty()) {
                 malformedInitialGroups += 1
                 return@forEach
             }
 
-            val debtAccountId = participant.debtAccountId
+            val debtAccountId = participant.debtAccountId ?: return@forEach
+            val newOthersAdvancedMeExpensePattern = outgoingAccountIds == setOf(debtAccountId) &&
+                incomingAccountIds.isEmpty() &&
+                group.filter { it.transaction.transferSide == TransferSide.Outgoing || it.transaction.amount < BigDecimal.ZERO }
+                    .all { it.transaction.type == TransactionType.Expense }
+            if (newOthersAdvancedMeExpensePattern) {
+                return@forEach
+            }
+
             val payerAccountId = participant.advanceCaseId?.let { payerAccountByCaseId[it] }
-            if (debtAccountId == null || payerAccountId == null) {
+            if (payerAccountId == null || incomingAccountIds.isEmpty()) {
+                malformedInitialGroups += 1
                 return@forEach
             }
 
             val iAdvancedOthersPattern = outgoingAccountIds == setOf(payerAccountId) &&
                 incomingAccountIds == setOf(debtAccountId)
-            val othersAdvancedMePattern = outgoingAccountIds == setOf(debtAccountId) &&
+            val legacyOthersAdvancedMePattern = outgoingAccountIds == setOf(debtAccountId) &&
                 incomingAccountIds == setOf(payerAccountId)
 
-            if (!iAdvancedOthersPattern && !othersAdvancedMePattern) {
+            if (legacyOthersAdvancedMePattern) {
+                legacyBorrowedAdvanceInflatedAccounts += 1
+            } else if (!iAdvancedOthersPattern) {
                 initialMappingMismatches += 1
             }
         }
@@ -487,6 +499,15 @@ object DataHealthChecker {
                 title = "代墊還款方向不一致",
                 detail = "共有 $repaymentMappingMismatches 筆還款的轉出/轉入帳戶與對象/入帳帳戶不一致。",
                 recommendation = "請檢查還款方向與收款帳戶是否設定正確。"
+            )
+        }
+
+        if (legacyBorrowedAdvanceInflatedAccounts > 0) {
+            issues += HealthIssue(
+                severity = HealthSeverity.Warning,
+                title = "他人代墊我舊資料會虛增自己帳戶",
+                detail = "共有 $legacyBorrowedAdvanceInflatedAccounts 位代墊對象使用舊版轉帳寫法，可能把他人代付誤記為自己的帳戶入帳。",
+                recommendation = "請在資料健康檢查中執行「修復他人代墊我舊帳務」。"
             )
         }
     }

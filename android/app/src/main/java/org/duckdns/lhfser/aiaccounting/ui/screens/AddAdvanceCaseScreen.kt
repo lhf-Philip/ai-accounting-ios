@@ -84,10 +84,8 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
     var showCreateDebtDialog by remember { mutableStateOf(false) }
     var newDebtName by remember { mutableStateOf("") }
 
-    val flowCategories = when (direction) {
-        AdvanceDirection.IAdvanceOthers -> categories.filter { it.kind.supports(org.duckdns.lhfser.aiaccounting.core.model.TransactionType.Expense) }
-        AdvanceDirection.OthersAdvanceMe -> categories.filter { it.kind.supports(org.duckdns.lhfser.aiaccounting.core.model.TransactionType.Income) }
-    }
+    val flowCategories = categories.filter { it.kind.supports(org.duckdns.lhfser.aiaccounting.core.model.TransactionType.Expense) }
+    val requiresPayerAccount = direction == AdvanceDirection.IAdvanceOthers
 
     Column(
         modifier = Modifier
@@ -113,6 +111,13 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
                 label = { it.label },
                 onSelect = { mode ->
                     direction = mode
+                    if (mode == AdvanceDirection.OthersAdvanceMe) {
+                        payerAccount = null
+                        myShare = ""
+                    } else if (payerAccount == null) {
+                        payerAccount = payerAccounts.firstOrNull()
+                        payerAccount?.let { currency = it.currency }
+                    }
                     if (expenseCategory != null && flowCategories.none { it.id == expenseCategory?.id }) {
                         expenseCategory = null
                     }
@@ -124,16 +129,29 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
                 label = { Text("標題") },
                 modifier = Modifier.fillMaxWidth()
             )
-            AccountPicker(label = "付款帳戶", accounts = payerAccounts, selected = payerAccount) { acc ->
-                payerAccount = acc
-                if (acc != null) currency = acc.currency
+            if (requiresPayerAccount) {
+                AccountPicker(label = "付款帳戶", accounts = payerAccounts, selected = payerAccount) { acc ->
+                    payerAccount = acc
+                    if (acc != null) currency = acc.currency
+                }
+                AmountRow(
+                    label = "自己的份額",
+                    amount = myShare,
+                    onAmountChange = { myShare = sanitizeAmount(it) },
+                    currency = currency
+                )
+            } else {
+                Text(
+                    "他人代你付款時，你自己的帳戶沒有變動；建立時只會記錄支出與你欠對方的債務。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                CurrencyPicker(
+                    selected = currency,
+                    onSelect = { currency = it },
+                    buttonStyle = CurrencyButtonStyle.Tonal
+                )
             }
-            AmountRow(
-                label = "自己的份額",
-                amount = myShare,
-                onAmountChange = { myShare = sanitizeAmount(it) },
-                currency = currency
-            )
         }
 
         ParitySectionHeader(
@@ -144,7 +162,7 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
             CategoryPicker(
                 categories = flowCategories,
                 selected = expenseCategory,
-                label = if (direction == AdvanceDirection.IAdvanceOthers) "支出分類" else "收入分類"
+                label = "支出分類"
             ) {
                 expenseCategory = it
             }
@@ -152,7 +170,7 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
         }
 
         ParitySectionHeader(
-            title = if (direction == AdvanceDirection.IAdvanceOthers) "代墊對象" else "借款對象",
+            title = if (direction == AdvanceDirection.IAdvanceOthers) "代墊對象" else "我欠的人",
             detail = "每位對象都會保留獨立的金額與後續還款追蹤。",
             actionLabel = "新增對象",
             onAction = { participants = participants + ParticipantDraft() }
@@ -199,8 +217,9 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
         Button(
             onClick = {
                 scope.launch {
-                    val payer = payerAccount ?: return@launch
-                    val myShareValue = myShare.toBigDecimalOrNull() ?: BigDecimal.ZERO
+                    val payer = payerAccount
+                    if (requiresPayerAccount && payer == null) return@launch
+                    val myShareValue = if (direction == AdvanceDirection.OthersAdvanceMe) BigDecimal.ZERO else (myShare.toBigDecimalOrNull() ?: BigDecimal.ZERO)
                     val inputs = participants.mapNotNull { draft ->
                         val account = draft.debtAccount ?: return@mapNotNull null
                         val amount = draft.amount.toBigDecimalOrNull() ?: return@mapNotNull null

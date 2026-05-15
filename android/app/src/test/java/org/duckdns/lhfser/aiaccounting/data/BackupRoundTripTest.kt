@@ -58,7 +58,8 @@ class BackupRoundTripTest {
         repository.importBackupJson(fixtureJson, replaceExisting = true)
         val initialReport = repository.buildDataHealthReport()
         assertEquals(0, initialReport.errorCount)
-        assertEquals(0, initialReport.warningCount)
+        assertEquals(1, initialReport.warningCount)
+        assertTrue(initialReport.issues.any { it.title == "他人代墊我舊資料會虛增自己帳戶" })
 
         val exportedJson = repository.exportBackupJson()
         val exported = BackupJsonAdapter.gson.fromJson(exportedJson, FullBackupData::class.java)
@@ -87,7 +88,8 @@ class BackupRoundTripTest {
 
             val secondReport = secondRepository.buildDataHealthReport()
             assertEquals(0, secondReport.errorCount)
-            assertEquals(0, secondReport.warningCount)
+            assertEquals(1, secondReport.warningCount)
+            assertTrue(secondReport.issues.any { it.title == "他人代墊我舊資料會虛增自己帳戶" })
 
             val dinnerCase = secondRepository.getAdvanceCase(UUID.fromString("88888888-8888-8888-8888-888888888881"))
             val taxiCase = secondRepository.getAdvanceCase(UUID.fromString("88888888-8888-8888-8888-888888888882"))

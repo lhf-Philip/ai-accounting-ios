@@ -31,6 +31,15 @@ struct DataHealthCheckView: View {
                 Text("補齊舊資料缺少的連結欄位，讓整單連動刪除可更完整刪除相關交易。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Button(isRunning ? "處理中..." : "修復他人代墊我舊帳務") {
+                    repairLegacyBorrowedAdvanceAccountInflation()
+                }
+                .disabled(isRunning)
+                
+                Text("移除舊版他人代墊我誤寫入自己帳戶的入帳，改為借貸帳戶支出。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             legacyDebtIncomeSection
@@ -207,6 +216,24 @@ struct DataHealthCheckView: View {
             alertMessage = "修復失敗：\(error.localizedDescription)"
         }
         
+        isRunning = false
+        showingAlert = true
+    }
+
+    private func repairLegacyBorrowedAdvanceAccountInflation() {
+        isRunning = true
+
+        do {
+            let result = try AdvanceService.repairLegacyBorrowedAdvanceAccountInflation(modelContext: modelContext)
+            report = DataHealthCheckService.run(modelContext: modelContext)
+            alertMessage = """
+            已修復 \(result.repairedParticipantCount) 位代墊對象。
+            已移除 \(result.removedInflatedAccountTransactionCount) 筆誤寫入自己帳戶的入帳。
+            """
+        } catch {
+            alertMessage = "修復失敗：\(error.localizedDescription)"
+        }
+
         isRunning = false
         showingAlert = true
     }
