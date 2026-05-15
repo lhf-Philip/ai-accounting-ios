@@ -104,6 +104,62 @@ class DataHealthCheckerTest {
         assertTrue(report.infoCount >= 1)
     }
 
+
+    @Test
+    fun borrowedByMeExpenseInitialRecord_doesNotCreateWarnings() {
+        val initialGroup = UUID.randomUUID()
+        val caseId = UUID.randomUUID()
+
+        val snapshot = DataHealthSnapshot(
+            transactions = listOf(
+                expense(initialGroup, debtAccount.id, BigDecimal("-50"), TransferSide.Outgoing)
+            ),
+            categories = listOf(foodCategory),
+            budgets = emptyList(),
+            advanceCases = listOf(
+                AdvanceCaseWithDetails(
+                    advanceCase = AdvanceCaseEntity(
+                        id = caseId,
+                        title = "Taxi",
+                        date = now,
+                        currencyCode = "HKD",
+                        myShareAmount = BigDecimal.ZERO,
+                        note = "",
+                        selfExpenseTransactionId = null,
+                        createdAt = now,
+                        updatedAt = now,
+                        payerAccountId = null,
+                        expenseCategoryId = foodCategory.id
+                    ),
+                    payerAccount = null,
+                    expenseCategory = foodCategory,
+                    participants = emptyList(),
+                    repayments = emptyList()
+                )
+            ),
+            advanceParticipants = listOf(
+                AdvanceParticipantEntity(
+                    id = UUID.randomUUID(),
+                    name = debtAccount.name,
+                    owedAmount = BigDecimal("50"),
+                    repaidAmount = BigDecimal.ZERO,
+                    initialTransferGroupId = initialGroup,
+                    createdAt = now,
+                    updatedAt = now,
+                    advanceCaseId = caseId,
+                    debtAccountId = debtAccount.id
+                )
+            ),
+            advanceRepayments = emptyList(),
+            shortcuts = emptyList()
+        )
+
+        val report = DataHealthChecker.run(snapshot, now)
+
+        assertEquals(0, report.errorCount)
+        assertEquals(0, report.warningCount)
+    }
+
     @Test
     fun mismatchedInitialTransferDirection_reportsWarning() {
         val initialGroup = UUID.randomUUID()
@@ -157,6 +213,36 @@ class DataHealthCheckerTest {
         val report = DataHealthChecker.run(snapshot, now)
 
         assertTrue(report.issues.any { it.title == "代墊初始轉帳方向不一致" })
+    }
+
+
+    private fun expense(
+        groupId: UUID,
+        accountId: UUID,
+        amount: BigDecimal,
+        side: TransferSide
+    ): TransactionWithDetails {
+        return TransactionWithDetails(
+            transaction = TransactionEntity(
+                id = UUID.randomUUID(),
+                amount = amount,
+                currencyCode = "HKD",
+                date = now,
+                note = "",
+                photoPath = null,
+                type = TransactionType.Expense,
+                linkedTransactionId = null,
+                transferGroupId = groupId,
+                transferSide = side,
+                createdAt = now,
+                updatedAt = now,
+                accountId = accountId,
+                categoryId = foodCategory.id
+            ),
+            account = null,
+            category = foodCategory,
+            tags = emptyList()
+        )
     }
 
     private fun transfer(

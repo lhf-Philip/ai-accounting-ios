@@ -224,6 +224,49 @@ fun DataHealthScreen() {
             }
         }
 
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(AppSpacing.card),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("他人代墊我舊帳務修復", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "移除舊版誤寫入自己帳戶的入帳，改成借貸帳戶支出；不會自動執行，需你手動確認。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(
+                    onClick = {
+                        scope.launch {
+                            isRunning = true
+                            statusMessage = null
+                            statusIsError = false
+                            try {
+                                val result = repository.repairLegacyBorrowedAdvanceAccountInflation()
+                                report = repository.buildDataHealthReport()
+                                legacyTransactions = repository.legacyDebtIncomeTransactions()
+                                legacyShortcuts = repository.legacyDebtIncomeShortcuts()
+                                statusMessage = "已修復 ${result.repairedParticipantCount} 位對象，移除 ${result.removedInflatedAccountTransactionCount} 筆誤入帳。"
+                            } catch (error: Exception) {
+                                statusMessage = error.message ?: "修復他人代墊我舊帳務失敗。"
+                                statusIsError = true
+                            } finally {
+                                isRunning = false
+                            }
+                        }
+                    },
+                    enabled = !isRunning
+                ) {
+                    Text(if (isRunning) "處理中..." else "修復他人代墊我舊帳務")
+                }
+            }
+        }
+
         report?.let { current ->
             SummaryCard(current)
             IssueSection("錯誤", HealthSeverity.Error, current)

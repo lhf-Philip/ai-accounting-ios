@@ -266,12 +266,12 @@ struct AdvanceCaseDetailView: View {
                     value: AdvanceService.outstandingAmount(for: advanceCase).formatted(.currency(code: advanceCase.currencyCode))
                 )
                 summaryRow(
-                    title: "付款帳戶",
-                    value: advanceCase.payerAccount?.name ?? "未指定"
+                    title: settlementDirection == .iAdvancedOthers ? "付款帳戶" : "付款來源",
+                    value: settlementDirection == .iAdvancedOthers ? (advanceCase.payerAccount?.name ?? "未指定") : "他人代付（不影響自己帳戶）"
                 )
                 summaryRow(
                     title: "帳務儲存",
-                    value: "借貸帳戶轉帳"
+                    value: settlementDirection == .iAdvancedOthers ? "借貸帳戶轉帳" : "借貸帳戶支出"
                 )
             }
             
@@ -559,12 +559,11 @@ struct AddAdvanceCaseView: View {
     }
     
     private var flowCategories: [Category] {
-        switch direction {
-        case .iAdvancedOthers:
-            categories.filter { $0.kind.supports(.expense) }
-        case .othersAdvancedMe:
-            categories.filter { $0.kind.supports(.income) }
-        }
+        categories.filter { $0.kind.supports(.expense) }
+    }
+
+    private var requiresPayerAccount: Bool {
+        direction == .iAdvancedOthers
     }
     
     var body: some View {
@@ -580,75 +579,78 @@ struct AddAdvanceCaseView: View {
 
                     TextField("代墊名稱 (例如：聚餐 2026-03-01)", text: $title)
                     DatePicker("日期", selection: $date, displayedComponents: [.date, .hourAndMinute])
-                    Picker("付款帳戶", selection: $selectedPayerAccount) {
-                        Text("選擇帳戶").tag(nil as Account?)
-                        ForEach(myAccounts) { account in
-                            Text(account.name).tag(account as Account?)
-                        }
-                    }
-                    .onChange(of: selectedPayerAccount) { _, _ in
-                        if let account = selectedPayerAccount {
-                            selectedCurrency = account.currency
-                        }
-                    }
-                    
-                    HStack {
-                        Text("幣種")
-                        Spacer()
-                        Picker("幣種", selection: $selectedCurrency) {
-                            ForEach(currencies, id: \.self) { code in
-                                Text(code).tag(code)
+                    if requiresPayerAccount {
+                        Picker("付款帳戶", selection: $selectedPayerAccount) {
+                            Text("選擇帳戶").tag(nil as Account?)
+                            ForEach(myAccounts) { account in
+                                Text(account.name).tag(account as Account?)
                             }
                         }
-                    }
-                }
-                
-                Section("自己的份額") {
-                    TextField("0 (可留空)", text: Binding(
-                        get: { myShareString },
-                        set: { myShareString = sanitizePositiveDecimalInput($0) }
-                    ))
-                    .keyboardType(.decimalPad)
-                    
-                    Picker(direction == .iAdvancedOthers ? "支出分類" : "收入分類", selection: $selectedCategory) {
-                        Text("不設定").tag(nil as Category?)
-                        ForEach(flowCategories) { category in
-                            Text(category.name).tag(category as Category?)
+                        .onChange(of: selectedPayerAccount) { _, _ in
+                            if let account = selectedPayerAccount {
+                                selectedCurrency = account.currency
+                            }
                         }
+                    } else {
+                        Text("他人代你付款時，你自己的帳戶沒有變動；建立時只會記錄支出與你欠對方的債務。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
 
-                    HStack {
-                        Text("標籤")
-                        Spacer()
-                        Button(action: { showingAddTag = true }) {
-                            Label("新增", systemImage: "plus")
-                                .font(.caption)
-                        }
-                    }
-
-                    ScrollView(.horizontal, showsIndicators: false) {
+                    if !requiresPayerAccount {
                         HStack {
-                            ForEach(tags) { tag in
-                                let isSelected = selectedTags.contains(tag)
-                                Text(tag.name)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(isSelected ? Color.blue : Color.gray.opacity(0.2))
-                                    .foregroundStyle(isSelected ? .white : .primary)
-                                    .cornerRadius(16)
-                                    .onTapGesture {
-                                        if isSelected {
-                                            selectedTags.remove(tag)
-                                        } else {
-                                            selectedTags.insert(tag)
-                                        }
-                                    }
+                            Text("幣種")
+                            Spacer()
+                            Picker("幣種", selection: $selectedCurrency) {
+                                ForEach(currencies, id: \.self) { code in
+                                    Text(code).tag(code)
+                                }
+                            }
+                        }
+                    } else {
+                        HStack {
+                            Text("幣種")
+                            Spacer()
+                            Picker("幣種", selection: $selectedCurrency) {
+                                ForEach(currencies, id: \.self) { code in
+                                    Text(code).tag(code)
+                                }
                             }
                         }
                     }
                 }
                 
-                Section(direction == .iAdvancedOthers ? "代墊對象" : "借款對象") {
+                if direction == .iAdvancedOthers {
+                    Section("自己的份額") {
+                        TextField("0 (可留空)", text: Binding(
+                            get: { myShareString },
+                            set: { myShareString = sanitizePositiveDecimalInput($0) }
+                        ))
+                        .keyboardType(.decimalPad)
+                        
+                        Picker("支出分類", selection: $selectedCategory) {
+                            Text("不設定").tag(nil as Category?)
+                            ForEach(flowCategories) { category in
+                                Text(category.name).tag(category as Category?)
+                            }
+                        }
+                        
+                        tagSelectionView
+                    }
+                } else {
+                    Section("支出分類與標籤") {
+                        Picker("支出分類", selection: $selectedCategory) {
+                            Text("不設定").tag(nil as Category?)
+                            ForEach(flowCategories) { category in
+                                Text(category.name).tag(category as Category?)
+                            }
+                        }
+                        
+                        tagSelectionView
+                    }
+                }
+                
+                Section(direction == .iAdvancedOthers ? "代墊對象" : "我欠的人") {
                     if debtAccounts.isEmpty {
                         Text("尚未建立借貸/債務帳戶，可在此直接新增。")
                             .font(.caption)
@@ -658,6 +660,7 @@ struct AddAdvanceCaseView: View {
                             AdvanceParticipantDraftRow(
                                 draft: binding(for: draft),
                                 debtAccounts: debtAccounts,
+                                amountPlaceholder: direction == .iAdvancedOthers ? "代墊金額" : "我欠此人的金額",
                                 canRemove: participantDrafts.count > 1,
                                 onRemove: {
                                     participantDrafts.removeAll { $0.id == draft.id }
@@ -672,7 +675,7 @@ struct AddAdvanceCaseView: View {
                             Label("新增對象", systemImage: "plus.circle")
                         }
                     }
-
+                    
                     Button {
                         showingAddDebtAccount = true
                     } label: {
@@ -691,7 +694,7 @@ struct AddAdvanceCaseView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("儲存") { save() }
-                        .disabled(selectedPayerAccount == nil)
+                        .disabled(!canSave)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -725,16 +728,61 @@ struct AddAdvanceCaseView: View {
                     selectedCurrency = first.currency
                 }
             }
-            .onChange(of: direction) { _, _ in
+            .onChange(of: direction) { _, newDirection in
                 if let selectedCategory, !flowCategories.contains(where: { $0.id == selectedCategory.id }) {
                     self.selectedCategory = nil
+                }
+                if newDirection == .othersAdvancedMe {
+                    myShareString = ""
+                    selectedPayerAccount = nil
+                } else if selectedPayerAccount == nil, let first = myAccounts.first {
+                    selectedPayerAccount = first
+                    selectedCurrency = first.currency
+                }
+            }
+        }
+    }
+
+    private var canSave: Bool {
+        !requiresPayerAccount || selectedPayerAccount != nil
+    }
+
+    private var tagSelectionView: some View {
+        Group {
+            HStack {
+                Text("標籤")
+                Spacer()
+                Button(action: { showingAddTag = true }) {
+                    Label("新增", systemImage: "plus")
+                        .font(.caption)
+                }
+            }
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack {
+                    ForEach(tags) { tag in
+                        let isSelected = selectedTags.contains(tag)
+                        Text(tag.name)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(isSelected ? Color.blue : Color.gray.opacity(0.2))
+                            .foregroundStyle(isSelected ? .white : .primary)
+                            .cornerRadius(16)
+                            .onTapGesture {
+                                if isSelected {
+                                    selectedTags.remove(tag)
+                                } else {
+                                    selectedTags.insert(tag)
+                                }
+                            }
+                    }
                 }
             }
         }
     }
     
     private func save() {
-        guard let payer = selectedPayerAccount else {
+        if requiresPayerAccount, selectedPayerAccount == nil {
             showError("請選擇付款帳戶。")
             return
         }
@@ -772,9 +820,9 @@ struct AddAdvanceCaseView: View {
                 title: title,
                 date: date,
                 currencyCode: selectedCurrency,
-                myShareAmount: myShare,
+                myShareAmount: direction == .othersAdvancedMe ? 0 : myShare,
                 note: note,
-                payerAccount: payer,
+                payerAccount: selectedPayerAccount,
                 category: selectedCategory,
                 tags: Array(selectedTags),
                 participants: participantInputs,
@@ -870,6 +918,7 @@ struct AddAdvanceCaseView: View {
 private struct AdvanceParticipantDraftRow: View {
     @Binding var draft: AddAdvanceCaseView.ParticipantDraft
     let debtAccounts: [Account]
+    let amountPlaceholder: String
     let canRemove: Bool
     let onRemove: () -> Void
     let sanitizeAmount: (String) -> String
@@ -883,7 +932,7 @@ private struct AdvanceParticipantDraftRow: View {
                 }
             }
 
-            TextField("代墊金額", text: Binding(
+            TextField(amountPlaceholder, text: Binding(
                 get: { draft.amountString },
                 set: { draft.amountString = sanitizeAmount($0) }
             ))
@@ -990,7 +1039,7 @@ struct AddAdvanceRepaymentView: View {
         case .iAdvancedOthers:
             return "自己的入帳標記"
         case .othersAdvancedMe:
-            return "自己的支出標記"
+            return "還款標記（不重複計入支出）"
         }
     }
     

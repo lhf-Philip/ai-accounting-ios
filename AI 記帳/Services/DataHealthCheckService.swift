@@ -370,12 +370,13 @@ enum DataHealthCheckService {
         transactions: [FinancialTransaction],
         into issues: inout [HealthIssue]
     ) {
-        let groupedTransfers = Dictionary(grouping: transactions.filter { $0.type == .transfer && $0.transferGroupID != nil }) {
+        let groupedTransfers = Dictionary(grouping: transactions.filter { $0.transferGroupID != nil }) {
             $0.transferGroupID!
         }
 
         var malformedInitialGroups = 0
         var initialMappingMismatches = 0
+        var legacyBorrowedAdvanceInflatedAccounts = 0
 
         for participant in participants {
             guard let groupID = participant.initialTransferGroupID else { continue }
@@ -386,31 +387,45 @@ enum DataHealthCheckService {
 
             let outgoing = group.filter { $0.transferSide == .outgoing || $0.amount < 0 }
             let incoming = group.filter { $0.transferSide == .incoming || $0.amount > 0 }
-            guard !outgoing.isEmpty && !incoming.isEmpty else {
-                malformedInitialGroups += 1
-                continue
-            }
 
             guard
-                let debtAccountID = participant.debtAccount?.id,
-                let payerAccountID = participant.advanceCase?.payerAccount?.id
+                let debtAccountID = participant.debtAccount?.id
             else {
                 continue
             }
 
             let outgoingAccountIDs = Set(outgoing.compactMap { $0.account?.id })
             let incomingAccountIDs = Set(incoming.compactMap { $0.account?.id })
-            guard !outgoingAccountIDs.isEmpty && !incomingAccountIDs.isEmpty else {
+            guard !outgoingAccountIDs.isEmpty else {
+                malformedInitialGroups += 1
+                continue
+            }
+
+            let newOthersAdvancedMeExpensePattern = outgoingAccountIDs.isSubset(of: [debtAccountID]) &&
+                incoming.isEmpty &&
+                outgoing.allSatisfy { $0.type == .expense }
+            if newOthersAdvancedMeExpensePattern {
+                continue
+            }
+
+            guard let payerAccountID = participant.advanceCase?.payerAccount?.id else {
+                malformedInitialGroups += 1
+                continue
+            }
+
+            guard !incomingAccountIDs.isEmpty else {
                 malformedInitialGroups += 1
                 continue
             }
 
             let iAdvancedOthersPattern = outgoingAccountIDs.isSubset(of: [payerAccountID]) &&
                 incomingAccountIDs.isSubset(of: [debtAccountID])
-            let othersAdvancedMePattern = outgoingAccountIDs.isSubset(of: [debtAccountID]) &&
+            let legacyOthersAdvancedMePattern = outgoingAccountIDs.isSubset(of: [debtAccountID]) &&
                 incomingAccountIDs.isSubset(of: [payerAccountID])
 
-            if !(iAdvancedOthersPattern || othersAdvancedMePattern) {
+            if legacyOthersAdvancedMePattern {
+                legacyBorrowedAdvanceInflatedAccounts += 1
+            } else if !iAdvancedOthersPattern {
                 initialMappingMismatches += 1
             }
         }
@@ -496,6 +511,17 @@ enum DataHealthCheckService {
                     title: "代墊還款方向不一致",
                     detail: "共有 \(repaymentMappingMismatches) 筆還款的轉出/轉入帳戶與對象/入帳帳戶不一致。",
                     recommendation: "請檢查還款方向與收款帳戶是否設定正確。"
+                )
+            )
+        }
+
+        if legacyBorrowedAdvanceInflatedAccounts > 0 {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "他人代墊我舊資料會虛增自己帳戶",
+                    detail: "共有 \(legacyBorrowedAdvanceInflatedAccounts) 位代墊對象使用舊版轉帳寫法，可能把他人代付誤記為自己的帳戶入帳。",
+                    recommendation: "請在資料健康檢查中執行「修復他人代墊我舊帳務」。"
                 )
             )
         }

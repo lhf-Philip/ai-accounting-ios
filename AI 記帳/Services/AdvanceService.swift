@@ -78,6 +78,11 @@ enum AdvanceService {
             unresolvedCaseLinkCount + unresolvedParticipantLinkCount
         }
     }
+
+    struct LegacyBorrowedAdvanceRepairResult {
+        let repairedParticipantCount: Int
+        let removedInflatedAccountTransactionCount: Int
+    }
     
     private static let roundingTolerance = Decimal(string: "0.0001") ?? 0.0001
     
@@ -98,14 +103,17 @@ enum AdvanceService {
         currencyCode: String,
         myShareAmount: Decimal,
         note: String,
-        payerAccount: Account,
+        payerAccount: Account?,
         category: Category?,
         tags: [Tag],
         participants: [ParticipantInput],
         isBorrowedByMe: Bool = false,
         modelContext: ModelContext
     ) throws -> AdvanceCase {
-        guard payerAccount.type != .debt else {
+        if !isBorrowedByMe, payerAccount == nil {
+            throw AdvanceServiceError.invalidPayerAccount
+        }
+        if let payerAccount, payerAccount.type == .debt {
             throw AdvanceServiceError.invalidPayerAccount
         }
         guard !participants.isEmpty else {
@@ -145,7 +153,7 @@ enum AdvanceService {
         modelContext.insert(advanceCase)
         var budgetHistoryTransactions: [FinancialTransaction] = []
         
-        if myShareAmount > 0 {
+        if !isBorrowedByMe, myShareAmount > 0, let payerAccount {
             let expenseNote = finalNote.isEmpty
                 ? "\(finalTitle) (自己份額)"
                 : "\(finalNote) (自己份額)"
@@ -188,32 +196,27 @@ enum AdvanceService {
             let inTx: FinancialTransaction
 
             if isBorrowedByMe {
-                outTx = FinancialTransaction(
+                let expenseTx = FinancialTransaction(
                     id: outID,
                     amount: -abs(input.owedAmount),
                     currencyCode: currencyCode,
                     date: date,
-                    note: "\(transferMemo) (代墊給我 \(payerAccount.name))",
-                    type: .transfer,
-                    linkedTransactionID: inID,
+                    note: "\(transferMemo) (他人代墊我：\(input.debtAccount.name))",
+                    type: .expense,
+                    linkedTransactionID: nil,
                     transferGroupID: transferGroupID,
                     transferSide: .outgoing,
-                    account: input.debtAccount
+                    account: input.debtAccount,
+                    category: category,
+                    tags: tags
                 )
-
-                inTx = FinancialTransaction(
-                    id: inID,
-                    amount: abs(input.owedAmount),
-                    currencyCode: currencyCode,
-                    date: date,
-                    note: "\(transferMemo) (來自 \(input.debtAccount.name))",
-                    type: .transfer,
-                    linkedTransactionID: outID,
-                    transferGroupID: transferGroupID,
-                    transferSide: .incoming,
-                    account: payerAccount
-                )
+                modelContext.insert(expenseTx)
+                budgetHistoryTransactions.append(expenseTx)
+                continue
             } else {
+                guard let payerAccount else {
+                    throw AdvanceServiceError.invalidPayerAccount
+                }
                 outTx = FinancialTransaction(
                     id: outID,
                     amount: -abs(input.owedAmount),
@@ -252,6 +255,67 @@ enum AdvanceService {
             currencyService: CurrencyService.shared
         )
         return advanceCase
+    }
+
+    @MainActor
+    static func repairLegacyBorrowedAdvanceAccountInflation(modelContext: ModelContext) throws -> LegacyBorrowedAdvanceRepairResult {
+        let participants = try modelContext.fetch(FetchDescriptor<AdvanceParticipant>())
+        var repairedParticipantCount = 0
+        var removedInflatedAccountTransactionCount = 0
+        var repairedExpenseTransactions: [FinancialTransaction] = []
+
+        for participant in participants {
+            guard let groupID = participant.initialTransferGroupID,
+                  let debtAccount = participant.debtAccount,
+                  let advanceCase = participant.advanceCase
+            else { continue }
+
+            let descriptor = FetchDescriptor<FinancialTransaction>(
+                predicate: #Predicate { $0.transferGroupID == groupID }
+            )
+            let group = try modelContext.fetch(descriptor)
+            guard let outgoing = group.first(where: { tx in
+                tx.account?.id == debtAccount.id && (tx.transferSide == .outgoing || tx.amount < 0)
+            }) else { continue }
+
+            let inflatedIncoming = group.filter { tx in
+                tx.id != outgoing.id &&
+                    tx.amount > 0 &&
+                    tx.account?.type != .debt
+            }
+            guard !inflatedIncoming.isEmpty else { continue }
+
+            outgoing.type = .expense
+            outgoing.amount = -abs(outgoing.amount)
+            outgoing.linkedTransactionID = nil
+            outgoing.transferSide = .outgoing
+            outgoing.category = advanceCase.expenseCategory
+            outgoing.note = "\(advanceCase.note.isEmpty ? advanceCase.title : advanceCase.note) (他人代墊我：\(debtAccount.name))"
+            outgoing.updatedAt = Date()
+            repairedExpenseTransactions.append(outgoing)
+
+            for tx in inflatedIncoming {
+                modelContext.delete(tx)
+                removedInflatedAccountTransactionCount += 1
+            }
+
+            advanceCase.payerAccount = nil
+            advanceCase.updatedAt = Date()
+            participant.updatedAt = Date()
+            repairedParticipantCount += 1
+        }
+
+        try modelContext.save()
+        try BudgetHistoryService.shared.syncAffected(
+            by: repairedExpenseTransactions,
+            modelContext: modelContext,
+            currencyService: CurrencyService.shared
+        )
+
+        return LegacyBorrowedAdvanceRepairResult(
+            repairedParticipantCount: repairedParticipantCount,
+            removedInflatedAccountTransactionCount: removedInflatedAccountTransactionCount
+        )
     }
     
     @MainActor
@@ -579,19 +643,22 @@ enum AdvanceService {
             predicate: #Predicate { $0.initialTransferGroupID == groupID }
         )
         if let participant = try modelContext.fetch(participantDescriptor).first {
-            if let incoming, let debtAccount = incoming.account {
+            if incoming == nil, outgoing?.type == .expense, let debtAccount = outgoing?.account {
+                participant.debtAccount = debtAccount
+                participant.name = debtAccount.name
+            } else if let incoming, let debtAccount = incoming.account {
                 participant.debtAccount = debtAccount
                 participant.name = debtAccount.name
             }
 
             if let advanceCase = participant.advanceCase {
-                if let outgoing {
+                if let outgoing, incoming != nil {
                     advanceCase.payerAccount = outgoing.account
                 }
-                if let incoming {
+                if let amountSource = incoming ?? outgoing {
                     let normalized = CurrencyService.shared.convert(
-                        amount: abs(incoming.amount),
-                        from: incoming.currencyCode,
+                        amount: abs(amountSource.amount),
+                        from: amountSource.currencyCode,
                         to: advanceCase.currencyCode
                     )
                     participant.owedAmount = normalized >= participant.repaidAmount

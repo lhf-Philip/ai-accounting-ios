@@ -70,6 +70,11 @@ enum class LedgerDeletionResult {
     AdvanceInitialRequiresCase
 }
 
+data class LegacyBorrowedAdvanceRepairResult(
+    val repairedParticipantCount: Int,
+    val removedInflatedAccountTransactionCount: Int
+)
+
 private const val RECURRING_STATUS_PENDING = "Pending"
 private const val RECURRING_STATUS_CONFIRMED = "Confirmed"
 private const val RECURRING_STATUS_SKIPPED = "Skipped"
@@ -210,6 +215,70 @@ class AccountingRepository(
             shortcutDao.upsertAll(shortcuts.map { it.shortcut.copy(accountId = null) })
         }
         return shortcuts.size
+    }
+
+    suspend fun repairLegacyBorrowedAdvanceAccountInflation(): LegacyBorrowedAdvanceRepairResult {
+        return database.withTransaction {
+            val cases = advanceDao.getAllCasesWithDetails()
+            var repairedParticipantCount = 0
+            var removedInflatedAccountTransactionCount = 0
+
+            for (caseDetails in cases) {
+                for (participant in caseDetails.participants) {
+                    val groupId = participant.initialTransferGroupId ?: continue
+                    val debtAccountId = participant.debtAccountId ?: continue
+                    val group = transactionDao.getTransferGroup(groupId)
+                    val outgoing = group.firstOrNull { tx ->
+                        tx.transaction.accountId == debtAccountId &&
+                            (tx.transaction.transferSide == TransferSide.Outgoing || tx.transaction.amount < BigDecimal.ZERO)
+                    } ?: continue
+                    val inflatedIncoming = group.filter { tx ->
+                        tx.transaction.id != outgoing.transaction.id &&
+                            tx.transaction.amount > BigDecimal.ZERO &&
+                            tx.account?.type != org.duckdns.lhfser.aiaccounting.core.model.AccountType.Debt
+                    }
+                    if (inflatedIncoming.isEmpty()) continue
+
+                    val baseNote = caseDetails.advanceCase.note.ifBlank { caseDetails.advanceCase.title }
+                    transactionDao.upsert(
+                        outgoing.transaction.copy(
+                            amount = outgoing.transaction.amount.abs().negate(),
+                            note = "$baseNote (他人代墊我：${participant.name})",
+                            type = TransactionType.Expense,
+                            linkedTransactionId = null,
+                            transferSide = TransferSide.Outgoing,
+                            categoryId = caseDetails.advanceCase.expenseCategoryId,
+                            updatedAt = Instant.now()
+                        )
+                    )
+
+                    inflatedIncoming.forEach { tx ->
+                        transactionDao.clearTransactionTags(tx.transaction.id)
+                        transactionDao.delete(tx.transaction)
+                        removedInflatedAccountTransactionCount += 1
+                    }
+
+                    advanceDao.upsertCase(
+                        caseDetails.advanceCase.copy(
+                            payerAccountId = null,
+                            updatedAt = Instant.now()
+                        )
+                    )
+                    advanceDao.upsertParticipants(
+                        listOf(participant.copy(updatedAt = Instant.now()))
+                    )
+                    repairedParticipantCount += 1
+                }
+            }
+
+            if (repairedParticipantCount > 0) {
+                syncAllBudgetHistory()
+            }
+            LegacyBorrowedAdvanceRepairResult(
+                repairedParticipantCount = repairedParticipantCount,
+                removedInflatedAccountTransactionCount = removedInflatedAccountTransactionCount
+            )
+        }
     }
 
     suspend fun upsertAccount(account: AccountEntity) {
@@ -701,7 +770,7 @@ class AccountingRepository(
         currencyCode: String,
         myShareAmount: BigDecimal,
         note: String,
-        payerAccount: AccountEntity,
+        payerAccount: AccountEntity?,
         expenseCategory: CategoryEntity?,
         tagIds: List<UUID>,
         participants: List<AdvanceParticipantInput>,
@@ -714,7 +783,7 @@ class AccountingRepository(
             val finalNote = note.trim()
 
             var selfExpenseTransactionId: UUID? = null
-            if (myShareAmount > BigDecimal.ZERO) {
+            if (!isBorrowedByMe && myShareAmount > BigDecimal.ZERO && payerAccount != null) {
                 val expenseNote = if (finalNote.isBlank()) {
                     "$finalTitle (自己份額)"
                 } else {
@@ -756,7 +825,7 @@ class AccountingRepository(
                 selfExpenseTransactionId = selfExpenseTransactionId,
                 createdAt = now,
                 updatedAt = now,
-                payerAccountId = payerAccount.id,
+                payerAccountId = payerAccount?.id,
                 expenseCategoryId = expenseCategory?.id
             )
             advanceDao.upsertCase(advanceCase)
@@ -764,6 +833,7 @@ class AccountingRepository(
             val transferMemo = if (finalNote.isBlank()) finalTitle else finalNote
             val participantEntities = mutableListOf<AdvanceParticipantEntity>()
             val transferEntities = mutableListOf<TransactionEntity>()
+            val deferredTagRefs = mutableListOf<TransactionTagCrossRef>()
 
             participants.forEach { input ->
                 val transferGroupId = UUID.randomUUID()
@@ -784,43 +854,30 @@ class AccountingRepository(
                     )
                 )
 
-                val outTx: TransactionEntity
-                val inTx: TransactionEntity
                 if (isBorrowedByMe) {
-                    outTx = TransactionEntity(
+                    val expenseTx = TransactionEntity(
                         id = outId,
                         amount = input.owedAmount.abs().negate(),
                         currencyCode = currencyCode,
                         date = date,
-                        note = "$transferMemo (代墊給我 ${payerAccount.name})",
+                        note = "$transferMemo (他人代墊我：${input.debtAccount.name})",
                         photoPath = null,
-                        type = TransactionType.Transfer,
-                        linkedTransactionId = inId,
+                        type = TransactionType.Expense,
+                        linkedTransactionId = null,
                         transferGroupId = transferGroupId,
                         transferSide = TransferSide.Outgoing,
                         createdAt = now,
                         updatedAt = now,
                         accountId = input.debtAccount.id,
-                        categoryId = null
+                        categoryId = expenseCategory?.id
                     )
-                    inTx = TransactionEntity(
-                        id = inId,
-                        amount = input.owedAmount.abs(),
-                        currencyCode = currencyCode,
-                        date = date,
-                        note = "$transferMemo (來自 ${input.debtAccount.name})",
-                        photoPath = null,
-                        type = TransactionType.Transfer,
-                        linkedTransactionId = outId,
-                        transferGroupId = transferGroupId,
-                        transferSide = TransferSide.Incoming,
-                        createdAt = now,
-                        updatedAt = now,
-                        accountId = payerAccount.id,
-                        categoryId = null
-                    )
+                    transferEntities.add(expenseTx)
+                    if (tagIds.isNotEmpty()) {
+                        deferredTagRefs += tagIds.map { tagId -> TransactionTagCrossRef(outId, tagId) }
+                    }
                 } else {
-                    outTx = TransactionEntity(
+                    val payer = requireNotNull(payerAccount) { "請選擇付款帳戶" }
+                    val outTx = TransactionEntity(
                         id = outId,
                         amount = input.owedAmount.abs().negate(),
                         currencyCode = currencyCode,
@@ -833,15 +890,15 @@ class AccountingRepository(
                         transferSide = TransferSide.Outgoing,
                         createdAt = now,
                         updatedAt = now,
-                        accountId = payerAccount.id,
+                        accountId = payer.id,
                         categoryId = null
                     )
-                    inTx = TransactionEntity(
+                    val inTx = TransactionEntity(
                         id = inId,
                         amount = input.owedAmount.abs(),
                         currencyCode = currencyCode,
                         date = date,
-                        note = "$transferMemo (來自 ${payerAccount.name})",
+                        note = "$transferMemo (來自 ${payer.name})",
                         photoPath = null,
                         type = TransactionType.Transfer,
                         linkedTransactionId = outId,
@@ -852,13 +909,16 @@ class AccountingRepository(
                         accountId = input.debtAccount.id,
                         categoryId = null
                     )
+                    transferEntities.add(outTx)
+                    transferEntities.add(inTx)
                 }
-                transferEntities.add(outTx)
-                transferEntities.add(inTx)
             }
 
             advanceDao.upsertParticipants(participantEntities)
             transactionDao.upsertAll(transferEntities)
+            if (deferredTagRefs.isNotEmpty()) {
+                transactionDao.insertTransactionTags(deferredTagRefs)
+            }
             syncAllBudgetHistory()
             caseId
         }
