@@ -17,7 +17,7 @@ AI Accounting is a personal finance app for multi-currency bookkeeping, account 
 - Debt management with borrow, repay, and debt-forgiveness semantics
 - Income/expense charts with category/tag drill-down
 - Budgets, overspending alerts, and AI-assisted budget suggestions
-- Data health checks, JSON backup/restore, WebDAV remote backup, and CSV export
+- Data health checks, JSON backup/restore, WebDAV remote backup with optional encryption, and CSV export
 - Optional AI receipt scanning with a user-provided Gemini API key
 
 ## Platform Status
@@ -106,6 +106,7 @@ GitHub Actions on `push` / `pull_request` to `main`:
 - CI checklist: [`docs/CI_CHECKLIST.md`](./docs/CI_CHECKLIST.md)
 - Deployment guide: [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
 - Android APK build guide: [`docs/ANDROID_APK_BUILD.md`](./docs/ANDROID_APK_BUILD.md)
+- WebDAV remote backup guide: [`docs/REMOTE_BACKUP.md`](./docs/REMOTE_BACKUP.md)
 
 ## Disclaimer
 
