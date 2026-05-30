@@ -35,6 +35,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,13 +56,16 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.core.preferences.SharedDateFilterType
 import org.duckdns.lhfser.aiaccounting.core.preferences.resolveSharedDateRange
 import org.duckdns.lhfser.aiaccounting.core.preferences.sharedDateFilterLabel
+import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
+import org.duckdns.lhfser.aiaccounting.data.repository.LedgerDeletionResult
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.LocalUiPreferences
@@ -110,11 +114,16 @@ private data class BudgetAlert(
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-fun ReportsScreen() {
+fun ReportsScreen(
+    onEdit: (String) -> Unit,
+    onEditTransfer: (String) -> Unit,
+    onEditDebt: (String) -> Unit
+) {
     val repository = LocalRepository.current
     val currencyService = LocalCurrencyService.current
     val uiPreferencesStore = LocalUiPreferences.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     val transactions by repository.transactions.collectAsState(initial = emptyList())
     val categories by repository.categories.collectAsState(initial = emptyList())
@@ -126,6 +135,8 @@ fun ReportsScreen() {
     var flowMode by remember { mutableStateOf(ReportFlowMode.Expense) }
     var selectedTag by remember { mutableStateOf<String?>(null) }
     var reportDetail by remember { mutableStateOf<ReportDetail?>(null) }
+    var transactionToDelete by remember { mutableStateOf<TransactionWithDetails?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     val dateFilter = uiPreferences.dateFilter
     val filterType = dateFilter.type
     val selectedDate = dateFilter.selectedDate
@@ -300,6 +311,43 @@ fun ReportsScreen() {
         }
     }
 
+
+    if (transactionToDelete != null) {
+        val target = transactionToDelete ?: return
+        val groupId = target.transaction.transferGroupId?.toString()
+        val isTransfer = target.transaction.type == TransactionType.Transfer && groupId != null
+        AlertDialog(
+            onDismissRequest = { transactionToDelete = null },
+            title = { Text(if (isTransfer) "刪除轉帳？" else "刪除交易？") },
+            text = { Text(if (isTransfer) "將刪除此筆轉帳的所有分錄。" else "刪除後無法復原。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    transactionToDelete = null
+                    scope.launch {
+                        val result = repository.deleteLedgerTransactionById(target.transaction.id)
+                        if (result == LedgerDeletionResult.AdvanceInitialRequiresCase) {
+                            errorMessage = "這是代墊建立分錄，請進入代墊詳情刪除整個代墊案件。"
+                        }
+                    }
+                }) { Text("刪除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { transactionToDelete = null }) { Text("取消") }
+            }
+        )
+    }
+
+    if (errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { errorMessage = null },
+            title = { Text("無法執行操作") },
+            text = { Text(errorMessage ?: "") },
+            confirmButton = {
+                TextButton(onClick = { errorMessage = null }) { Text("了解") }
+            }
+        )
+    }
+
     if (showFilterDialog) {
         SharedDateFilterSheet(
             title = "選擇區間",
@@ -334,7 +382,16 @@ fun ReportsScreen() {
             containerColor = MaterialTheme.colorScheme.background,
             dragHandle = { ParitySheetHandle() }
         ) {
-            ReportDetailSheet(detail = reportDetail ?: return@ModalBottomSheet)
+            ReportDetailSheet(
+                detail = reportDetail ?: return@ModalBottomSheet,
+                onEdit = { tx ->
+                    reportDetail = null
+                    routeTransactionEdit(tx, onEdit, onEditTransfer, onEditDebt)
+                },
+                onDelete = { tx ->
+                    transactionToDelete = tx
+                }
+            )
         }
     }
 }
@@ -535,7 +592,11 @@ private fun BudgetAlertCard(alerts: List<BudgetAlert>) {
 }
 
 @Composable
-private fun ReportDetailSheet(detail: ReportDetail) {
+private fun ReportDetailSheet(
+    detail: ReportDetail,
+    onEdit: (TransactionWithDetails) -> Unit,
+    onDelete: (TransactionWithDetails) -> Unit
+) {
     val grouped = remember(detail.transactions) {
         val formatter = DateTimeFormatter.ofPattern("yyyy/MM/dd (E)")
         detail.transactions.groupBy { tx ->
@@ -568,14 +629,14 @@ private fun ReportDetailSheet(detail: ReportDetail) {
                     )
                 }
                 items(items, key = { it.transaction.id }) { tx ->
-                    Surface(
+                    PressableCard(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.large,
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        border = androidx.compose.foundation.BorderStroke(
-                            0.6.dp,
-                            MaterialTheme.colorScheme.outline.copy(alpha = 0.20f)
-                        )
+                        onClick = { onEdit(tx) },
+                        onLongClick = { onDelete(tx) },
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        pressedContainerColor = MaterialTheme.colorScheme.surface,
+                        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f),
+                        pressedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = AppSpacing.card, vertical = 12.dp),
@@ -603,6 +664,11 @@ private fun ReportDetailSheet(detail: ReportDetail) {
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                Text(
+                                    "點擊編輯 · 長按刪除",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             }
                             Text(
                                 tx.transaction.amount.asCurrencyText(tx.transaction.currencyCode),
@@ -614,6 +680,26 @@ private fun ReportDetailSheet(detail: ReportDetail) {
                     }
                 }
             }
+        }
+    }
+}
+
+private fun routeTransactionEdit(
+    item: TransactionWithDetails,
+    onEdit: (String) -> Unit,
+    onEditTransfer: (String) -> Unit,
+    onEditDebt: (String) -> Unit
+) {
+    val groupId = item.transaction.transferGroupId?.toString()
+    when {
+        item.transaction.type == TransactionType.Transfer && TransactionSemantics.isDebtForgiveness(item.transaction.note) -> {
+            onEditDebt(item.transaction.id.toString())
+        }
+        item.transaction.type == TransactionType.Transfer && groupId != null -> {
+            onEditTransfer(groupId)
+        }
+        else -> {
+            onEdit(item.transaction.id.toString())
         }
     }
 }

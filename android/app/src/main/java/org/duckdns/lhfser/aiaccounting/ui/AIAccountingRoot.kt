@@ -256,7 +256,13 @@ fun AIAccountingRoot(
                     onAddShortcut = { navController.navigate("shortcuts/edit/${UUID.randomUUID()}") }
                 )
             }
-            composable(AppDestination.Reports.route) { ReportsScreen() }
+            composable(AppDestination.Reports.route) {
+                ReportsScreen(
+                    onEdit = { id -> navController.navigate("transaction/edit/$id") },
+                    onEditTransfer = { groupId -> navController.navigate("transfer/edit/$groupId") },
+                    onEditDebt = { id -> navController.navigate("debt/edit/$id") }
+                )
+            }
             composable(AppDestination.Accounts.route) {
                 AccountsScreen(
                     onOpenDetail = { id -> navController.navigate("accounts/$id") },

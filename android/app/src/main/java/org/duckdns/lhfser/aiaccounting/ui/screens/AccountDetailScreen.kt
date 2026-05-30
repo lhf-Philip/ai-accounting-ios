@@ -12,19 +12,25 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
+import org.duckdns.lhfser.aiaccounting.data.repository.LedgerDeletionResult
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
@@ -48,11 +54,14 @@ fun AccountDetailScreen(
     onEditDebt: (String) -> Unit
 ) {
     val repository = LocalRepository.current
+    val scope = rememberCoroutineScope()
     val accounts by repository.accounts.collectAsState(initial = emptyList())
     val transactions by repository.transactions.collectAsState(initial = emptyList())
 
     val resolvedId = remember(accountId) { accountId?.let(UUID::fromString) }
     val account = remember(accounts, resolvedId) { accounts.firstOrNull { it.id == resolvedId } }
+    var transactionToDelete by remember { mutableStateOf<TransactionWithDetails?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     if (account == null) {
         Column(
@@ -156,17 +165,53 @@ fun AccountDetailScreen(
                             item.transaction.type == TransactionType.Transfer && groupId != null -> onEditTransfer(groupId)
                             else -> onEditTransaction(item.transaction.id.toString())
                         }
-                    }
+                    },
+                    onLongClick = { transactionToDelete = item }
                 )
             }
         }
     }
+    if (transactionToDelete != null) {
+        val target = transactionToDelete ?: return
+        val groupId = target.transaction.transferGroupId?.toString()
+        val isTransfer = target.transaction.type == TransactionType.Transfer && groupId != null
+        AlertDialog(
+            onDismissRequest = { transactionToDelete = null },
+            title = { Text(if (isTransfer) "刪除轉帳？" else "刪除交易？") },
+            text = { Text(if (isTransfer) "將刪除此筆轉帳的所有分錄。" else "刪除後無法復原。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    transactionToDelete = null
+                    scope.launch {
+                        val result = repository.deleteLedgerTransactionById(target.transaction.id)
+                        if (result == LedgerDeletionResult.AdvanceInitialRequiresCase) {
+                            errorMessage = "這是代墊建立分錄，請進入代墊詳情刪除整個代墊案件。"
+                        }
+                    }
+                }) { Text("刪除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { transactionToDelete = null }) { Text("取消") }
+            }
+        )
+    }
+
+    if (errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { errorMessage = null },
+            title = { Text("無法執行操作") },
+            text = { Text(errorMessage ?: "") },
+            confirmButton = { TextButton(onClick = { errorMessage = null }) { Text("了解") } }
+        )
+    }
+
 }
 
 @Composable
 private fun AccountTransactionRow(
     item: TransactionWithDetails,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
     val transaction = item.transaction
     val amountColor = when {
@@ -189,6 +234,7 @@ private fun AccountTransactionRow(
     PressableCard(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
+        onLongClick = onLongClick,
         containerColor = MaterialTheme.colorScheme.surface,
         pressedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
         borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
@@ -245,7 +291,7 @@ private fun AccountTransactionRow(
                         text = when {
                             isDebtForgiveness -> "編輯免除債務"
                             transaction.type == TransactionType.Transfer -> "編輯轉帳"
-                            else -> "查看 / 編輯"
+                            else -> "點擊編輯 · 長按刪除"
                         },
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary

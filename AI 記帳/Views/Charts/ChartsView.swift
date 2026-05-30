@@ -520,11 +520,22 @@ private struct ChartsRenderState {
 }
 
 private struct ReportTransactionListView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query private var advanceParticipants: [AdvanceParticipant]
+    @Query private var advanceRepayments: [AdvanceRepayment]
+
     let title: String
     let transactions: [FinancialTransaction]
 
+    @State private var transactionToEdit: FinancialTransaction?
+    @State private var deletionErrorMessage: String?
+
     var body: some View {
-        let renderState = ReportTransactionListRenderState(transactions: transactions)
+        let renderState = ReportTransactionListRenderState(
+            transactions: transactions,
+            advanceParticipants: advanceParticipants,
+            advanceRepayments: advanceRepayments
+        )
 
         NavigationStack {
             Group {
@@ -539,6 +550,24 @@ private struct ReportTransactionListView: View {
                                         transaction: tx,
                                         transferCounterpart: renderState.transferCounterpartByID[tx.id]
                                     )
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        transactionToEdit = tx
+                                    }
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                        Button(role: .destructive) {
+                                            deleteTransaction(tx)
+                                        } label: {
+                                            Label("刪除", systemImage: "trash")
+                                        }
+
+                                        Button {
+                                            transactionToEdit = tx
+                                        } label: {
+                                            Label("編輯", systemImage: "pencil")
+                                        }
+                                        .tint(.blue)
+                                    }
                                 }
                             }
                         }
@@ -549,14 +578,68 @@ private struct ReportTransactionListView: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
         }
+        .sheet(item: $transactionToEdit) { tx in
+            transactionEditor(for: tx, renderState: renderState)
+        }
+        .alert("無法刪除", isPresented: Binding(
+            get: { deletionErrorMessage != nil },
+            set: { if !$0 { deletionErrorMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { deletionErrorMessage = nil }
+        } message: {
+            Text(deletionErrorMessage ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private func transactionEditor(for tx: FinancialTransaction, renderState: ReportTransactionListRenderState) -> some View {
+        if tx.type == .transfer {
+            if isAdvanceTransfer(tx, advanceGroupIDs: renderState.advanceGroupIDs) {
+                EditAdvanceTransferView(originalTransaction: tx)
+            } else if TransactionSemantics.isDebtForgiveness(note: tx.note) {
+                AddDebtView(existingForgivenessTransaction: tx)
+            } else {
+                EditTransferView(originalTransaction: tx)
+            }
+        } else {
+            EditTransactionView(transaction: tx)
+        }
+    }
+
+    private func deleteTransaction(_ tx: FinancialTransaction) {
+        do {
+            try LedgerDeletionService.delete(transaction: tx, modelContext: modelContext)
+        } catch {
+            deletionErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func isAdvanceTransfer(_ tx: FinancialTransaction, advanceGroupIDs: Set<UUID>) -> Bool {
+        guard tx.type == .transfer else { return false }
+        if let groupID = tx.transferGroupID, advanceGroupIDs.contains(groupID) {
+            return true
+        }
+        let compacted = tx.note.replacingOccurrences(of: " ", with: "")
+        return compacted.contains("(代墊給")
+            || compacted.contains("(代墊給我")
+            || compacted.contains("(還款至")
+            || compacted.contains("(還款給")
     }
 }
 
 private struct ReportTransactionListRenderState {
     let transferCounterpartByID: [UUID: TransferCounterpartInfo]
     let groupedTransactions: [(title: String, items: [FinancialTransaction])]
+    let advanceGroupIDs: Set<UUID>
 
-    init(transactions: [FinancialTransaction]) {
+    init(
+        transactions: [FinancialTransaction],
+        advanceParticipants: [AdvanceParticipant],
+        advanceRepayments: [AdvanceRepayment]
+    ) {
+        var advanceGroupIDs = Set(advanceParticipants.compactMap(\.initialTransferGroupID))
+        advanceGroupIDs.formUnion(advanceRepayments.compactMap(\.linkedTransferGroupID))
+        self.advanceGroupIDs = advanceGroupIDs
         self.transferCounterpartByID = TransferPresentationService.counterpartMap(transactions: transactions)
         self.groupedTransactions = Self.groupedTransactions(from: transactions)
     }
