@@ -57,3 +57,4 @@ Every core flow should cover at least one full cycle:
 - Add -> edit -> delete for transfer group
 - Add -> edit -> repayment or rollback for advance
 - Import -> operate -> export -> re-import for backup safety
+- WebDAV encrypted upload/restore and plain JSON upload/restore per [`docs/REMOTE_BACKUP.md`](./REMOTE_BACKUP.md)

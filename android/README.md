@@ -7,7 +7,7 @@ This folder contains the Android implementation of AI Accounting. Android follow
 - Five main tabs aligned with iOS: Overview / Ledger / Reports / Accounts / Settings
 - First-launch behaviour: open Overview on first launch, then default to Ledger for returning users
 - Core bookkeeping flows for income, expense, transfer, debt, advances, budgets, reports, accounts, and backups
-- Settlement centre, data health checks, recurring transactions, WebDAV backup, and local preferences
+- Settlement centre, data health checks, recurring transactions, WebDAV backup with optional encryption, and local preferences
 - Optional receipt scan review flow and Gemini API key settings
 - Android-only summary widget with app-driven preview content and refresh hook (`SummaryWidgetProvider`)
 - Unit tests for parity vectors from `../docs/specs/parity-test-vectors.md`
@@ -34,6 +34,8 @@ cd android
 ```
 
 Detailed APK build guide: [`../docs/ANDROID_APK_BUILD.md`](../docs/ANDROID_APK_BUILD.md)
+
+WebDAV remote backup guide: [`../docs/REMOTE_BACKUP.md`](../docs/REMOTE_BACKUP.md)
 
 ## APK Location
 
