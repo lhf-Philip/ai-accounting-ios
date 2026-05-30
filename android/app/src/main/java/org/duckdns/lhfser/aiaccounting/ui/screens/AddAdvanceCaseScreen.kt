@@ -83,6 +83,7 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
     var participants by remember { mutableStateOf(listOf(ParticipantDraft())) }
     var showCreateDebtDialog by remember { mutableStateOf(false) }
     var newDebtName by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val flowCategories = categories.filter { it.kind.supports(org.duckdns.lhfser.aiaccounting.core.model.TransactionType.Expense) }
     val requiresPayerAccount = direction == AdvanceDirection.IAdvanceOthers
@@ -182,6 +183,7 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
                         index = index,
                         participant = participant,
                         debtAccounts = debtAccounts,
+                        amountLabel = if (direction == AdvanceDirection.IAdvanceOthers) "代墊金額" else "我欠此人的金額",
                         onUpdate = { updated ->
                             participants = participants.toMutableList().also { list ->
                                 val targetIndex = list.indexOfFirst { it.id == participant.id }
@@ -218,14 +220,29 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
             onClick = {
                 scope.launch {
                     val payer = payerAccount
-                    if (requiresPayerAccount && payer == null) return@launch
-                    val myShareValue = if (direction == AdvanceDirection.OthersAdvanceMe) BigDecimal.ZERO else (myShare.toBigDecimalOrNull() ?: BigDecimal.ZERO)
-                    val inputs = participants.mapNotNull { draft ->
-                        val account = draft.debtAccount ?: return@mapNotNull null
-                        val amount = draft.amount.toBigDecimalOrNull() ?: return@mapNotNull null
-                        AdvanceParticipantInput(account, amount)
+                    if (requiresPayerAccount && payer == null) {
+                        errorMessage = "請選擇付款帳戶。"
+                        return@launch
                     }
-                    if (inputs.isEmpty()) return@launch
+                    val myShareValue = if (direction == AdvanceDirection.OthersAdvanceMe) BigDecimal.ZERO else (myShare.toBigDecimalOrNull() ?: BigDecimal.ZERO)
+                    val inputs = mutableListOf<AdvanceParticipantInput>()
+                    for (draft in participants) {
+                        val account = draft.debtAccount
+                        if (account == null) {
+                            errorMessage = "請為每位對象選擇債務人物。"
+                            return@launch
+                        }
+                        val amount = draft.amount.toBigDecimalOrNull()
+                        if (amount == null || amount <= BigDecimal.ZERO) {
+                            errorMessage = "請填寫每位對象大於 0 的金額。"
+                            return@launch
+                        }
+                        inputs += AdvanceParticipantInput(account, amount)
+                    }
+                    if (inputs.isEmpty()) {
+                        errorMessage = "請至少新增一位對象。"
+                        return@launch
+                    }
                     repository.createAdvanceCase(
                         title = title,
                         date = Instant.now(),
@@ -299,6 +316,19 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
             }
         )
     }
+
+    errorMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = { errorMessage = null },
+            title = { Text("無法儲存") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { errorMessage = null }) {
+                    Text("好")
+                }
+            }
+        )
+    }
 }
 
 
@@ -307,6 +337,7 @@ private fun ParticipantEditor(
     index: Int,
     participant: ParticipantDraft,
     debtAccounts: List<AccountEntity>,
+    amountLabel: String,
     onUpdate: (ParticipantDraft) -> Unit,
     onRemove: (() -> Unit)?
 ) {
@@ -319,7 +350,7 @@ private fun ParticipantEditor(
             onUpdate(participant.copy(debtAccount = acc))
         }
         AmountRow(
-            label = "代墊金額",
+            label = amountLabel,
             amount = participant.amount,
             onAmountChange = { onUpdate(participant.copy(amount = sanitizeAmount(it))) },
             currency = participant.debtAccount?.currency ?: "HKD"
