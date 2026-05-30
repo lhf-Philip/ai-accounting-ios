@@ -3,7 +3,7 @@
 Status: Active  
 Last updated: 2026-03-23
 
-This matrix is the shared validation baseline before merging dual-platform work.
+This matrix is the shared validation baseline before merging dual-platform work. Android is treated as an active app implementation, so validation should cover both parity behaviour and Android-specific surfaces such as the widget where relevant.
 
 ## Regression Fixture
 
@@ -44,6 +44,7 @@ xcodebuild -project 'AI 記帳.xcodeproj' \
 | iOS | Simulator | Advance: others advanced me | Create -> edit -> repayment -> delete stays consistent |
 | iOS | Physical device | Backup export/import | Exported JSON re-imports cleanly |
 | Android | Emulator | Import fixture JSON | Data imports successfully with no crash |
+| Android | Emulator | Main tabs parity smoke | Overview, Ledger, Reports, Accounts, and Settings open with the expected controls |
 | Android | Emulator | Account delete | Predictable result with and without linked transactions |
 | Android | Samsung A53 | Advance split repayment | Two receive accounts can be recorded and shown correctly |
 | Android | Samsung A53 | Advance merge repayment | Two source accounts can be recorded and shown correctly |

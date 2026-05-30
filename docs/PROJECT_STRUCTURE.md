@@ -26,19 +26,23 @@ This document describes the current file layout for `AI 記帳`.
 - `AI 記帳/Views/Common/`: shared cross-feature UI (`DateFilterView`, title helpers).
 - `AI 記帳/Views/Shortcuts/`: quick-entry shortcut editor.
 
-## Android Source (Scaffold Phase)
+## Android Source
 
 - `android/settings.gradle.kts`: Android project settings.
 - `android/build.gradle.kts`: plugin declarations.
 - `android/app/build.gradle.kts`: app module config.
 - `android/app/src/main/java/.../MainActivity.kt`: Compose entry activity.
-- `android/app/src/main/java/.../widget/`: widget provider scaffold.
-- `android/README.md`: Android scaffold notes and local commands.
+- `android/app/src/main/java/.../core/`: Android domain models and pure parity logic.
+- `android/app/src/main/java/.../data/`: Room database, repositories, import/export, secure settings, and WebDAV support.
+- `android/app/src/main/java/.../ui/`: Compose screens, navigation, and parity UI components.
+- `android/app/src/main/java/.../widget/`: Android-only summary widget provider.
+- `android/app/src/test/`: Android unit tests and parity fixtures.
+- `android/README.md`: Android build, test, and local setup notes.
 
 ## CI and Automation
 
 - `.github/workflows/ios-ci.yml`: iOS build and string catalog validation.
-- `.github/workflows/android-ci.yml`: Android scaffold build and unit tests.
+- `.github/workflows/android-ci.yml`: Android build and unit tests.
 - `.github/pull_request_template.md`: PR quality and compatibility checklist.
 
 ## Repository Docs

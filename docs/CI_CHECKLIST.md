@@ -3,7 +3,7 @@
 Status: Active  
 Last updated: 2026-04-18
 
-This checklist is the baseline for PR quality gates for dual-platform delivery.
+This checklist is the baseline for PR quality gates for dual-platform delivery. Treat Android as a maintained implementation when deciding affected-platform validation.
 
 ## 1. Required GitHub Checks
 
