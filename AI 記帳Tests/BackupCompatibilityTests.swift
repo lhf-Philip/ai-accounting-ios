@@ -4,7 +4,7 @@ import SwiftData
 
 @MainActor
 final class BackupCompatibilityTests: XCTestCase {
-    func testLegacyAdvanceFixture_roundTripsWithoutHealthIssues() async throws {
+    func testLegacyAdvanceFixture_roundTripsWithBorrowedAdvanceWarning() async throws {
         let container = try makeInMemoryContainer()
         let modelContext = ModelContext(container)
 
@@ -13,7 +13,8 @@ final class BackupCompatibilityTests: XCTestCase {
 
         let initialReport = DataHealthCheckService.run(modelContext: modelContext)
         XCTAssertEqual(0, initialReport.errorCount)
-        XCTAssertEqual(0, initialReport.warningCount)
+        XCTAssertEqual(1, initialReport.warningCount)
+        XCTAssertTrue(initialReport.issues.contains { $0.title == "他人代墊我舊資料會虛增自己帳戶" })
 
         let exported = BackupManager.shared.createBackupData(modelContext: modelContext)
         XCTAssertEqual(5, exported.accounts.count)
@@ -31,7 +32,8 @@ final class BackupCompatibilityTests: XCTestCase {
 
         let secondReport = DataHealthCheckService.run(modelContext: secondContext)
         XCTAssertEqual(0, secondReport.errorCount)
-        XCTAssertEqual(0, secondReport.warningCount)
+        XCTAssertEqual(1, secondReport.warningCount)
+        XCTAssertTrue(secondReport.issues.contains { $0.title == "他人代墊我舊資料會虛增自己帳戶" })
 
         let cases = try secondContext.fetch(FetchDescriptor<AdvanceCase>())
         XCTAssertEqual(2, cases.count)
@@ -218,6 +220,138 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertEqual(1, histories.count)
         XCTAssertEqual("2026-03|\(categoryID.uuidString)", histories.first?.historyKey)
         XCTAssertEqual(Decimal(string: "128.5"), histories.first?.spentAmount)
+    }
+
+    func testBorrowedAdvanceCreation_recordsDebtExpenseWithoutInflatingOwnAccount() async throws {
+        let container = try makeInMemoryContainer()
+        let modelContext = ModelContext(container)
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-21T12:00:00Z"))
+
+        let ownAccount = Account(name: "Wallet", currency: "HKD", type: .cash, baseBalance: 0)
+        let debtAccount = Account(name: "Friend A", currency: "HKD", type: .debt, baseBalance: 0)
+        let category = Category(name: "Food", icon: "fork.knife", colorHex: "#FF8800", kind: .expense)
+        let tag = Tag(name: "Dinner")
+        modelContext.insert(ownAccount)
+        modelContext.insert(debtAccount)
+        modelContext.insert(category)
+        modelContext.insert(tag)
+
+        let advanceCase = try AdvanceService.createAdvanceCase(
+            title: "朋友代付晚餐",
+            date: date,
+            currencyCode: "HKD",
+            myShareAmount: 0,
+            note: "晚餐",
+            payerAccount: nil,
+            category: category,
+            tags: [tag],
+            participants: [.init(debtAccount: debtAccount, owedAmount: 150)],
+            isBorrowedByMe: true,
+            modelContext: modelContext
+        )
+
+        let transactions = try modelContext.fetch(FetchDescriptor<FinancialTransaction>())
+        let ownAccountTransactions = transactions.filter { $0.account?.id == ownAccount.id }
+        let debtTransactions = transactions.filter { $0.account?.id == debtAccount.id }
+
+        XCTAssertNil(advanceCase.payerAccount)
+        XCTAssertEqual(Decimal.zero, advanceCase.myShareAmount)
+        XCTAssertNil(advanceCase.selfExpenseTransactionID)
+        XCTAssertTrue(ownAccountTransactions.isEmpty)
+        XCTAssertEqual(1, debtTransactions.count)
+        XCTAssertEqual(.expense, debtTransactions.first?.type)
+        XCTAssertEqual(.outgoing, debtTransactions.first?.transferSide)
+        XCTAssertNil(debtTransactions.first?.linkedTransactionID)
+        XCTAssertEqual(Decimal(-150), debtTransactions.first?.amount)
+        XCTAssertEqual(category.id, debtTransactions.first?.category?.id)
+        XCTAssertEqual([tag.id], debtTransactions.first?.tags.map(\.id))
+
+        let report = DataHealthCheckService.run(modelContext: modelContext)
+        XCTAssertEqual(0, report.errorCount)
+        XCTAssertEqual(0, report.warningCount)
+    }
+
+    func testLegacyBorrowedAdvanceRepair_removesInflatedIncomingLegAndKeepsExpense() throws {
+        let container = try makeInMemoryContainer()
+        let modelContext = ModelContext(container)
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-21T12:00:00Z"))
+        let groupID = UUID()
+        let outID = UUID()
+        let inID = UUID()
+
+        let ownAccount = Account(name: "Wallet", currency: "HKD", type: .cash, baseBalance: 0)
+        let debtAccount = Account(name: "Friend A", currency: "HKD", type: .debt, baseBalance: 0)
+        let category = Category(name: "Food", icon: "fork.knife", colorHex: "#FF8800", kind: .expense)
+        let advanceCase = AdvanceCase(
+            title: "朋友代付晚餐",
+            date: date,
+            currencyCode: "HKD",
+            myShareAmount: 0,
+            note: "晚餐",
+            payerAccount: ownAccount,
+            expenseCategory: category
+        )
+        let participant = AdvanceParticipant(
+            name: debtAccount.name,
+            owedAmount: 150,
+            initialTransferGroupID: groupID,
+            advanceCase: advanceCase,
+            debtAccount: debtAccount
+        )
+        let legacyOutgoing = FinancialTransaction(
+            id: outID,
+            amount: -150,
+            currencyCode: "HKD",
+            date: date,
+            note: "晚餐 (他人代墊我)",
+            type: .transfer,
+            linkedTransactionID: inID,
+            transferGroupID: groupID,
+            transferSide: .outgoing,
+            account: debtAccount
+        )
+        let inflatedIncoming = FinancialTransaction(
+            id: inID,
+            amount: 150,
+            currencyCode: "HKD",
+            date: date,
+            note: "晚餐 (入到自己帳戶)",
+            type: .transfer,
+            linkedTransactionID: outID,
+            transferGroupID: groupID,
+            transferSide: .incoming,
+            account: ownAccount
+        )
+
+        modelContext.insert(ownAccount)
+        modelContext.insert(debtAccount)
+        modelContext.insert(category)
+        modelContext.insert(advanceCase)
+        modelContext.insert(participant)
+        modelContext.insert(legacyOutgoing)
+        modelContext.insert(inflatedIncoming)
+        try modelContext.save()
+
+        let initialReport = DataHealthCheckService.run(modelContext: modelContext)
+        XCTAssertTrue(initialReport.issues.contains { $0.title == "他人代墊我舊資料會虛增自己帳戶" })
+
+        let result = try AdvanceService.repairLegacyBorrowedAdvanceAccountInflation(modelContext: modelContext)
+
+        XCTAssertEqual(1, result.repairedParticipantCount)
+        XCTAssertEqual(1, result.removedInflatedAccountTransactionCount)
+
+        let transactions = try modelContext.fetch(FetchDescriptor<FinancialTransaction>())
+        let repaired = try XCTUnwrap(transactions.first(where: { $0.id == outID }))
+        XCTAssertNil(transactions.first(where: { $0.id == inID }))
+        XCTAssertEqual(.expense, repaired.type)
+        XCTAssertEqual(.outgoing, repaired.transferSide)
+        XCTAssertNil(repaired.linkedTransactionID)
+        XCTAssertEqual(category.id, repaired.category?.id)
+        XCTAssertNil(advanceCase.payerAccount)
+
+        let repairedReport = DataHealthCheckService.run(modelContext: modelContext)
+        XCTAssertFalse(repairedReport.issues.contains { $0.title == "他人代墊我舊資料會虛增自己帳戶" })
+        XCTAssertEqual(0, repairedReport.errorCount)
     }
 
     private func makeInMemoryContainer() throws -> ModelContainer {

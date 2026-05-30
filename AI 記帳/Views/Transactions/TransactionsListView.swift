@@ -688,7 +688,7 @@ private struct AdvanceCaseSummaryRow: View {
     }
 
     private var summaryLine: String {
-        let payer = advanceCase.payerAccount?.name ?? "未指定付款帳戶"
+        let payer = advanceCase.payerAccount?.name ?? "他人代付（不影響自己帳戶）"
         return "\(advanceCase.participants.count) 人 · \(payer)"
     }
 }

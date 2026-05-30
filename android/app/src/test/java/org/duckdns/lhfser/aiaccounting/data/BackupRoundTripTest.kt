@@ -15,7 +15,9 @@ import org.duckdns.lhfser.aiaccounting.data.db.AIAccountingDatabase
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.RecurringRuleEntity
+import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
+import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceParticipantInput
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -148,6 +150,103 @@ class BackupRoundTripTest {
             val secondReport = secondRepository.buildDataHealthReport()
             assertFalse(secondReport.issues.any { it.title == "收入交易記到了借貸帳戶" })
             assertFalse(secondReport.issues.any { it.title == "收入捷徑綁到了借貸帳戶" })
+            assertEquals(0, secondReport.errorCount)
+        } finally {
+            secondDatabase.close()
+        }
+    }
+
+    @Test
+    fun borrowedAdvanceCreation_recordsDebtExpenseWithoutInflatingOwnAccount() = runBlocking {
+        val ownAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            name = "Wallet",
+            currency = "HKD",
+            type = AccountType.Cash,
+            baseBalance = BigDecimal.ZERO,
+            sortOrder = 0,
+            isArchived = false
+        )
+        val debtAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            name = "Friend A",
+            currency = "HKD",
+            type = AccountType.Debt,
+            baseBalance = BigDecimal.ZERO,
+            sortOrder = 1,
+            isArchived = false
+        )
+        val category = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Food",
+            icon = "fork.knife",
+            colorHex = "#FF8800",
+            kind = CategoryKind.Expense
+        )
+        val tag = TagEntity(UUID.randomUUID(), "Dinner")
+        database.accountDao().upsertAll(listOf(ownAccount, debtAccount))
+        database.categoryDao().upsert(category)
+        database.tagDao().upsert(tag)
+
+        val caseId = repository.createAdvanceCase(
+            title = "朋友代付晚餐",
+            date = Instant.parse("2026-03-21T12:00:00Z"),
+            currencyCode = "HKD",
+            myShareAmount = BigDecimal.ZERO,
+            note = "晚餐",
+            payerAccount = null,
+            expenseCategory = category,
+            tagIds = listOf(tag.id),
+            participants = listOf(AdvanceParticipantInput(debtAccount, BigDecimal("150"))),
+            isBorrowedByMe = true
+        )
+
+        val advanceCase = checkNotNull(repository.getAdvanceCase(caseId))
+        val transactions = database.transactionDao().getAllWithDetails()
+        val ownAccountTransactions = transactions.filter { it.transaction.accountId == ownAccount.id }
+        val debtTransactions = transactions.filter { it.transaction.accountId == debtAccount.id }
+        val transactionTags = database.transactionDao().getTransactionTags()
+
+        assertNull(advanceCase.payerAccount)
+        assertEquals(BigDecimal.ZERO, advanceCase.advanceCase.myShareAmount)
+        assertNull(advanceCase.advanceCase.selfExpenseTransactionId)
+        assertTrue(ownAccountTransactions.isEmpty())
+        assertEquals(1, debtTransactions.size)
+        assertEquals(TransactionType.Expense, debtTransactions.single().transaction.type)
+        assertEquals(BigDecimal("-150"), debtTransactions.single().transaction.amount)
+        assertEquals(category.id, debtTransactions.single().transaction.categoryId)
+        assertTrue(transactionTags.any { it.transactionId == debtTransactions.single().transaction.id && it.tagId == tag.id })
+
+        val report = repository.buildDataHealthReport()
+        assertEquals(0, report.errorCount)
+        assertEquals(0, report.warningCount)
+    }
+
+    @Test
+    fun legacyBorrowedAdvanceRepair_removesInflatedIncomingLegAndReimportsCleanly() = runBlocking {
+        val fixtureJson = loadFixture("fixtures/legacy_bidirectional_advances.json")
+
+        repository.importBackupJson(fixtureJson, replaceExisting = true)
+        val initialReport = repository.buildDataHealthReport()
+        assertTrue(initialReport.issues.any { it.title == "他人代墊我舊資料會虛增自己帳戶" })
+
+        val result = repository.repairLegacyBorrowedAdvanceAccountInflation()
+
+        assertEquals(1, result.repairedParticipantCount)
+        assertEquals(1, result.removedInflatedAccountTransactionCount)
+
+        val repairedReport = repository.buildDataHealthReport()
+        assertFalse(repairedReport.issues.any { it.title == "他人代墊我舊資料會虛增自己帳戶" })
+        assertEquals(0, repairedReport.errorCount)
+        assertEquals(0, repairedReport.warningCount)
+
+        val exportedJson = repository.exportBackupJson()
+        val secondDatabase = buildDatabase()
+        try {
+            val secondRepository = AccountingRepository(secondDatabase, currencyService)
+            secondRepository.importBackupJson(exportedJson, replaceExisting = true)
+            val secondReport = secondRepository.buildDataHealthReport()
+            assertFalse(secondReport.issues.any { it.title == "他人代墊我舊資料會虛增自己帳戶" })
             assertEquals(0, secondReport.errorCount)
         } finally {
             secondDatabase.close()

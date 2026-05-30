@@ -529,7 +529,7 @@ private fun AdvanceSummaryRow(
     val outstanding = item.participants.fold(BigDecimal.ZERO) { acc, participant ->
         acc + (participant.owedAmount - participant.repaidAmount).max(BigDecimal.ZERO)
     }
-    val payerText = item.payerAccount?.name ?: "未指定付款帳戶"
+    val payerText = item.payerAccount?.name ?: "他人代付（不影響自己帳戶）"
 
     PressableCard(
         modifier = Modifier.fillMaxWidth(),
