@@ -271,6 +271,38 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertEqual(0, report.warningCount)
     }
 
+    func testBorrowedAdvanceWithoutCategory_reportsUncategorisedExpenseWarning() throws {
+        let container = try makeInMemoryContainer()
+        let modelContext = ModelContext(container)
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-21T12:00:00Z"))
+
+        let debtAccount = Account(name: "Friend A", currency: "HKD", type: .debt, baseBalance: 0)
+        modelContext.insert(debtAccount)
+        try modelContext.save()
+
+        _ = try AdvanceService.createAdvanceCase(
+            title: "朋友代付晚餐",
+            date: date,
+            currencyCode: "HKD",
+            myShareAmount: 0,
+            note: "晚餐",
+            payerAccount: nil,
+            category: nil,
+            tags: [],
+            participants: [.init(debtAccount: debtAccount, owedAmount: 150)],
+            isBorrowedByMe: true,
+            modelContext: modelContext
+        )
+
+        let report = DataHealthCheckService.run(modelContext: modelContext)
+
+        XCTAssertEqual(0, report.errorCount)
+        XCTAssertTrue(report.issues.contains { issue in
+            issue.title == "他人代墊我缺少支出分類" &&
+            issue.detail.contains("1 筆")
+        })
+    }
+
     func testLegacyBorrowedAdvanceRepair_removesInflatedIncomingLegAndKeepsExpense() throws {
         let container = try makeInMemoryContainer()
         let modelContext = ModelContext(container)

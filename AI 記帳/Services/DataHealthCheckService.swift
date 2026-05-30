@@ -356,12 +356,66 @@ enum DataHealthCheckService {
             )
         }
 
+        checkBorrowedAdvanceExpenseCategories(
+            participants: participants,
+            transactions: transactions,
+            into: &issues
+        )
+
         checkAdvanceTransferMappings(
             participants: participants,
             repayments: repayments,
             transactions: transactions,
             into: &issues
         )
+    }
+
+    private static func checkBorrowedAdvanceExpenseCategories(
+        participants: [AdvanceParticipant],
+        transactions: [FinancialTransaction],
+        into issues: inout [HealthIssue]
+    ) {
+        let groupedTransfers = Dictionary(grouping: transactions.filter { $0.transferGroupID != nil }) {
+            $0.transferGroupID!
+        }
+
+        var missingCategoryExpenseCount = 0
+
+        for participant in participants {
+            guard
+                let advanceCase = participant.advanceCase,
+                advanceCase.payerAccount == nil,
+                let debtAccountID = participant.debtAccount?.id,
+                let groupID = participant.initialTransferGroupID,
+                let group = groupedTransfers[groupID]
+            else {
+                continue
+            }
+
+            let borrowedExpenseTransactions = group.filter {
+                $0.type == .expense &&
+                ($0.transferSide == .outgoing || $0.amount < 0) &&
+                $0.account?.id == debtAccountID
+            }
+
+            guard !borrowedExpenseTransactions.isEmpty else { continue }
+
+            let caseCategoryMissing = advanceCase.expenseCategory == nil
+            missingCategoryExpenseCount += borrowedExpenseTransactions.filter {
+                caseCategoryMissing || $0.category == nil
+            }.count
+        }
+
+        if missingCategoryExpenseCount > 0 {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "他人代墊我缺少支出分類",
+                    detail: "共有 \(missingCategoryExpenseCount) 筆他人代墊我支出未設定分類，會出現在未分類支出。",
+                    recommendation: "請從報表明細、帳目頁或代墊詳情打開對應帳目，補上支出分類。"
+                )
+            )
+        }
     }
 
     private static func checkAdvanceTransferMappings(

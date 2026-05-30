@@ -370,7 +370,52 @@ object DataHealthChecker {
             )
         }
 
+        checkBorrowedAdvanceExpenseCategories(cases, participants, transactions, issues)
         checkAdvanceTransferMappings(cases, participants, repayments, transactions, issues)
+    }
+
+    private fun checkBorrowedAdvanceExpenseCategories(
+        cases: List<AdvanceCaseWithDetails>,
+        participants: List<AdvanceParticipantEntity>,
+        transactions: List<TransactionWithDetails>,
+        issues: MutableList<HealthIssue>
+    ) {
+        val casesById = cases.associateBy { it.advanceCase.id }
+        val groupedTransfers = transactions
+            .filter { it.transaction.transferGroupId != null }
+            .groupBy { it.transaction.transferGroupId!! }
+
+        var missingCategoryExpenseCount = 0
+
+        participants.forEach { participant ->
+            val caseDetails = participant.advanceCaseId?.let { casesById[it] } ?: return@forEach
+            if (caseDetails.advanceCase.payerAccountId != null) return@forEach
+
+            val debtAccountId = participant.debtAccountId ?: return@forEach
+            val groupId = participant.initialTransferGroupId ?: return@forEach
+            val group = groupedTransfers[groupId] ?: return@forEach
+
+            val borrowedExpenseTransactions = group.filter {
+                it.transaction.type == TransactionType.Expense &&
+                    (it.transaction.transferSide == TransferSide.Outgoing || it.transaction.amount < BigDecimal.ZERO) &&
+                    it.transaction.accountId == debtAccountId
+            }
+            if (borrowedExpenseTransactions.isEmpty()) return@forEach
+
+            val caseCategoryMissing = caseDetails.advanceCase.expenseCategoryId == null || caseDetails.expenseCategory == null
+            missingCategoryExpenseCount += borrowedExpenseTransactions.count {
+                caseCategoryMissing || it.transaction.categoryId == null || it.category == null
+            }
+        }
+
+        if (missingCategoryExpenseCount > 0) {
+            issues += HealthIssue(
+                severity = HealthSeverity.Warning,
+                title = "他人代墊我缺少支出分類",
+                detail = "共有 $missingCategoryExpenseCount 筆他人代墊我支出未設定分類，會出現在未分類支出。",
+                recommendation = "請從報表明細、帳目頁或代墊詳情打開對應帳目，補上支出分類。"
+            )
+        }
     }
 
     private fun checkAdvanceTransferMappings(
