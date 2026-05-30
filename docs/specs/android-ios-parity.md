@@ -5,6 +5,13 @@
 - Android should match iOS page structure, wording, navigation rhythm, and core feature coverage.
 - The only accepted platform-specific extension is the Android widget.
 
+
+## Current Status
+- Android is an active Compose implementation with Room persistence, core finance flows, and parity validation.
+- iOS remains the source of truth for screen structure, copy, and flow semantics.
+- Parity waves 1-8 established the app shell, top-level screens, deep editor polish, guide flow, report/account alignment, and safe bottom spacing.
+- Remaining work should be tracked as specific parity deltas, not as a broad Android rewrite.
+
 ## Top-Level Screens
 
 ### Overview
@@ -64,8 +71,9 @@
 - Bottom tab and floating add button do not overlap hit targets.
 - Add sheet routes match iOS ordering and wording.
 - Receipt scan, debt entry, account detail all exist on Android.
-- Android build and unit tests pass after each parity wave.
-- iOS build passes after each parity wave to protect source-of-truth stability.
+- Android build and unit tests pass for parity-facing changes.
+- iOS build passes after source-of-truth changes to protect parity stability.
+- Documentation updates should distinguish completed parity waves from remaining deltas.
 
 
 ## Wave 2 Refinements
