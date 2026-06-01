@@ -14,6 +14,7 @@ private struct SettlementPersonSummary: Identifiable {
     let account: Account
     let name: String
     let balances: [SettlementCurrencyBalance]
+    let offsetCandidates: [AdvanceService.MutualDebtOffsetCandidate]
     let netBalanceInMainCurrency: Decimal
     let advanceCaseCount: Int
     let repaymentCount: Int
@@ -58,6 +59,7 @@ private struct SettlementDebtRoute: Identifiable, Hashable {
 }
 
 struct SettlementCenterView: View {
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \Account.sortOrder) private var accounts: [Account]
     @Query(sort: \AdvanceCase.date, order: .reverse) private var advanceCases: [AdvanceCase]
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
@@ -67,6 +69,7 @@ struct SettlementCenterView: View {
     @State private var selectedPerson: SettlementPersonSummary?
     @State private var timelineFilter: SettlementTimelineFilter?
     @State private var debtRoute: SettlementDebtRoute?
+    @State private var statusMessage: String?
 
     private var activeDebtAccounts: [Account] {
         accounts.filter { $0.type == .debt && !$0.isArchived }
@@ -79,6 +82,16 @@ struct SettlementCenterView: View {
             let forgiveness = transactions.filter {
                 $0.account?.id == account.id && TransactionSemantics.isDebtForgiveness(note: $0.note)
             }
+            let offsetCandidates = Set(participants.compactMap { $0.advanceCase?.currencyCode })
+                .compactMap {
+                    AdvanceService.mutualDebtOffsetCandidate(
+                        debtAccount: account,
+                        currencyCode: $0,
+                        advanceCases: advanceCases,
+                        modelContext: modelContext
+                    )
+                }
+                .sorted { $0.currencyCode < $1.currencyCode }
             let caseCount = Set(participants.compactMap { $0.advanceCase?.id }).count
             let balances = balances(for: account)
             let netInMainCurrency = balances.reduce(Decimal.zero) { partial, balance in
@@ -94,6 +107,7 @@ struct SettlementCenterView: View {
                 account: account,
                 name: account.name,
                 balances: balances,
+                offsetCandidates: offsetCandidates,
                 netBalanceInMainCurrency: netInMainCurrency,
                 advanceCaseCount: caseCount,
                 repaymentCount: repayments.count,
@@ -134,7 +148,8 @@ struct SettlementCenterView: View {
             )
         }
 
-        items += advanceCases.flatMap(\.repayments).map { repayment in
+        let allRepayments = advanceCases.flatMap(\.repayments)
+        items += allRepayments.filter { !AdvanceService.isMutualDebtOffset(note: $0.note) }.map { repayment in
             SettlementTimelineItem(
                 id: "repayment-\(repayment.id.uuidString)",
                 relatedAccountID: repayment.participant?.debtAccount?.id,
@@ -144,6 +159,26 @@ struct SettlementCenterView: View {
                 amount: repayment.amount,
                 currencyCode: repayment.currencyCode,
                 tint: .green
+            )
+        }
+
+        let offsetRepaymentsByID = Dictionary(grouping: allRepayments.compactMap { repayment -> (UUID, AdvanceRepayment)? in
+            guard let offsetID = AdvanceService.mutualDebtOffsetID(from: repayment.note) else { return nil }
+            return (offsetID, repayment)
+        }) { $0.0 }
+        items += offsetRepaymentsByID.compactMap { offsetID, entries in
+            let repayments = entries.map(\.1)
+            guard let first = repayments.first else { return nil }
+            let total = repayments.reduce(Decimal.zero) { $0 + $1.amount } / 2
+            return SettlementTimelineItem(
+                id: "offset-\(offsetID.uuidString)",
+                relatedAccountID: first.participant?.debtAccount?.id,
+                date: first.date,
+                title: "債務抵銷",
+                subtitle: first.participant?.debtAccount?.name ?? "互相代墊抵銷",
+                amount: total,
+                currencyCode: first.currencyCode,
+                tint: .teal
             )
         }
 
@@ -262,10 +297,25 @@ struct SettlementCenterView: View {
         .task {
             await currencyService.fetchRates()
         }
+        .alert("結算中心", isPresented: Binding(
+            get: { statusMessage != nil },
+            set: { if !$0 { statusMessage = nil } }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(statusMessage ?? "")
+        }
         .confirmationDialog("結算動作", isPresented: Binding(
             get: { selectedPerson != nil },
             set: { if !$0 { selectedPerson = nil } }
         ), titleVisibility: .visible) {
+            if let summary = selectedPerson {
+                ForEach(summary.offsetCandidates) { candidate in
+                    Button("抵銷 \(candidate.amount.formatted(.currency(code: candidate.currencyCode)))") {
+                        recordOffset(candidate)
+                    }
+                }
+            }
             if let summary = selectedPerson, summary.netBalanceInMainCurrency > 0 {
                 Button("記錄對方還款") {
                     selectedPerson = nil
@@ -315,7 +365,10 @@ struct SettlementCenterView: View {
             Button("取消", role: .cancel) {}
         } message: {
             if let summary = selectedPerson {
-                Text("\(summary.name)：\(directionText(for: summary.netBalanceInMainCurrency))")
+                let offsetText = summary.offsetCandidates.first.map {
+                    "\n可抵銷：\($0.amount.formatted(.currency(code: $0.currencyCode)))"
+                } ?? ""
+                Text("\(summary.name)：\(directionText(for: summary.netBalanceInMainCurrency))\(offsetText)")
             }
         }
         .navigationDestination(isPresented: Binding(
@@ -378,6 +431,9 @@ struct SettlementCenterView: View {
                             settlementPill("代墊 \(summary.advanceCaseCount)")
                             settlementPill("還款 \(summary.repaymentCount)")
                             settlementPill("免除 \(summary.forgivenessCount)")
+                            if let offset = summary.offsetCandidates.first {
+                                settlementPill("可抵銷 \(offset.amount.formatted(.currency(code: offset.currencyCode)))")
+                            }
                         }
 
                         if let latest = summary.latestActivityDate {
@@ -558,5 +614,20 @@ struct SettlementCenterView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+    }
+
+    private func recordOffset(_ candidate: AdvanceService.MutualDebtOffsetCandidate) {
+        do {
+            let result = try AdvanceService.recordMutualDebtOffset(
+                debtAccount: candidate.debtAccount,
+                currencyCode: candidate.currencyCode,
+                modelContext: modelContext
+            )
+            selectedPerson = nil
+            statusMessage = "已抵銷 \(result.amount.formatted(.currency(code: result.currencyCode)))。"
+        } catch {
+            selectedPerson = nil
+            statusMessage = error.localizedDescription
+        }
     }
 }
