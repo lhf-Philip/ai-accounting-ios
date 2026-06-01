@@ -303,6 +303,81 @@ final class BackupCompatibilityTests: XCTestCase {
         })
     }
 
+    func testMutualDebtOffset_settlesBidirectionalAdvancesWithoutTransactions() throws {
+        let container = try makeInMemoryContainer()
+        let modelContext = ModelContext(container)
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-21T12:00:00Z"))
+
+        let ownAccount = Account(name: "Wallet", currency: "HKD", type: .cash, baseBalance: 0)
+        let debtAccount = Account(name: "Friend A", currency: "HKD", type: .debt, baseBalance: 0)
+        modelContext.insert(ownAccount)
+        modelContext.insert(debtAccount)
+        try modelContext.save()
+
+        let receivableCase = try AdvanceService.createAdvanceCase(
+            title: "我先付晚餐",
+            date: date,
+            currencyCode: "HKD",
+            myShareAmount: 0,
+            note: "",
+            payerAccount: ownAccount,
+            category: nil,
+            tags: [],
+            participants: [.init(debtAccount: debtAccount, owedAmount: 100)],
+            isBorrowedByMe: false,
+            modelContext: modelContext
+        )
+        let payableCase = try AdvanceService.createAdvanceCase(
+            title: "朋友先付車費",
+            date: date.addingTimeInterval(60),
+            currencyCode: "HKD",
+            myShareAmount: 0,
+            note: "",
+            payerAccount: nil,
+            category: nil,
+            tags: [],
+            participants: [.init(debtAccount: debtAccount, owedAmount: 40)],
+            isBorrowedByMe: true,
+            modelContext: modelContext
+        )
+
+        let beforeTransactions = try modelContext.fetch(FetchDescriptor<FinancialTransaction>()).count
+        let candidate = try XCTUnwrap(
+            AdvanceService.mutualDebtOffsetCandidate(
+                debtAccount: debtAccount,
+                currencyCode: "HKD",
+                advanceCases: [receivableCase, payableCase],
+                modelContext: modelContext
+            )
+        )
+        XCTAssertEqual(Decimal(40), candidate.amount)
+
+        let result = try AdvanceService.recordMutualDebtOffset(
+            debtAccount: debtAccount,
+            currencyCode: "HKD",
+            date: date,
+            modelContext: modelContext
+        )
+
+        XCTAssertEqual(Decimal(40), result.amount)
+        XCTAssertEqual(2, result.repaymentCount)
+        XCTAssertEqual(beforeTransactions, try modelContext.fetch(FetchDescriptor<FinancialTransaction>()).count)
+        XCTAssertEqual(Decimal(60), receivableCase.participants.first?.remainingAmount)
+        XCTAssertEqual(Decimal.zero, payableCase.participants.first?.remainingAmount)
+
+        let repayments = try modelContext.fetch(FetchDescriptor<AdvanceRepayment>())
+        XCTAssertEqual(2, repayments.count)
+        XCTAssertTrue(repayments.allSatisfy { AdvanceService.mutualDebtOffsetID(from: $0.note) == result.offsetGroupID })
+
+        let rollbackCount = try AdvanceService.rollbackMutualDebtOffset(
+            offsetGroupID: result.offsetGroupID,
+            modelContext: modelContext
+        )
+        XCTAssertEqual(2, rollbackCount)
+        XCTAssertEqual(Decimal(100), receivableCase.participants.first?.remainingAmount)
+        XCTAssertEqual(Decimal(40), payableCase.participants.first?.remainingAmount)
+    }
+
     func testLegacyBorrowedAdvanceRepair_removesInflatedIncomingLegAndKeepsExpense() throws {
         let container = try makeInMemoryContainer()
         let modelContext = ModelContext(container)

@@ -83,8 +83,27 @@ enum AdvanceService {
         let repairedParticipantCount: Int
         let removedInflatedAccountTransactionCount: Int
     }
+
+    struct MutualDebtOffsetCandidate: Identifiable {
+        let id = UUID()
+        let debtAccount: Account
+        let currencyCode: String
+        let amount: Decimal
+        let receivableAmount: Decimal
+        let payableAmount: Decimal
+        let receivableParticipantCount: Int
+        let payableParticipantCount: Int
+    }
+
+    struct MutualDebtOffsetResult {
+        let offsetGroupID: UUID
+        let amount: Decimal
+        let currencyCode: String
+        let repaymentCount: Int
+    }
     
     private static let roundingTolerance = Decimal(string: "0.0001") ?? 0.0001
+    static let mutualDebtOffsetMarkerPrefix = "[債務抵銷:"
     
     static func totalAdvanced(for advanceCase: AdvanceCase) -> Decimal {
         advanceCase.myShareAmount + advanceCase.participants.reduce(Decimal.zero) { $0 + $1.owedAmount }
@@ -94,6 +113,122 @@ enum AdvanceService {
         advanceCase.participants.reduce(Decimal.zero) { partial, participant in
             partial + participant.remainingAmount
         }
+    }
+
+    static func isMutualDebtOffset(note: String) -> Bool {
+        note.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(mutualDebtOffsetMarkerPrefix)
+    }
+
+    static func mutualDebtOffsetID(from note: String) -> UUID? {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix(mutualDebtOffsetMarkerPrefix),
+              let closeIndex = trimmed.firstIndex(of: "]") else {
+            return nil
+        }
+        let startIndex = trimmed.index(trimmed.startIndex, offsetBy: mutualDebtOffsetMarkerPrefix.count)
+        return UUID(uuidString: String(trimmed[startIndex..<closeIndex]))
+    }
+
+    @MainActor
+    static func mutualDebtOffsetCandidate(
+        debtAccount: Account,
+        currencyCode: String,
+        advanceCases: [AdvanceCase],
+        modelContext: ModelContext
+    ) -> MutualDebtOffsetCandidate? {
+        let offsetable = offsetableParticipants(
+            debtAccount: debtAccount,
+            currencyCode: currencyCode,
+            advanceCases: advanceCases,
+            modelContext: modelContext
+        )
+        let receivableAmount = offsetable.receivable.reduce(Decimal.zero) { $0 + $1.participant.remainingAmount }
+        let payableAmount = offsetable.payable.reduce(Decimal.zero) { $0 + $1.participant.remainingAmount }
+        let amount = min(receivableAmount, payableAmount)
+        guard amount > roundingTolerance else { return nil }
+        return MutualDebtOffsetCandidate(
+            debtAccount: debtAccount,
+            currencyCode: currencyCode,
+            amount: amount,
+            receivableAmount: receivableAmount,
+            payableAmount: payableAmount,
+            receivableParticipantCount: offsetable.receivable.count,
+            payableParticipantCount: offsetable.payable.count
+        )
+    }
+
+    @MainActor
+    static func recordMutualDebtOffset(
+        debtAccount: Account,
+        currencyCode: String,
+        date: Date = Date(),
+        note: String = "",
+        modelContext: ModelContext
+    ) throws -> MutualDebtOffsetResult {
+        let advanceCases = try modelContext.fetch(FetchDescriptor<AdvanceCase>())
+        let offsetable = offsetableParticipants(
+            debtAccount: debtAccount,
+            currencyCode: currencyCode,
+            advanceCases: advanceCases,
+            modelContext: modelContext
+        )
+        let receivableAmount = offsetable.receivable.reduce(Decimal.zero) { $0 + $1.participant.remainingAmount }
+        let payableAmount = offsetable.payable.reduce(Decimal.zero) { $0 + $1.participant.remainingAmount }
+        let offsetAmount = min(receivableAmount, payableAmount)
+        guard offsetAmount > roundingTolerance else {
+            throw AdvanceServiceError.invalidRepaymentAmount
+        }
+
+        let offsetGroupID = UUID()
+        let baseNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let marker = "\(mutualDebtOffsetMarkerPrefix)\(offsetGroupID.uuidString)]"
+        let finalNote = baseNote.isEmpty ? "\(marker) 與 \(debtAccount.name) 互相代墊抵銷" : "\(marker) \(baseNote)"
+        var repaymentCount = 0
+
+        repaymentCount += applyMutualDebtOffset(
+            amount: offsetAmount,
+            entries: offsetable.receivable,
+            date: date,
+            note: finalNote,
+            modelContext: modelContext
+        )
+        repaymentCount += applyMutualDebtOffset(
+            amount: offsetAmount,
+            entries: offsetable.payable,
+            date: date,
+            note: finalNote,
+            modelContext: modelContext
+        )
+
+        try modelContext.save()
+        return MutualDebtOffsetResult(
+            offsetGroupID: offsetGroupID,
+            amount: offsetAmount,
+            currencyCode: currencyCode,
+            repaymentCount: repaymentCount
+        )
+    }
+
+    @MainActor
+    static func rollbackMutualDebtOffset(
+        offsetGroupID: UUID,
+        modelContext: ModelContext
+    ) throws -> Int {
+        let repayments = try modelContext.fetch(FetchDescriptor<AdvanceRepayment>())
+            .filter { mutualDebtOffsetID(from: $0.note) == offsetGroupID }
+        guard !repayments.isEmpty else { return 0 }
+
+        for repayment in repayments {
+            if let participant = repayment.participant {
+                let updated = participant.repaidAmount - repayment.normalizedAmount
+                participant.repaidAmount = updated > 0 ? updated : 0
+                participant.updatedAt = Date()
+            }
+            repayment.advanceCase?.updatedAt = Date()
+            modelContext.delete(repayment)
+        }
+        try modelContext.save()
+        return repayments.count
     }
     
     @MainActor
@@ -514,6 +649,88 @@ enum AdvanceService {
         advanceCase.updatedAt = Date()
         
         try modelContext.save()
+    }
+
+    private struct OffsetParticipantEntry {
+        let participant: AdvanceParticipant
+        let advanceCase: AdvanceCase
+    }
+
+    @MainActor
+    private static func offsetableParticipants(
+        debtAccount: Account,
+        currencyCode: String,
+        advanceCases: [AdvanceCase],
+        modelContext: ModelContext
+    ) -> (receivable: [OffsetParticipantEntry], payable: [OffsetParticipantEntry]) {
+        var receivable: [OffsetParticipantEntry] = []
+        var payable: [OffsetParticipantEntry] = []
+
+        for advanceCase in advanceCases where advanceCase.currencyCode == currencyCode {
+            for participant in advanceCase.participants {
+                guard participant.debtAccount?.id == debtAccount.id,
+                      participant.remainingAmount > roundingTolerance else {
+                    continue
+                }
+                let entry = OffsetParticipantEntry(participant: participant, advanceCase: advanceCase)
+                switch inferSettlementDirection(for: participant, modelContext: modelContext) {
+                case .iAdvancedOthers:
+                    receivable.append(entry)
+                case .othersAdvancedMe:
+                    payable.append(entry)
+                }
+            }
+        }
+
+        let byDate: (OffsetParticipantEntry, OffsetParticipantEntry) -> Bool = {
+            if $0.advanceCase.date == $1.advanceCase.date {
+                return $0.participant.createdAt < $1.participant.createdAt
+            }
+            return $0.advanceCase.date < $1.advanceCase.date
+        }
+        return (receivable.sorted(by: byDate), payable.sorted(by: byDate))
+    }
+
+    @MainActor
+    private static func applyMutualDebtOffset(
+        amount: Decimal,
+        entries: [OffsetParticipantEntry],
+        date: Date,
+        note: String,
+        modelContext: ModelContext
+    ) -> Int {
+        var remaining = amount
+        var repaymentCount = 0
+
+        for entry in entries where remaining > roundingTolerance {
+            let allocation = min(entry.participant.remainingAmount, remaining)
+            guard allocation > roundingTolerance else { continue }
+
+            let repayment = AdvanceRepayment(
+                amount: allocation,
+                currencyCode: entry.advanceCase.currencyCode,
+                normalizedAmount: allocation,
+                date: date,
+                note: note,
+                linkedTransferGroupID: nil,
+                createdAt: Date(),
+                advanceCase: entry.advanceCase,
+                participant: entry.participant,
+                receivedAccount: nil
+            )
+            modelContext.insert(repayment)
+
+            let updatedRepaid = entry.participant.repaidAmount + allocation
+            entry.participant.repaidAmount = entry.participant.owedAmount - updatedRepaid < roundingTolerance
+                ? entry.participant.owedAmount
+                : updatedRepaid
+            entry.participant.updatedAt = Date()
+            entry.advanceCase.updatedAt = Date()
+            remaining -= allocation
+            repaymentCount += 1
+        }
+
+        return repaymentCount
     }
     
     @MainActor

@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,6 +36,8 @@ import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
+import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
+import org.duckdns.lhfser.aiaccounting.data.repository.MutualDebtOffsetCandidate
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
@@ -50,6 +53,7 @@ import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
+import kotlinx.coroutines.launch
 
 private enum class SettlementMode(val label: String) {
     People("按對象"),
@@ -60,6 +64,7 @@ private enum class SettlementMode(val label: String) {
 private data class SettlementPersonSummary(
     val account: AccountEntity,
     val balances: List<SettlementCurrencyBalance>,
+    val offsetCandidates: List<MutualDebtOffsetCandidate>,
     val netInMainCurrency: BigDecimal,
     val advanceCaseCount: Int,
     val repaymentCount: Int,
@@ -92,6 +97,7 @@ fun SettlementCenterScreen(
     val repository = LocalRepository.current
     val currencyService = LocalCurrencyService.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     val accounts by repository.accounts.collectAsState(initial = emptyList())
     val transactions by repository.transactions.collectAsState(initial = emptyList())
@@ -101,6 +107,7 @@ fun SettlementCenterScreen(
     var mode by rememberSaveable { mutableStateOf(SettlementMode.People) }
     var selectedPerson by remember { mutableStateOf<SettlementPersonSummary?>(null) }
     var timelineFilter by remember { mutableStateOf<SettlementPersonSummary?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
 
     val personSummaries = remember(accounts, transactions, advanceCases, mainCurrency, rateSnapshot) {
         buildPersonSummaries(accounts, transactions, advanceCases, currencyService, mainCurrency)
@@ -251,9 +258,28 @@ fun SettlementCenterScreen(
         AlertDialog(
             onDismissRequest = { selectedPerson = null },
             title = { Text(summary.account.name) },
-            text = { Text("${directionText(summary.netInMainCurrency)} · ${summary.netInMainCurrency.asCurrencyText(mainCurrency)}") },
+            text = {
+                val offsetText = summary.offsetCandidates.firstOrNull()?.let {
+                    "\n可抵銷：${it.amount.asCurrencyText(it.currencyCode)}"
+                }.orEmpty()
+                Text("${directionText(summary.netInMainCurrency)} · ${summary.netInMainCurrency.asCurrencyText(mainCurrency)}$offsetText")
+            },
             confirmButton = {
                 Column {
+                    summary.offsetCandidates.forEach { candidate ->
+                        TextButton(onClick = {
+                            selectedPerson = null
+                            scope.launch {
+                                runCatching {
+                                    repository.recordMutualDebtOffset(candidate.debtAccount.id, candidate.currencyCode)
+                                }.onSuccess {
+                                    message = "已抵銷 ${it.amount.asCurrencyText(it.currencyCode)}。"
+                                }.onFailure {
+                                    message = it.message ?: "債務抵銷失敗。"
+                                }
+                            }
+                        }) { Text("抵銷 ${candidate.amount.asCurrencyText(candidate.currencyCode)}") }
+                    }
                     if (summary.netInMainCurrency.signum() > 0) {
                         TextButton(onClick = {
                             selectedPerson = null
@@ -282,6 +308,17 @@ fun SettlementCenterScreen(
             },
             dismissButton = {
                 TextButton(onClick = { selectedPerson = null }) { Text("取消") }
+            }
+        )
+    }
+
+    message?.let { text ->
+        AlertDialog(
+            onDismissRequest = { message = null },
+            title = { Text("結算中心") },
+            text = { Text(text) },
+            confirmButton = {
+                TextButton(onClick = { message = null }) { Text("知道了") }
             }
         )
     }
@@ -320,6 +357,9 @@ private fun PersonSummaryCard(summary: SettlementPersonSummary, mainCurrency: St
                 ParityStatusPill("代墊 ${summary.advanceCaseCount}", tint = MaterialTheme.colorScheme.tertiary)
                 ParityStatusPill("還款 ${summary.repaymentCount}", tint = MaterialTheme.colorScheme.primary)
                 ParityStatusPill("免除 ${summary.forgivenessCount}", tint = MaterialTheme.colorScheme.secondary)
+                summary.offsetCandidates.firstOrNull()?.let {
+                    ParityStatusPill("可抵銷 ${it.amount.asCurrencyText(it.currencyCode)}", tint = MaterialTheme.colorScheme.primary)
+                }
             }
             summary.balances.drop(1).forEach { balance ->
                 Text(
@@ -422,12 +462,14 @@ private fun buildPersonSummaries(
         val netInMain = balances.fold(BigDecimal.ZERO) { acc, balance ->
             acc + currencyService.convert(balance.amount, balance.currency, mainCurrency)
         }
+        val offsetCandidates = buildOffsetCandidates(account, advanceCases)
         val caseCount = participantsByAccount[account.id].orEmpty().map { it.first.advanceCase.id }.toSet().size
         val repaymentCount = repaymentsByAccount[account.id].orEmpty().size
         val latestActivityDate = latestActivityDate(account, transactions, advanceCases)
         SettlementPersonSummary(
             account = account,
             balances = balances,
+            offsetCandidates = offsetCandidates,
             netInMainCurrency = netInMain,
             advanceCaseCount = caseCount,
             repaymentCount = repaymentCount,
@@ -437,6 +479,47 @@ private fun buildPersonSummaries(
     }
         .filter { it.netInMainCurrency != BigDecimal.ZERO || it.advanceCaseCount > 0 || it.repaymentCount > 0 || it.forgivenessCount > 0 }
         .sortedByDescending { it.netInMainCurrency.abs() }
+}
+
+private fun buildOffsetCandidates(
+    account: AccountEntity,
+    advanceCases: List<AdvanceCaseWithDetails>
+): List<MutualDebtOffsetCandidate> {
+    return advanceCases
+        .filter { advanceCase -> advanceCase.participants.any { it.debtAccountId == account.id } }
+        .map { it.advanceCase.currencyCode }
+        .toSet()
+        .mapNotNull { currency ->
+            val participants = advanceCases
+                .filter { it.advanceCase.currencyCode == currency }
+                .flatMap { advanceCase -> advanceCase.participants.map { advanceCase to it } }
+                .filter { it.second.debtAccountId == account.id }
+            val receivable = participants
+                .filter { it.first.advanceCase.payerAccountId != null }
+                .sumOfBigDecimal { (it.second.owedAmount - it.second.repaidAmount).max(BigDecimal.ZERO) }
+            val payable = participants
+                .filter { it.first.advanceCase.payerAccountId == null }
+                .sumOfBigDecimal { (it.second.owedAmount - it.second.repaidAmount).max(BigDecimal.ZERO) }
+            val amount = receivable.min(payable)
+            if (amount > BigDecimal.ZERO) {
+                MutualDebtOffsetCandidate(
+                    debtAccount = account,
+                    currencyCode = currency,
+                    amount = amount,
+                    receivableAmount = receivable,
+                    payableAmount = payable,
+                    receivableParticipantCount = participants.count { it.first.advanceCase.payerAccountId != null },
+                    payableParticipantCount = participants.count { it.first.advanceCase.payerAccountId == null }
+                )
+            } else {
+                null
+            }
+        }
+        .sortedBy { it.currencyCode }
+}
+
+private inline fun <T> Iterable<T>.sumOfBigDecimal(selector: (T) -> BigDecimal): BigDecimal {
+    return fold(BigDecimal.ZERO) { acc, item -> acc + selector(item) }
 }
 
 private fun calculateDebtBalances(
@@ -483,7 +566,9 @@ private fun buildTimelineItems(
             currencyCode = advanceCase.advanceCase.currencyCode,
             tint = Color(0xFFFF9800)
         )
-        advanceCase.repayments.forEach { repayment ->
+        advanceCase.repayments
+            .filter { !AccountingRepository.isMutualDebtOffset(it.note) }
+            .forEach { repayment ->
             val participant = advanceCase.participants.firstOrNull { it.id == repayment.participantId }
             items += TimelineItem(
                 id = "repayment-${repayment.id}",
@@ -497,6 +582,33 @@ private fun buildTimelineItems(
             )
         }
     }
+
+    advanceCases
+        .flatMap { advanceCase -> advanceCase.repayments.map { repayment -> advanceCase to repayment } }
+        .mapNotNull { (advanceCase, repayment) ->
+            AccountingRepository.mutualDebtOffsetId(repayment.note)?.let { offsetId ->
+                offsetId to (advanceCase to repayment)
+            }
+        }
+        .groupBy { it.first }
+        .forEach { (offsetId, grouped) ->
+            val repayments = grouped.map { it.second.second }
+            val firstCase = grouped.firstOrNull()?.second?.first
+            val first = repayments.firstOrNull()
+            if (first != null) {
+                val participant = firstCase?.participants?.firstOrNull { it.id == first.participantId }
+                items += TimelineItem(
+                    id = "offset-$offsetId",
+                    relatedAccountId = participant?.debtAccountId,
+                    date = first.date,
+                    title = "債務抵銷",
+                    subtitle = participant?.name ?: "互相代墊抵銷",
+                    amount = repayments.sumOfBigDecimal { it.amount }.divide(BigDecimal("2")),
+                    currencyCode = first.currencyCode,
+                    tint = Color(0xFF00897B)
+                )
+            }
+        }
 
     transactions.forEach { tx ->
         val transaction = tx.transaction

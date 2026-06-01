@@ -223,6 +223,80 @@ class BackupRoundTripTest {
     }
 
     @Test
+    fun mutualDebtOffset_settlesBidirectionalAdvancesWithoutTransactions() = runBlocking {
+        val ownAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            name = "Wallet",
+            currency = "HKD",
+            type = AccountType.Cash,
+            baseBalance = BigDecimal.ZERO,
+            sortOrder = 0,
+            isArchived = false
+        )
+        val debtAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            name = "Friend A",
+            currency = "HKD",
+            type = AccountType.Debt,
+            baseBalance = BigDecimal.ZERO,
+            sortOrder = 1,
+            isArchived = false
+        )
+        database.accountDao().upsertAll(listOf(ownAccount, debtAccount))
+
+        val date = Instant.parse("2026-03-21T12:00:00Z")
+        val receivableCaseId = repository.createAdvanceCase(
+            title = "我先付晚餐",
+            date = date,
+            currencyCode = "HKD",
+            myShareAmount = BigDecimal.ZERO,
+            note = "",
+            payerAccount = ownAccount,
+            expenseCategory = null,
+            tagIds = emptyList(),
+            participants = listOf(AdvanceParticipantInput(debtAccount, BigDecimal("100"))),
+            isBorrowedByMe = false
+        )
+        val payableCaseId = repository.createAdvanceCase(
+            title = "朋友先付車費",
+            date = date.plusSeconds(60),
+            currencyCode = "HKD",
+            myShareAmount = BigDecimal.ZERO,
+            note = "",
+            payerAccount = null,
+            expenseCategory = null,
+            tagIds = emptyList(),
+            participants = listOf(AdvanceParticipantInput(debtAccount, BigDecimal("40"))),
+            isBorrowedByMe = true
+        )
+
+        val beforeTransactionCount = database.transactionDao().getAll().size
+        val candidate = checkNotNull(repository.mutualDebtOffsetCandidate(debtAccount.id, "HKD"))
+        assertEquals(BigDecimal("40"), candidate.amount)
+
+        val result = repository.recordMutualDebtOffset(debtAccount.id, "HKD", date)
+
+        assertEquals(BigDecimal("40"), result.amount)
+        assertEquals(2, result.repaymentCount)
+        assertEquals(beforeTransactionCount, database.transactionDao().getAll().size)
+
+        val receivableCase = checkNotNull(repository.getAdvanceCase(receivableCaseId))
+        val payableCase = checkNotNull(repository.getAdvanceCase(payableCaseId))
+        assertEquals(BigDecimal("60"), receivableCase.participants.single().owedAmount - receivableCase.participants.single().repaidAmount)
+        assertEquals(BigDecimal.ZERO, payableCase.participants.single().owedAmount - payableCase.participants.single().repaidAmount)
+
+        val exported = BackupJsonAdapter.gson.fromJson(repository.exportBackupJson(), FullBackupData::class.java)
+        assertEquals(2, exported.advanceRepayments?.count { it.note?.contains("[債務抵銷:") == true })
+
+        val rollbackCount = repository.rollbackMutualDebtOffset(result.offsetGroupId)
+        assertEquals(2, rollbackCount)
+        val rolledBackReceivable = checkNotNull(repository.getAdvanceCase(receivableCaseId))
+        val rolledBackPayable = checkNotNull(repository.getAdvanceCase(payableCaseId))
+        assertEquals(BigDecimal("100"), rolledBackReceivable.participants.single().owedAmount - rolledBackReceivable.participants.single().repaidAmount)
+        assertEquals(BigDecimal("40"), rolledBackPayable.participants.single().owedAmount - rolledBackPayable.participants.single().repaidAmount)
+    }
+
+    @Test
     fun legacyBorrowedAdvanceRepair_removesInflatedIncomingLegAndReimportsCleanly() = runBlocking {
         val fixtureJson = loadFixture("fixtures/legacy_bidirectional_advances.json")
 

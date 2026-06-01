@@ -75,9 +75,27 @@ data class LegacyBorrowedAdvanceRepairResult(
     val removedInflatedAccountTransactionCount: Int
 )
 
+data class MutualDebtOffsetCandidate(
+    val debtAccount: AccountEntity,
+    val currencyCode: String,
+    val amount: BigDecimal,
+    val receivableAmount: BigDecimal,
+    val payableAmount: BigDecimal,
+    val receivableParticipantCount: Int,
+    val payableParticipantCount: Int
+)
+
+data class MutualDebtOffsetResult(
+    val offsetGroupId: UUID,
+    val amount: BigDecimal,
+    val currencyCode: String,
+    val repaymentCount: Int
+)
+
 private const val RECURRING_STATUS_PENDING = "Pending"
 private const val RECURRING_STATUS_CONFIRMED = "Confirmed"
 private const val RECURRING_STATUS_SKIPPED = "Skipped"
+const val MUTUAL_DEBT_OFFSET_MARKER_PREFIX = "[債務抵銷:"
 
 class AccountingRepository(
     private val database: AIAccountingDatabase,
@@ -113,6 +131,12 @@ class AccountingRepository(
         val shortcutsToDetach: List<ShortcutEntity>
     )
 
+    private data class OffsetParticipantEntry(
+        val advanceCase: AdvanceCaseEntity,
+        val participant: AdvanceParticipantEntity,
+        val remaining: BigDecimal
+    )
+
     suspend fun getTransaction(transactionId: UUID): TransactionWithDetails? {
         return transactionDao.getTransaction(transactionId)
     }
@@ -129,6 +153,78 @@ class AccountingRepository(
         return advanceDao.getAdvanceCase(caseId)
     }
 
+    suspend fun mutualDebtOffsetCandidate(debtAccountId: UUID, currencyCode: String): MutualDebtOffsetCandidate? {
+        val debtAccount = accountDao.getAccount(debtAccountId) ?: return null
+        val offsetable = offsetableParticipants(debtAccountId, currencyCode, advanceDao.getAllCasesWithDetails())
+        val receivableAmount = offsetable.receivable.fold(BigDecimal.ZERO) { acc, entry -> acc + entry.remaining }
+        val payableAmount = offsetable.payable.fold(BigDecimal.ZERO) { acc, entry -> acc + entry.remaining }
+        val amount = receivableAmount.min(payableAmount)
+        if (amount <= BigDecimal.ZERO) return null
+        return MutualDebtOffsetCandidate(
+            debtAccount = debtAccount,
+            currencyCode = currencyCode,
+            amount = amount,
+            receivableAmount = receivableAmount,
+            payableAmount = payableAmount,
+            receivableParticipantCount = offsetable.receivable.size,
+            payableParticipantCount = offsetable.payable.size
+        )
+    }
+
+    suspend fun recordMutualDebtOffset(
+        debtAccountId: UUID,
+        currencyCode: String,
+        date: Instant = Instant.now(),
+        note: String = ""
+    ): MutualDebtOffsetResult {
+        return database.withTransaction {
+            val debtAccount = accountDao.getAccount(debtAccountId) ?: error("找不到債務對象")
+            val offsetable = offsetableParticipants(debtAccountId, currencyCode, advanceDao.getAllCasesWithDetails())
+            val receivableAmount = offsetable.receivable.fold(BigDecimal.ZERO) { acc, entry -> acc + entry.remaining }
+            val payableAmount = offsetable.payable.fold(BigDecimal.ZERO) { acc, entry -> acc + entry.remaining }
+            val offsetAmount = receivableAmount.min(payableAmount)
+            require(offsetAmount > BigDecimal.ZERO) { "沒有可抵銷的同幣種互相代墊" }
+
+            val now = Instant.now()
+            val offsetGroupId = UUID.randomUUID()
+            val trimmedNote = note.trim()
+            val marker = "$MUTUAL_DEBT_OFFSET_MARKER_PREFIX$offsetGroupId]"
+            val finalNote = if (trimmedNote.isBlank()) {
+                "$marker 與 ${debtAccount.name} 互相代墊抵銷"
+            } else {
+                "$marker $trimmedNote"
+            }
+
+            val receivableCount = applyMutualDebtOffset(offsetAmount, offsetable.receivable, date, finalNote, now)
+            val payableCount = applyMutualDebtOffset(offsetAmount, offsetable.payable, date, finalNote, now)
+
+            MutualDebtOffsetResult(
+                offsetGroupId = offsetGroupId,
+                amount = offsetAmount,
+                currencyCode = currencyCode,
+                repaymentCount = receivableCount + payableCount
+            )
+        }
+    }
+
+    suspend fun rollbackMutualDebtOffset(offsetGroupId: UUID): Int {
+        return database.withTransaction {
+            val repayments = advanceDao.getAllRepayments()
+                .filter { mutualDebtOffsetId(it.note) == offsetGroupId }
+            repayments.forEach { repayment ->
+                val participant = repayment.participantId?.let { participantId ->
+                    advanceDao.getAllParticipants().firstOrNull { it.id == participantId }
+                }
+                if (participant != null) {
+                    val updatedRepaid = (participant.repaidAmount - repayment.normalizedAmount).max(BigDecimal.ZERO)
+                    advanceDao.upsertParticipants(listOf(participant.copy(repaidAmount = updatedRepaid, updatedAt = Instant.now())))
+                }
+                advanceDao.deleteRepayment(repayment)
+            }
+            repayments.size
+        }
+    }
+
     suspend fun buildDataHealthReport(): DataHealthReport {
         return DataHealthChecker.run(
             DataHealthSnapshot(
@@ -141,6 +237,93 @@ class AccountingRepository(
                 shortcuts = shortcutDao.getAllWithDetails()
             )
         )
+    }
+
+    private fun offsetableParticipants(
+        debtAccountId: UUID,
+        currencyCode: String,
+        advanceCases: List<AdvanceCaseWithDetails>
+    ): OffsetableParticipants {
+        val receivable = mutableListOf<OffsetParticipantEntry>()
+        val payable = mutableListOf<OffsetParticipantEntry>()
+        advanceCases
+            .filter { it.advanceCase.currencyCode == currencyCode }
+            .sortedBy { it.advanceCase.date }
+            .forEach { caseDetails ->
+                caseDetails.participants
+                    .filter { it.debtAccountId == debtAccountId }
+                    .forEach { participant ->
+                        val remaining = (participant.owedAmount - participant.repaidAmount).max(BigDecimal.ZERO)
+                        if (remaining > BigDecimal.ZERO) {
+                            val entry = OffsetParticipantEntry(caseDetails.advanceCase, participant, remaining)
+                            if (caseDetails.advanceCase.payerAccountId == null) {
+                                payable += entry
+                            } else {
+                                receivable += entry
+                            }
+                        }
+                    }
+            }
+        return OffsetableParticipants(receivable, payable)
+    }
+
+    private data class OffsetableParticipants(
+        val receivable: List<OffsetParticipantEntry>,
+        val payable: List<OffsetParticipantEntry>
+    )
+
+    private suspend fun applyMutualDebtOffset(
+        amount: BigDecimal,
+        entries: List<OffsetParticipantEntry>,
+        date: Instant,
+        note: String,
+        now: Instant
+    ): Int {
+        var remaining = amount
+        var count = 0
+        entries.forEach { entry ->
+            if (remaining <= BigDecimal.ZERO) return@forEach
+            val allocation = entry.remaining.min(remaining)
+            if (allocation <= BigDecimal.ZERO) return@forEach
+            advanceDao.upsertRepayment(
+                AdvanceRepaymentEntity(
+                    id = UUID.randomUUID(),
+                    amount = allocation,
+                    currencyCode = entry.advanceCase.currencyCode,
+                    normalizedAmount = allocation,
+                    date = date,
+                    note = note,
+                    linkedTransferGroupId = null,
+                    createdAt = now,
+                    advanceCaseId = entry.advanceCase.id,
+                    participantId = entry.participant.id,
+                    receivedAccountId = null
+                )
+            )
+            val updatedRepaid = (entry.participant.repaidAmount + allocation)
+                .min(entry.participant.owedAmount)
+            advanceDao.upsertParticipants(listOf(entry.participant.copy(repaidAmount = updatedRepaid, updatedAt = now)))
+            advanceDao.upsertCase(entry.advanceCase.copy(updatedAt = now))
+            remaining -= allocation
+            count += 1
+        }
+        return count
+    }
+
+    companion object {
+        fun isMutualDebtOffset(note: String): Boolean {
+            return note.trim().startsWith(MUTUAL_DEBT_OFFSET_MARKER_PREFIX)
+        }
+
+        fun mutualDebtOffsetId(note: String): UUID? {
+            val trimmed = note.trim()
+            if (!trimmed.startsWith(MUTUAL_DEBT_OFFSET_MARKER_PREFIX)) return null
+            val end = trimmed.indexOf(']')
+            if (end <= MUTUAL_DEBT_OFFSET_MARKER_PREFIX.length) return null
+            return runCatching {
+                UUID.fromString(trimmed.substring(MUTUAL_DEBT_OFFSET_MARKER_PREFIX.length, end))
+            }.getOrNull()
+        }
     }
 
     suspend fun legacyDebtIncomeTransactions(): List<TransactionWithDetails> {
