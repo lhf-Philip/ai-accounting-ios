@@ -129,6 +129,8 @@ struct RemoteBackupView: View {
                 }
             }
         }
+        .interactiveKeyboardDismiss()
+        .keyboardDoneToolbar()
         .navigationTitle("WebDAV 遠端備份")
         .onAppear(perform: loadSecrets)
         .alert("還原遠端備份？", isPresented: $showingRestoreConfirm) {

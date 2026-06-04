@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -182,6 +183,7 @@ fun DebtEntryScreen(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(scrollState)
+            .imePadding()
             .padding(
                 start = AppSpacing.screenHorizontal,
                 end = AppSpacing.screenHorizontal,
@@ -355,7 +357,9 @@ fun DebtEntryScreen(
                 onValueChange = { note = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("備註") }
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
         }
 
         ParitySummaryCard(
@@ -484,7 +488,9 @@ private fun AmountCurrencyRow(
                     onValueChange = onAmountChange,
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("金額") }
-                )
+                ,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
             }
             CurrencyPicker(selected = currency, onSelect = onCurrencyChange, buttonStyle = CurrencyButtonStyle.Text)
         }

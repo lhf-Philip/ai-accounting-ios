@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -96,6 +97,7 @@ fun RecurringTransactionsScreen(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(scrollState)
+            .imePadding()
             .padding(
                 start = AppSpacing.screenHorizontal,
                 end = AppSpacing.screenHorizontal,
@@ -323,6 +325,7 @@ fun RecurringRuleEditorScreen(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(scrollState)
+            .imePadding()
             .padding(
                 start = AppSpacing.screenHorizontal,
                 end = AppSpacing.screenHorizontal,
@@ -350,7 +353,9 @@ fun RecurringRuleEditorScreen(
                     label = { Text("名稱") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
-                )
+                ,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     CurrencyPicker(
                         selected = currencyCode,
@@ -363,7 +368,9 @@ fun RecurringRuleEditorScreen(
                         label = { Text("金額") },
                         modifier = Modifier.weight(1f),
                         singleLine = true
-                    )
+                    ,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                        keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
                 }
                 AccountDropdown(
                     accounts = ownAccounts,
@@ -384,7 +391,9 @@ fun RecurringRuleEditorScreen(
                     onValueChange = { note = it },
                     label = { Text("備註") },
                     modifier = Modifier.fillMaxWidth()
-                )
+                ,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
             }
         }
 
@@ -404,14 +413,18 @@ fun RecurringRuleEditorScreen(
                         label = { Text("間隔") },
                         modifier = Modifier.weight(0.35f),
                         singleLine = true
-                    )
+                    ,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                        keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
                     OutlinedTextField(
                         value = nextDueDate,
                         onValueChange = { nextDueDate = it },
                         label = { Text("下次日期 yyyy-MM-dd") },
                         modifier = Modifier.weight(0.65f),
                         singleLine = true
-                    )
+                    ,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                        keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
                 }
                 TextButton(onClick = { isPaused = !isPaused }) {
                     Text(if (isPaused) "目前已暫停，點擊恢復" else "目前啟用中，點擊暫停")

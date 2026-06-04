@@ -133,6 +133,7 @@ struct EditCategoryView: View {
                     }
                 }
             }
+            .interactiveKeyboardDismiss()
             .navigationTitle("編輯分類")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -146,6 +147,7 @@ struct EditCategoryView: View {
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
+            .keyboardDoneToolbar()
             .onAppear {
                 // 初始化暫存數據
                 name = category.name

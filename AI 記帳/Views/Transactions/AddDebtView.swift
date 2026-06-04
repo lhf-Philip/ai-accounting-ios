@@ -170,6 +170,7 @@ struct AddDebtView: View {
                     previewBlock
                 }
             }
+            .interactiveKeyboardDismiss()
             .navigationTitle("借貸管理")
             .alert("輸入錯誤", isPresented: $showingValidationAlert) {
                 Button("確定", role: .cancel) { }

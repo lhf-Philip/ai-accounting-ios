@@ -54,6 +54,10 @@ struct ChartsView: View {
     struct ReportDetail: Identifiable {
         let id = UUID()
         let title: String
+        let estimatedAmount: Decimal
+        let mainCurrency: String
+        let originalCurrencySummary: String
+        let estimateFootnote: String?
         let transactions: [FinancialTransaction]
     }
     
@@ -115,7 +119,7 @@ struct ChartsView: View {
                 )
             }
             .sheet(item: $selectedReportDetail) { detail in
-                ReportTransactionListView(title: detail.title, transactions: detail.transactions)
+                ReportTransactionListView(detail: detail)
             }
         }
     }
@@ -325,7 +329,14 @@ struct ChartsView: View {
         }
         
         let sortedTransactions = item.transactions.sorted { $0.date > $1.date }
-        selectedReportDetail = ReportDetail(title: title, transactions: sortedTransactions)
+        selectedReportDetail = ReportDetail(
+            title: title,
+            estimatedAmount: item.amount,
+            mainCurrency: currencyService.mainCurrency,
+            originalCurrencySummary: item.originalCurrencySummary,
+            estimateFootnote: item.estimateFootnote,
+            transactions: sortedTransactions
+        )
     }
     
     func totalAmount(data: [ChartData]) -> Decimal { data.reduce(0) { $0 + $1.amount } }
@@ -584,25 +595,30 @@ private struct ReportTransactionListView: View {
     @Query private var advanceParticipants: [AdvanceParticipant]
     @Query private var advanceRepayments: [AdvanceRepayment]
 
-    let title: String
-    let transactions: [FinancialTransaction]
+    let detail: ChartsView.ReportDetail
 
     @State private var transactionToEdit: FinancialTransaction?
     @State private var deletionErrorMessage: String?
 
     var body: some View {
         let renderState = ReportTransactionListRenderState(
-            transactions: transactions,
+            transactions: detail.transactions,
             advanceParticipants: advanceParticipants,
             advanceRepayments: advanceRepayments
         )
 
         NavigationStack {
             Group {
-                if transactions.isEmpty {
+                if detail.transactions.isEmpty {
                     ContentUnavailableView("找不到交易", systemImage: "tray")
                 } else {
                     List {
+                        Section {
+                            ReportDetailSummaryCard(detail: detail)
+                                .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+                                .listRowBackground(Color.clear)
+                        }
+
                         ForEach(renderState.groupedTransactions, id: \.title) { group in
                             Section(group.title) {
                                 ForEach(group.items) { tx in
@@ -635,7 +651,7 @@ private struct ReportTransactionListView: View {
                     .listStyle(.insetGrouped)
                 }
             }
-            .navigationTitle(title)
+            .navigationTitle(detail.title)
             .navigationBarTitleDisplayMode(.inline)
         }
         .sheet(item: $transactionToEdit) { tx in
@@ -684,6 +700,52 @@ private struct ReportTransactionListView: View {
             || compacted.contains("(代墊給我")
             || compacted.contains("(還款至")
             || compacted.contains("(還款給")
+    }
+}
+
+private struct ReportDetailSummaryCard: View {
+    let detail: ChartsView.ReportDetail
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("明細總額")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("約 \(detail.estimatedAmount.formatted(.currency(code: detail.mainCurrency)))")
+                        .font(.title3.weight(.bold))
+                }
+
+                Spacer()
+
+                Text("\(detail.transactions.count) 筆")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .foregroundStyle(.blue)
+                    .background(Color.blue.opacity(0.10), in: Capsule())
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("原幣種合計")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(detail.originalCurrencySummary.isEmpty ? "沒有金額資料" : detail.originalCurrencySummary)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let estimateFootnote = detail.estimateFootnote {
+                Label(estimateFootnote, systemImage: estimateFootnote == "估算不完整" ? "exclamationmark.triangle.fill" : "arrow.triangle.2.circlepath")
+                    .font(.caption)
+                    .foregroundStyle(estimateFootnote == "估算不完整" ? .orange : .secondary)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
     }
 }
 

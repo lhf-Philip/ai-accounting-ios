@@ -323,7 +323,9 @@ fun AdvanceDetailScreen(caseId: String?) {
                     onValueChange = { note = it },
                     label = { Text("備註") },
                     modifier = Modifier.fillMaxWidth()
-                )
+                ,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
 
                 Button(
                     onClick = {
@@ -512,7 +514,9 @@ private fun AmountRow(
                 onValueChange = onAmountChange,
                 label = { Text("金額") },
                 modifier = Modifier.weight(1f)
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
         }
     }
 }
@@ -532,7 +536,9 @@ private fun SettlementAmountRow(
                 onValueChange = onAmountChange,
                 label = { Text("沖銷金額") },
                 modifier = Modifier.weight(1f)
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
             Text(
                 caseCurrency,
                 style = MaterialTheme.typography.bodyMedium,

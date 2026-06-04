@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -48,7 +49,8 @@ fun DataHealthScreen() {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
-            .verticalScroll(scrollState),
+            .verticalScroll(scrollState)
+            .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Card(

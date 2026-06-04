@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -122,6 +123,7 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(scrollState)
+            .imePadding()
             .padding(
                 start = AppSpacing.screenHorizontal,
                 end = AppSpacing.screenHorizontal,
@@ -195,7 +197,9 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("備註（可選）") },
                 placeholder = { Text("例如：我和朋友 AA 制，只計我自己的餐費") }
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
 
             Button(
                 onClick = {
@@ -257,7 +261,9 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("金額") },
                     shape = RoundedCornerShape(18.dp)
-                )
+                ,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
                 CurrencyPicker(selected = currencyCode, onSelect = { currencyCode = it }, buttonStyle = CurrencyButtonStyle.Text)
                 CurrencyRateHint(
                     currencyService = currencyService,
@@ -270,21 +276,27 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("日期（YYYY-MM-DD）") },
                     shape = RoundedCornerShape(18.dp)
-                )
+                ,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
                 OutlinedTextField(
                     value = timeInput,
                     onValueChange = { timeInput = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("時間（HH:mm，可選）") },
                     shape = RoundedCornerShape(18.dp)
-                )
+                ,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
                 OutlinedTextField(
                     value = noteInput,
                     onValueChange = { noteInput = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("商戶 / 備註") },
                     shape = RoundedCornerShape(18.dp)
-                )
+                ,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
                 EntityPicker(
                     label = "帳戶",
                     options = activeAccounts,

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +42,7 @@ fun UserGuideScreen(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(scrollState)
+            .imePadding()
             .padding(
                 start = AppSpacing.screenHorizontal,
                 end = AppSpacing.screenHorizontal,

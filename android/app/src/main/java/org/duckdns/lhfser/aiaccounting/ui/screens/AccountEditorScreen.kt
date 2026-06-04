@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -73,7 +74,8 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
-            .verticalScroll(scrollState),
+            .verticalScroll(scrollState)
+            .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("帳戶資料", style = MaterialTheme.typography.titleMedium)
@@ -83,7 +85,9 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
                 onValueChange = { name = it },
                 label = { Text("帳戶名稱") },
                 modifier = Modifier.fillMaxWidth()
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
             CurrencyPicker(selected = currency, onSelect = { currency = it })
             AccountTypePicker(type = type, onChange = { type = it })
             OutlinedTextField(
@@ -91,7 +95,9 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
                 onValueChange = { baseBalance = sanitizeAmount(it) },
                 label = { Text("初始餘額") },
                 modifier = Modifier.fillMaxWidth()
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
         }
 
         Text("其他設定", style = MaterialTheme.typography.titleMedium)

@@ -129,6 +129,7 @@ struct EditTransactionView: View {
                     }
                 }
             }
+            .interactiveKeyboardDismiss()
             .navigationTitle("編輯交易")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -97,7 +98,8 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
                 end = AppSpacing.screenHorizontal,
                 bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
             )
-            .verticalScroll(scrollState),
+            .verticalScroll(scrollState)
+            .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         ParitySectionHeader(
@@ -129,7 +131,9 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
                 onValueChange = { title = it },
                 label = { Text("標題") },
                 modifier = Modifier.fillMaxWidth()
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
             if (requiresPayerAccount) {
                 AccountPicker(label = "付款帳戶", accounts = payerAccounts, selected = payerAccount) { acc ->
                     payerAccount = acc
@@ -213,7 +217,9 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
                 onValueChange = { note = it },
                 label = { Text("備註") },
                 modifier = Modifier.fillMaxWidth()
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
         }
 
         Button(
@@ -277,7 +283,9 @@ fun AddAdvanceCaseScreen(onDone: () -> Unit) {
                     onValueChange = { newDebtName = it },
                     label = { Text("人物名稱") },
                     modifier = Modifier.fillMaxWidth()
-                )
+                ,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -407,7 +415,9 @@ private fun AmountRow(
                 onValueChange = onAmountChange,
                 label = { Text("金額") },
                 modifier = Modifier.weight(1f)
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
         }
     }
 }

@@ -121,6 +121,7 @@ struct AddTransferView: View {
                     TextField("備註", text: $note)
                 }
             }
+            .interactiveKeyboardDismiss()
             .navigationTitle("轉帳")
             .alert("輸入錯誤", isPresented: $showingValidationAlert) {
                 Button("確定", role: .cancel) { }
