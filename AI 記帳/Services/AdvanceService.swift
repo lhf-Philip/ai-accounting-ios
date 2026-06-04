@@ -465,6 +465,7 @@ enum AdvanceService {
         category: Category?,
         tags: [Tag],
         currencyService: CurrencyService,
+        normalizedAmountOverride: Decimal? = nil,
         direction: SettlementDirection? = nil,
         autosave: Bool = true,
         modelContext: ModelContext
@@ -479,7 +480,7 @@ enum AdvanceService {
             throw AdvanceServiceError.invalidRepaymentAmount
         }
         
-        let normalizedAmount = currencyService.convert(
+        let normalizedAmount = normalizedAmountOverride ?? currencyService.convert(
             amount: abs(amount),
             from: currencyCode,
             to: advanceCase.currencyCode

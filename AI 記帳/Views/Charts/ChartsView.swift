@@ -257,10 +257,16 @@ struct ChartsView: View {
             let normalized = percentDouble / 100.0
             return CGFloat(min(max(normalized, 0), 1))
         }()
+        let percentText = "\(percent.formatted(.number.precision(.fractionLength(1))))%"
+        let footnoteText = item.estimateFootnote.map { "\(percentText)・\($0)" } ?? percentText
         return HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 4).fill(item.color).frame(width: 4, height: 40)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name).font(.body).fontWeight(.medium)
+                Text(item.originalCurrencySummary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.gray.opacity(0.1))
@@ -272,9 +278,9 @@ struct ChartsView: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text(item.amount.formatted(.currency(code: currencyService.mainCurrency))).font(.body).bold()
+                Text("約 \(item.amount.formatted(.currency(code: currencyService.mainCurrency)))").font(.body).bold()
                 HStack(spacing: 4) {
-                    Text("\(percent.formatted(.number.precision(.fractionLength(1))))%")
+                    Text(footnoteText)
                     Image(systemName: trailingIcon)
                 }.font(.caption).foregroundStyle(.secondary)
             }
@@ -305,6 +311,8 @@ struct ChartsView: View {
         let amount: Decimal
         let color: Color
         let transactions: [FinancialTransaction]
+        let originalCurrencySummary: String
+        let estimateFootnote: String?
     }
     
     func presentTransactions(for item: ChartData, tagName: String? = nil) {
@@ -469,54 +477,106 @@ private struct ChartsRenderState {
         currencyService: CurrencyService
     ) -> [ChartsView.ChartData] {
         let grouped = Dictionary(grouping: transactions) { $0.category?.id.uuidString ?? "uncategorized" }
-        let sorted = grouped.sorted {
-            let sum0 = $0.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
-            let sum1 = $1.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
-            return sum0 > sum1
-        }
-        return sorted.map { item in
-            let total = item.value.reduce(0) { $0 + currencyService.convert(amount: abs($1.amount), from: $1.currencyCode) }
+        let mapped = grouped.map { item -> ChartsView.ChartData in
+            let aggregate = currencyAggregate(from: item.value, currencyService: currencyService)
             let category = item.value.compactMap { $0.category }.first
             let displayColor = category.map { Color(hex: $0.colorHex) } ?? .gray
             return ChartsView.ChartData(
                 key: item.key,
                 name: category?.name ?? "未分類",
-                amount: total,
+                amount: aggregate.estimatedAmount,
                 color: displayColor,
-                transactions: item.value
+                transactions: item.value,
+                originalCurrencySummary: aggregate.originalCurrencySummary,
+                estimateFootnote: aggregate.estimateFootnote
             )
         }
+        return mapped.sorted { $0.amount > $1.amount }
     }
 
     private static func tagBreakdown(
         from transactions: [FinancialTransaction],
         currencyService: CurrencyService
     ) -> [ChartsView.ChartData] {
-        var tagDict: [String: Decimal] = [:]
         var tagTransactions: [String: [FinancialTransaction]] = [:]
         for tx in transactions {
-            let amount = currencyService.convert(amount: abs(tx.amount), from: tx.currencyCode)
             if tx.tags.isEmpty {
-                tagDict["無標籤", default: 0] += amount
                 tagTransactions["無標籤", default: []].append(tx)
             } else {
                 for tag in tx.tags {
-                    tagDict[tag.name, default: 0] += amount
                     tagTransactions[tag.name, default: []].append(tx)
                 }
             }
         }
-        let sorted = tagDict.sorted { $0.value > $1.value }
+        let sorted = tagTransactions
+            .map { item -> (key: String, aggregate: CurrencyReportAggregate, transactions: [FinancialTransaction]) in
+                (item.key, currencyAggregate(from: item.value, currencyService: currencyService), item.value)
+            }
+            .sorted { $0.aggregate.estimatedAmount > $1.aggregate.estimatedAmount }
         return sorted.enumerated().map { index, item in
             ChartsView.ChartData(
                 key: item.key,
                 name: item.key,
-                amount: item.value,
+                amount: item.aggregate.estimatedAmount,
                 color: Color.generateDistinctColor(index: index, total: sorted.count),
-                transactions: tagTransactions[item.key] ?? []
+                transactions: item.transactions,
+                originalCurrencySummary: item.aggregate.originalCurrencySummary,
+                estimateFootnote: item.aggregate.estimateFootnote
             )
         }
     }
+}
+
+private struct CurrencyReportAggregate {
+    let estimatedAmount: Decimal
+    let originalCurrencySummary: String
+    let estimateFootnote: String?
+}
+
+private func currencyAggregate(
+    from transactions: [FinancialTransaction],
+    currencyService: CurrencyService
+) -> CurrencyReportAggregate {
+    var estimatedAmount = Decimal.zero
+    var originalTotals: [String: Decimal] = [:]
+    var usesEstimate = false
+    var hasUnavailableRate = false
+    let mainCurrency = currencyService.mainCurrency.uppercased()
+
+    for transaction in transactions {
+        let amount = abs(transaction.amount)
+        let currency = transaction.currencyCode.uppercased()
+        originalTotals[currency, default: 0] += amount
+
+        if currency == mainCurrency {
+            estimatedAmount += amount
+        } else if let estimate = currencyService.estimate(amount: amount, from: currency, to: mainCurrency) {
+            estimatedAmount += estimate.amount
+            usesEstimate = true
+        } else {
+            hasUnavailableRate = true
+        }
+    }
+
+    let originalSummary = originalTotals
+        .sorted { $0.key < $1.key }
+        .map { amount in amount.value.formatted(.currency(code: amount.key)) }
+        .joined(separator: " · ")
+
+    let footnote: String?
+    if hasUnavailableRate {
+        footnote = "估算不完整"
+    } else if usesEstimate {
+        footnote = currencyService.resolvedRateSourceState.label
+    } else {
+        footnote = nil
+    }
+
+    return CurrencyReportAggregate(
+        estimatedAmount: estimatedAmount,
+        originalCurrencySummary: originalSummary,
+        estimateFootnote: footnote
+    )
 }
 
 private struct ReportTransactionListView: View {

@@ -297,6 +297,83 @@ class BackupRoundTripTest {
     }
 
     @Test
+    fun crossCurrencyAdvanceRepayment_preservesActualCurrencyAndManualSettlementAmount() = runBlocking {
+        val payerAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            name = "HKD Wallet",
+            currency = "HKD",
+            type = AccountType.Cash,
+            baseBalance = BigDecimal.ZERO,
+            sortOrder = 0,
+            isArchived = false
+        )
+        val receiveAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            name = "CNY Wallet",
+            currency = "CNY",
+            type = AccountType.Cash,
+            baseBalance = BigDecimal.ZERO,
+            sortOrder = 1,
+            isArchived = false
+        )
+        val debtAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            name = "Friend A",
+            currency = "HKD",
+            type = AccountType.Debt,
+            baseBalance = BigDecimal.ZERO,
+            sortOrder = 2,
+            isArchived = false
+        )
+        database.accountDao().upsertAll(listOf(payerAccount, receiveAccount, debtAccount))
+
+        val date = Instant.parse("2026-03-21T12:00:00Z")
+        val caseId = repository.createAdvanceCase(
+            title = "晚餐代墊",
+            date = date,
+            currencyCode = "HKD",
+            myShareAmount = BigDecimal.ZERO,
+            note = "",
+            payerAccount = payerAccount,
+            expenseCategory = null,
+            tagIds = emptyList(),
+            participants = listOf(AdvanceParticipantInput(debtAccount, BigDecimal("100"))),
+            isBorrowedByMe = false
+        )
+        val advanceCase = checkNotNull(repository.getAdvanceCase(caseId))
+        val participant = advanceCase.participants.single()
+
+        repository.recordAdvanceRepayment(
+            advanceCase = advanceCase.advanceCase,
+            participant = participant,
+            amount = BigDecimal("90"),
+            normalizedAmount = BigDecimal("100"),
+            currencyCode = "CNY",
+            date = date.plusSeconds(3600),
+            note = "朋友用人民幣還款",
+            receiveAccount = receiveAccount,
+            category = null,
+            tagIds = emptyList(),
+            isBorrowedByMe = false
+        )
+
+        val updatedCase = checkNotNull(repository.getAdvanceCase(caseId))
+        assertEquals(BigDecimal.ZERO, updatedCase.participants.single().owedAmount - updatedCase.participants.single().repaidAmount)
+
+        val exported = BackupJsonAdapter.gson.fromJson(repository.exportBackupJson(), FullBackupData::class.java)
+        val exportedRepayment = checkNotNull(exported.advanceRepayments?.single())
+        assertEquals(BigDecimal("90"), exportedRepayment.amount)
+        assertEquals("CNY", exportedRepayment.currencyCode)
+        assertEquals(BigDecimal("100"), exportedRepayment.normalizedAmount)
+
+        val linkedTransactions = database.transactionDao().getAll().filter { it.transferGroupId == exportedRepayment.linkedTransferGroupID }
+        assertEquals(2, linkedTransactions.size)
+        val incoming = checkNotNull(linkedTransactions.firstOrNull { it.accountId == receiveAccount.id })
+        assertEquals(BigDecimal("90"), incoming.amount)
+        assertEquals("CNY", incoming.currencyCode)
+    }
+
+    @Test
     fun legacyBorrowedAdvanceRepair_removesInflatedIncomingLegAndReimportsCleanly() = runBlocking {
         val fixtureJson = loadFixture("fixtures/legacy_bidirectional_advances.json")
 

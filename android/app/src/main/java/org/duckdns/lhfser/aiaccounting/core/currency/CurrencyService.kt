@@ -145,6 +145,40 @@ class CurrencyService(context: Context) {
         return inMain.multiply(targetRate.toBigDecimal()).setScale(6, RoundingMode.HALF_UP)
     }
 
+    fun estimate(amount: BigDecimal, from: String, to: String): CurrencyPreview? {
+        val sourceCode = from.uppercase()
+        val targetCode = to.uppercase()
+        if (sourceCode == targetCode) return CurrencyPreview(amount, resolvedRateSourceState)
+        if (resolvedRates.isEmpty()) return null
+
+        if (sourceCode == mainCurrency.uppercase()) {
+            val targetRate = resolvedRates[targetCode] ?: return null
+            if (targetRate <= 0.0) return null
+            return CurrencyPreview(
+                amount.multiply(targetRate.toBigDecimal()).setScale(6, RoundingMode.HALF_UP),
+                resolvedRateSourceState
+            )
+        }
+
+        if (targetCode == mainCurrency.uppercase()) {
+            val sourceRate = resolvedRates[sourceCode] ?: return null
+            if (sourceRate <= 0.0) return null
+            return CurrencyPreview(
+                amount.divide(sourceRate.toBigDecimal(), 6, RoundingMode.HALF_UP),
+                resolvedRateSourceState
+            )
+        }
+
+        val sourceRate = resolvedRates[sourceCode] ?: return null
+        val targetRate = resolvedRates[targetCode] ?: return null
+        if (sourceRate <= 0.0 || targetRate <= 0.0) return null
+        val inMain = amount.divide(sourceRate.toBigDecimal(), 6, RoundingMode.HALF_UP)
+        return CurrencyPreview(
+            inMain.multiply(targetRate.toBigDecimal()).setScale(6, RoundingMode.HALF_UP),
+            resolvedRateSourceState
+        )
+    }
+
     fun getMarketRate(from: String, to: String): Double? {
         if (from.equals(to, ignoreCase = true)) return 1.0
         val rateFrom = resolvedRates[from.uppercase()] ?: return null
@@ -155,9 +189,7 @@ class CurrencyService(context: Context) {
 
     fun previewInMainCurrency(amount: BigDecimal, from: String): CurrencyPreview? {
         if (from.equals(mainCurrency, ignoreCase = true)) return null
-        val converted = convert(amount, from)
-        if (converted == amount && resolvedRates[from.uppercase()] == null) return null
-        return CurrencyPreview(converted, resolvedRateSourceState)
+        return estimate(amount, from, mainCurrency)
     }
 
     val resolvedRateSourceState: RateSourceState

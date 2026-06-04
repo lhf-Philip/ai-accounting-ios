@@ -994,6 +994,8 @@ struct AddAdvanceRepaymentView: View {
     @State private var selectedReceiveAccount: Account?
     @State private var amountString = ""
     @State private var selectedCurrency = "HKD"
+    @State private var settlementAmountString = ""
+    @State private var settlementAmountManuallyEdited = false
     @State private var selectedCategory: Category?
     @State private var selectedTags: Set<Tag> = []
     @State private var settlementDirection: AdvanceService.SettlementDirection = .iAdvancedOthers
@@ -1014,6 +1016,14 @@ struct AddAdvanceRepaymentView: View {
     
     private var remaining: Decimal {
         participant.remainingAmount
+    }
+
+    private var repaymentAmount: Decimal? {
+        positiveDecimal(from: amountString)
+    }
+
+    private var isCrossCurrencyRepayment: Bool {
+        selectedCurrency.uppercased() != advanceCase.currencyCode.uppercased()
     }
     
     private var directionalCategories: [Category] {
@@ -1043,15 +1053,25 @@ struct AddAdvanceRepaymentView: View {
         }
     }
     
-    private var convertedPreview: Decimal? {
-        guard let amount = Decimal(string: amountString), amount > 0 else { return nil }
-        return currencyService.convert(amount: amount, from: selectedCurrency, to: advanceCase.currencyCode)
+    private var settlementEstimate: CurrencyConversionEstimate? {
+        guard let repaymentAmount else { return nil }
+        return currencyService.estimate(
+            amount: repaymentAmount,
+            from: selectedCurrency,
+            to: advanceCase.currencyCode
+        )
+    }
+
+    private var normalSettlementAmount: Decimal? {
+        guard let repaymentAmount else { return nil }
+        if !isCrossCurrencyRepayment { return repaymentAmount }
+        return positiveDecimal(from: settlementAmountString)
     }
     
     private var canSubmit: Bool {
         switch entryMode {
         case .normal:
-            return selectedReceiveAccount != nil && positiveDecimal(from: amountString) != nil
+            return selectedReceiveAccount != nil && repaymentAmount != nil && normalSettlementAmount != nil
         case .split:
             return splitLegs.contains { $0.receiveAccount != nil && positiveDecimal(from: $0.amountString) != nil }
                 && splitLegs.allSatisfy { $0.receiveAccount != nil && positiveDecimal(from: $0.amountString) != nil }
@@ -1106,13 +1126,42 @@ struct AddAdvanceRepaymentView: View {
                             
                             TextField("還款金額", text: Binding(
                                 get: { amountString },
-                                set: { amountString = sanitizePositiveDecimalInput($0) }
+                                set: {
+                                    amountString = sanitizePositiveDecimalInput($0)
+                                    syncSettlementEstimateIfNeeded()
+                                }
                             ))
                             .keyboardType(.decimalPad)
                         }
                         
-                        if let convertedPreview {
-                            Text("折算為 \(convertedPreview.formatted(.currency(code: advanceCase.currencyCode)))")
+                        if isCrossCurrencyRepayment {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    TextField("沖銷代墊金額", text: Binding(
+                                        get: { settlementAmountString },
+                                        set: {
+                                            settlementAmountString = sanitizePositiveDecimalInput($0)
+                                            settlementAmountManuallyEdited = true
+                                        }
+                                    ))
+                                    .keyboardType(.decimalPad)
+
+                                    Text(advanceCase.currencyCode)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                if let settlementEstimate {
+                                    Text("建議 \(settlementEstimate.amount.formatted(.currency(code: advanceCase.currencyCode)))（\(settlementEstimate.source.label)）")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text("暫時無法取得匯率，請手動填入要沖銷的 \(advanceCase.currencyCode) 金額。")
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                }
+                            }
+                        } else if let settlementEstimate {
+                            Text("沖銷 \(settlementEstimate.amount.formatted(.currency(code: advanceCase.currencyCode)))")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -1281,6 +1330,13 @@ struct AddAdvanceRepaymentView: View {
                     splitLegs[0].receiveAccount = first
                     splitLegs[0].currency = first.currency
                 }
+                syncSettlementEstimateIfNeeded(force: true)
+            }
+            .onChange(of: selectedCurrency) { _, _ in
+                syncSettlementEstimateIfNeeded()
+            }
+            .onChange(of: amountString) { _, _ in
+                syncSettlementEstimateIfNeeded()
             }
         }
     }
@@ -1297,11 +1353,21 @@ struct AddAdvanceRepaymentView: View {
                     showError("請輸入大於 0 的還款金額。")
                     return
                 }
+                guard let normalizedAmount = normalSettlementAmount else {
+                    showError("請輸入大於 0 的沖銷金額。")
+                    return
+                }
+                let tolerance = Decimal(string: "0.0001") ?? 0.0001
+                guard normalizedAmount - remaining <= tolerance else {
+                    showError("沖銷金額超過未還餘額。")
+                    return
+                }
                 
                 _ = try recordSingleRepayment(
                     receiveAccount: receiveAccount,
                     amount: amount,
                     currencyCode: selectedCurrency,
+                    normalizedAmount: normalizedAmount,
                     note: note,
                     autosave: true
                 )
@@ -1317,7 +1383,11 @@ struct AddAdvanceRepaymentView: View {
                     legs.append((account, amount, leg.currency))
                 }
                 
-                guard validateTotalNotExceedingRemaining(items: legs.map { ($0.amount, $0.currency) }) else {
+                guard let totalIsValid = validateTotalNotExceedingRemaining(items: legs.map { ($0.amount, $0.currency) }) else {
+                    showError("暫時無法取得其中一項幣種的匯率，請改用一般模式並手動輸入沖銷金額。")
+                    return
+                }
+                guard totalIsValid else {
                     showError("分拆總金額超過未還餘額。")
                     return
                 }
@@ -1327,6 +1397,7 @@ struct AddAdvanceRepaymentView: View {
                         receiveAccount: leg.account,
                         amount: leg.amount,
                         currencyCode: leg.currency,
+                        normalizedAmount: normalizedAmount(for: leg.amount, currency: leg.currency),
                         note: indexedNote(base: note, mode: .split, index: index, count: legs.count),
                         autosave: false
                     )
@@ -1348,7 +1419,11 @@ struct AddAdvanceRepaymentView: View {
                     items.append((amount, leg.currency))
                 }
                 
-                guard validateTotalNotExceedingRemaining(items: items) else {
+                guard let totalIsValid = validateTotalNotExceedingRemaining(items: items) else {
+                    showError("暫時無法取得其中一項幣種的匯率，請改用一般模式並手動輸入沖銷金額。")
+                    return
+                }
+                guard totalIsValid else {
                     showError("合併總金額超過未還餘額。")
                     return
                 }
@@ -1358,6 +1433,7 @@ struct AddAdvanceRepaymentView: View {
                         receiveAccount: receiveAccount,
                         amount: item.amount,
                         currencyCode: item.currency,
+                        normalizedAmount: normalizedAmount(for: item.amount, currency: item.currency),
                         note: indexedNote(base: note, mode: .merge, index: index, count: items.count),
                         autosave: false
                     )
@@ -1410,22 +1486,41 @@ struct AddAdvanceRepaymentView: View {
         newTagName = ""
     }
     
-    private func validateTotalNotExceedingRemaining(items: [(amount: Decimal, currency: String)]) -> Bool {
-        let totalNormalized = items.reduce(Decimal.zero) { partial, item in
-            partial + currencyService.convert(amount: abs(item.amount), from: item.currency, to: advanceCase.currencyCode)
+    private func validateTotalNotExceedingRemaining(items: [(amount: Decimal, currency: String)]) -> Bool? {
+        var totalNormalized = Decimal.zero
+        for item in items {
+            guard let normalized = normalizedAmount(for: item.amount, currency: item.currency) else {
+                return nil
+            }
+            totalNormalized += normalized
         }
         let tolerance = Decimal(string: "0.0001") ?? 0.0001
         return totalNormalized - remaining <= tolerance
+    }
+
+    private func normalizedAmount(for amount: Decimal, currency: String) -> Decimal? {
+        if currency.uppercased() == advanceCase.currencyCode.uppercased() {
+            return abs(amount)
+        }
+        return currencyService.estimate(
+            amount: abs(amount),
+            from: currency,
+            to: advanceCase.currencyCode
+        )?.amount
     }
     
     private func recordSingleRepayment(
         receiveAccount: Account,
         amount: Decimal,
         currencyCode: String,
+        normalizedAmount: Decimal?,
         note: String,
         autosave: Bool
     ) throws -> AdvanceRepayment {
-        try AdvanceService.recordRepayment(
+        guard let normalizedAmount else {
+            throw AdvanceServiceError.invalidRepaymentAmount
+        }
+        return try AdvanceService.recordRepayment(
             advanceCase: advanceCase,
             participant: participant,
             amount: amount,
@@ -1436,10 +1531,24 @@ struct AddAdvanceRepaymentView: View {
             category: selectedCategory,
             tags: Array(selectedTags),
             currencyService: currencyService,
+            normalizedAmountOverride: normalizedAmount,
             direction: settlementDirection,
             autosave: autosave,
             modelContext: modelContext
         )
+    }
+
+    private func syncSettlementEstimateIfNeeded(force: Bool = false) {
+        guard force || !settlementAmountManuallyEdited else { return }
+        if !isCrossCurrencyRepayment {
+            settlementAmountString = amountString
+            return
+        }
+        guard let settlementEstimate else {
+            settlementAmountString = ""
+            return
+        }
+        settlementAmountString = NSDecimalNumber(decimal: settlementEstimate.amount).stringValue
     }
     
     private func indexedNote(base: String, mode: EntryMode, index: Int, count: Int) -> String {

@@ -98,7 +98,15 @@ private data class ReportSlice(
     val name: String,
     val amount: BigDecimal,
     val color: Color,
-    val transactions: List<TransactionWithDetails>
+    val transactions: List<TransactionWithDetails>,
+    val originalCurrencySummary: String,
+    val estimateFootnote: String?
+)
+
+private data class CurrencyReportAggregate(
+    val estimatedAmount: BigDecimal,
+    val originalCurrencySummary: String,
+    val estimateFootnote: String?
 )
 
 private data class ReportDetail(
@@ -420,24 +428,30 @@ private fun ReportRow(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ColorDot(color = item.color)
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(item.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "${percent.stripTrailingZeros().toPlainString()}% · ${item.transactions.size} 筆",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        item.amount.asCurrencyText(baseCurrency),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        trailingLabel,
-                        style = MaterialTheme.typography.labelMedium,
+	                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+	                    Text(item.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+	                    Text(
+	                        "${percent.stripTrailingZeros().toPlainString()}% · ${item.transactions.size} 筆",
+	                        style = MaterialTheme.typography.labelSmall,
+	                        color = MaterialTheme.colorScheme.onSurfaceVariant
+	                    )
+	                    Text(
+	                        item.originalCurrencySummary,
+	                        style = MaterialTheme.typography.labelSmall,
+	                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+	                        maxLines = 1
+	                    )
+	                }
+	                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+	                    Text(
+	                        "約 ${item.amount.asCurrencyText(baseCurrency)}",
+	                        style = MaterialTheme.typography.bodyLarge,
+	                        fontWeight = FontWeight.SemiBold,
+	                        color = MaterialTheme.colorScheme.onSurface
+	                    )
+	                    Text(
+	                        item.estimateFootnote?.let { "$trailingLabel · $it" } ?: trailingLabel,
+	                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -726,51 +740,96 @@ private fun categoryBreakdown(
     currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
     baseCurrency: String
 ): List<ReportSlice> {
-    val grouped = transactions.groupBy { it.category?.id }
-    return grouped.mapNotNull { (categoryId, items) ->
-        val category = categories.firstOrNull { it.id == categoryId }
-        val total = items.fold(BigDecimal.ZERO) { acc, tx ->
-            acc + currencyService.convert(tx.transaction.amount.abs(), tx.transaction.currencyCode, baseCurrency)
-        }
-        ReportSlice(
-            key = categoryId?.toString() ?: "uncategorized",
-            name = category?.name ?: "未分類",
-            amount = total,
-            color = parseColor(category?.colorHex ?: "#90A4AE"),
-            transactions = items
-        )
-    }.sortedByDescending { it.amount }
+	val grouped = transactions.groupBy { it.category?.id }
+	return grouped.mapNotNull { (categoryId, items) ->
+	    val category = categories.firstOrNull { it.id == categoryId }
+	    val aggregate = currencyAggregate(items, currencyService, baseCurrency)
+	    ReportSlice(
+	        key = categoryId?.toString() ?: "uncategorized",
+	        name = category?.name ?: "未分類",
+	        amount = aggregate.estimatedAmount,
+	        color = parseColor(category?.colorHex ?: "#90A4AE"),
+	        transactions = items,
+	        originalCurrencySummary = aggregate.originalCurrencySummary,
+	        estimateFootnote = aggregate.estimateFootnote
+	    )
+	}.sortedByDescending { it.amount }
 }
 
 private fun tagBreakdown(
     transactions: List<TransactionWithDetails>,
+	currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
+	baseCurrency: String
+): List<ReportSlice> {
+	val tagTransactions = mutableMapOf<String, MutableList<TransactionWithDetails>>()
+	transactions.forEach { tx ->
+	    if (tx.tags.isEmpty()) {
+	        tagTransactions.getOrPut("無標籤") { mutableListOf() }.add(tx)
+	    } else {
+	        tx.tags.forEach { tag ->
+	            tagTransactions.getOrPut(tag.name) { mutableListOf() }.add(tx)
+	        }
+	    }
+	}
+	val sorted = tagTransactions.entries
+	    .map { entry -> entry.key to currencyAggregate(entry.value, currencyService, baseCurrency) }
+	    .sortedByDescending { it.second.estimatedAmount }
+	return sorted.mapIndexed { index, entry ->
+	    ReportSlice(
+	        key = entry.first,
+	        name = entry.first,
+	        amount = entry.second.estimatedAmount,
+	        color = generateDistinctColor(index),
+	        transactions = tagTransactions[entry.first]?.toList().orEmpty(),
+	        originalCurrencySummary = entry.second.originalCurrencySummary,
+	        estimateFootnote = entry.second.estimateFootnote
+	    )
+	}
+}
+
+private fun currencyAggregate(
+    transactions: List<TransactionWithDetails>,
     currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
     baseCurrency: String
-): List<ReportSlice> {
-    val tagTotals = mutableMapOf<String, BigDecimal>()
-    val tagTransactions = mutableMapOf<String, MutableList<TransactionWithDetails>>()
+): CurrencyReportAggregate {
+    var estimatedAmount = BigDecimal.ZERO
+    val originalTotals = mutableMapOf<String, BigDecimal>()
+    var usesEstimate = false
+    var hasUnavailableRate = false
+    val mainCurrency = baseCurrency.uppercase()
+
     transactions.forEach { tx ->
-        val amount = currencyService.convert(tx.transaction.amount.abs(), tx.transaction.currencyCode, baseCurrency)
-        if (tx.tags.isEmpty()) {
-            tagTotals["無標籤"] = (tagTotals["無標籤"] ?: BigDecimal.ZERO) + amount
-            tagTransactions.getOrPut("無標籤") { mutableListOf() }.add(tx)
+        val amount = tx.transaction.amount.abs()
+        val currency = tx.transaction.currencyCode.uppercase()
+        originalTotals[currency] = (originalTotals[currency] ?: BigDecimal.ZERO) + amount
+
+        if (currency == mainCurrency) {
+            estimatedAmount += amount
         } else {
-            tx.tags.forEach { tag ->
-                tagTotals[tag.name] = (tagTotals[tag.name] ?: BigDecimal.ZERO) + amount
-                tagTransactions.getOrPut(tag.name) { mutableListOf() }.add(tx)
+            val estimate = currencyService.estimate(amount, currency, mainCurrency)
+            if (estimate != null) {
+                estimatedAmount += estimate.amount
+                usesEstimate = true
+            } else {
+                hasUnavailableRate = true
             }
         }
     }
-    val sorted = tagTotals.entries.sortedByDescending { it.value }
-    return sorted.mapIndexed { index, entry ->
-        ReportSlice(
-            key = entry.key,
-            name = entry.key,
-            amount = entry.value,
-            color = generateDistinctColor(index),
-            transactions = tagTransactions[entry.key]?.toList().orEmpty()
-        )
+
+    val originalSummary = originalTotals.entries
+        .sortedBy { it.key }
+        .joinToString(" · ") { it.value.asCurrencyText(it.key) }
+    val footnote = when {
+        hasUnavailableRate -> "估算不完整"
+        usesEstimate -> currencyService.resolvedRateSourceState.label
+        else -> null
     }
+
+    return CurrencyReportAggregate(
+        estimatedAmount = estimatedAmount,
+        originalCurrencySummary = originalSummary,
+        estimateFootnote = footnote
+    )
 }
 
 private fun totalAmount(data: List<ReportSlice>): BigDecimal {
