@@ -86,6 +86,8 @@ fun AdvanceDetailScreen(caseId: String?) {
     var selectedCategory by remember { mutableStateOf<CategoryEntity?>(null) }
     var selectedTags by remember { mutableStateOf<List<TagEntity>>(emptyList()) }
     var amountInput by remember { mutableStateOf("") }
+    var settlementAmountInput by remember { mutableStateOf("") }
+    var settlementManuallyEdited by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
     var selectedCurrency by remember { mutableStateOf("HKD") }
     var mode by remember { mutableStateOf(RepaymentMode.Normal) }
@@ -157,11 +159,20 @@ fun AdvanceDetailScreen(caseId: String?) {
     val remaining = selectedParticipant?.let {
         (it.owedAmount - it.repaidAmount).max(BigDecimal.ZERO)
     } ?: BigDecimal.ZERO
+    val parsedAmount = parsePositive(amountInput)
+    val isCrossCurrencyRepayment = !selectedCurrency.equals(caseCurrency, ignoreCase = true)
+    val settlementEstimate = parsedAmount?.let { currencyService.estimate(it, selectedCurrency, caseCurrency) }
+    val parsedSettlementAmount = if (isCrossCurrencyRepayment) {
+        parsePositive(settlementAmountInput)
+    } else {
+        parsedAmount
+    }
 
     val canSubmit = when (mode) {
         RepaymentMode.Normal -> selectedParticipant != null &&
             selectedReceiveAccount != null &&
-            parsePositive(amountInput) != null
+            parsedAmount != null &&
+            parsedSettlementAmount != null
         RepaymentMode.Split -> selectedParticipant != null &&
             splitLegs.isNotEmpty() &&
             splitLegs.all { it.account != null && parsePositive(it.amount) != null }
@@ -169,6 +180,16 @@ fun AdvanceDetailScreen(caseId: String?) {
             selectedReceiveAccount != null &&
             mergeLegs.isNotEmpty() &&
             mergeLegs.all { parsePositive(it.amount) != null }
+    }
+
+    LaunchedEffect(amountInput, selectedCurrency, caseCurrency, mode) {
+        if (mode == RepaymentMode.Normal && !settlementManuallyEdited) {
+            settlementAmountInput = if (isCrossCurrencyRepayment) {
+                settlementEstimate?.amount?.stripTrailingZeros()?.toPlainString().orEmpty()
+            } else {
+                amountInput
+            }
+        }
     }
 
     LazyColumn(
@@ -237,6 +258,25 @@ fun AdvanceDetailScreen(caseId: String?) {
                             currency = selectedCurrency,
                             onCurrencyChange = { selectedCurrency = it }
                         )
+                        if (isCrossCurrencyRepayment) {
+                            SettlementAmountRow(
+                                amount = settlementAmountInput,
+                                onAmountChange = {
+                                    settlementAmountInput = sanitizeAmount(it)
+                                    settlementManuallyEdited = true
+                                },
+                                caseCurrency = caseCurrency,
+                                estimateText = settlementEstimate?.let {
+                                    "建議 ${it.amount.asCurrencyText(caseCurrency)}（${it.source.label}）"
+                                } ?: "暫時無法取得匯率，請手動填入要沖銷的 $caseCurrency 金額。"
+                            )
+                        } else if (settlementEstimate != null) {
+                            Text(
+                                "沖銷 ${settlementEstimate.amount.asCurrencyText(caseCurrency)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                     RepaymentMode.Split -> {
                         splitLegs.forEach { leg ->
@@ -290,49 +330,57 @@ fun AdvanceDetailScreen(caseId: String?) {
                         scope.launch {
                             val participant = selectedParticipant ?: return@launch
                             when (mode) {
-                                RepaymentMode.Normal -> {
-                                    val receiveAccount = selectedReceiveAccount ?: return@launch
-                                    val amount = parsePositive(amountInput) ?: return@launch
-                                    if (!validateTotal(currencyService, caseCurrency, remaining, listOf(amount to selectedCurrency))) {
-                                        errorMessage = "還款金額超過未還餘額。"
-                                        return@launch
-                                    }
-                                    recordSingleRepayment(
-                                        repository = repository,
-                                        currencyService = currencyService,
-                                        advanceCase = caseData,
-                                        participant = participant,
-                                        receiveAccount = receiveAccount,
-                                        amount = amount,
-                                        currency = selectedCurrency,
-                                        note = note,
-                                        category = selectedCategory,
-                                        tagIds = selectedTags.map { it.id },
+	                                RepaymentMode.Normal -> {
+	                                    val receiveAccount = selectedReceiveAccount ?: return@launch
+	                                    val amount = parsePositive(amountInput) ?: return@launch
+	                                    val normalizedAmount = parsedSettlementAmount ?: return@launch
+	                                    if (normalizedAmount - remaining > BigDecimal("0.0001")) {
+	                                        errorMessage = "沖銷金額超過未還餘額。"
+	                                        return@launch
+	                                    }
+	                                    recordSingleRepayment(
+	                                        repository = repository,
+	                                        advanceCase = caseData,
+	                                        participant = participant,
+	                                        receiveAccount = receiveAccount,
+	                                        amount = amount,
+	                                        currency = selectedCurrency,
+	                                        normalizedAmount = normalizedAmount,
+	                                        note = note,
+	                                        category = selectedCategory,
+	                                        tagIds = selectedTags.map { it.id },
                                         isBorrowedByMe = isBorrowedByMe
                                     )
                                 }
                                 RepaymentMode.Split -> {
                                     val legs = splitLegs.mapNotNull { leg ->
                                         val account = leg.account ?: return@mapNotNull null
-                                        val amount = parsePositive(leg.amount) ?: return@mapNotNull null
-                                        Triple(account, amount, leg.currency)
-                                    }
-                                    if (!validateTotal(currencyService, caseCurrency, remaining, legs.map { it.second to it.third })) {
-                                        errorMessage = "分拆總金額超過未還餘額。"
-                                        return@launch
-                                    }
-                                    legs.forEachIndexed { index, leg ->
-                                        recordSingleRepayment(
-                                            repository = repository,
-                                            currencyService = currencyService,
-                                            advanceCase = caseData,
-                                            participant = participant,
-                                            receiveAccount = leg.first,
-                                            amount = leg.second,
-                                            currency = leg.third,
-                                            note = indexedNote(note, "分拆", index, legs.size),
-                                            category = selectedCategory,
-                                            tagIds = selectedTags.map { it.id },
+	                                        val amount = parsePositive(leg.amount) ?: return@mapNotNull null
+	                                        Triple(account, amount, leg.currency)
+	                                    }
+	                                    val normalizedLegs = legs.map { leg ->
+	                                        normalizedAmount(currencyService, leg.second, leg.third, caseCurrency)
+	                                    }
+	                                    if (normalizedLegs.any { it == null }) {
+	                                        errorMessage = "暫時無法取得其中一項幣種的匯率，請改用一般模式並手動輸入沖銷金額。"
+	                                        return@launch
+	                                    }
+	                                    if (!validateTotal(remaining, normalizedLegs.filterNotNull())) {
+	                                        errorMessage = "分拆總金額超過未還餘額。"
+	                                        return@launch
+	                                    }
+	                                    legs.forEachIndexed { index, leg ->
+	                                        recordSingleRepayment(
+	                                            repository = repository,
+	                                            advanceCase = caseData,
+	                                            participant = participant,
+	                                            receiveAccount = leg.first,
+	                                            amount = leg.second,
+	                                            currency = leg.third,
+	                                            normalizedAmount = normalizedLegs[index] ?: return@launch,
+	                                            note = indexedNote(note, "分拆", index, legs.size),
+	                                            category = selectedCategory,
+	                                            tagIds = selectedTags.map { it.id },
                                             isBorrowedByMe = isBorrowedByMe
                                         )
                                     }
@@ -340,24 +388,31 @@ fun AdvanceDetailScreen(caseId: String?) {
                                 RepaymentMode.Merge -> {
                                     val receiveAccount = selectedReceiveAccount ?: return@launch
                                     val legs = mergeLegs.mapNotNull { leg ->
-                                        val amount = parsePositive(leg.amount) ?: return@mapNotNull null
-                                        amount to leg.currency
-                                    }
-                                    if (!validateTotal(currencyService, caseCurrency, remaining, legs)) {
-                                        errorMessage = "合併總金額超過未還餘額。"
-                                        return@launch
-                                    }
-                                    legs.forEachIndexed { index, item ->
-                                        recordSingleRepayment(
-                                            repository = repository,
-                                            currencyService = currencyService,
-                                            advanceCase = caseData,
-                                            participant = participant,
-                                            receiveAccount = receiveAccount,
-                                            amount = item.first,
-                                            currency = item.second,
-                                            note = indexedNote(note, "合併", index, legs.size),
-                                            category = selectedCategory,
+	                                        val amount = parsePositive(leg.amount) ?: return@mapNotNull null
+	                                        amount to leg.currency
+	                                    }
+	                                    val normalizedLegs = legs.map { leg ->
+	                                        normalizedAmount(currencyService, leg.first, leg.second, caseCurrency)
+	                                    }
+	                                    if (normalizedLegs.any { it == null }) {
+	                                        errorMessage = "暫時無法取得其中一項幣種的匯率，請改用一般模式並手動輸入沖銷金額。"
+	                                        return@launch
+	                                    }
+	                                    if (!validateTotal(remaining, normalizedLegs.filterNotNull())) {
+	                                        errorMessage = "合併總金額超過未還餘額。"
+	                                        return@launch
+	                                    }
+	                                    legs.forEachIndexed { index, item ->
+	                                        recordSingleRepayment(
+	                                            repository = repository,
+	                                            advanceCase = caseData,
+	                                            participant = participant,
+	                                            receiveAccount = receiveAccount,
+	                                            amount = item.first,
+	                                            currency = item.second,
+	                                            normalizedAmount = normalizedLegs[index] ?: return@launch,
+	                                            note = indexedNote(note, "合併", index, legs.size),
+	                                            category = selectedCategory,
                                             tagIds = selectedTags.map { it.id },
                                             isBorrowedByMe = isBorrowedByMe
                                         )
@@ -459,6 +514,37 @@ private fun AmountRow(
                 modifier = Modifier.weight(1f)
             )
         }
+    }
+}
+
+@Composable
+private fun SettlementAmountRow(
+    amount: String,
+    onAmountChange: (String) -> Unit,
+    caseCurrency: String,
+    estimateText: String
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("沖銷代墊金額", style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(
+                value = amount,
+                onValueChange = onAmountChange,
+                label = { Text("沖銷金額") },
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                caseCurrency,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+        }
+        Text(
+            estimateText,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -583,33 +669,35 @@ private fun parsePositive(input: String): BigDecimal? {
     return input.toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO }
 }
 
-private fun validateTotal(
-    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
-    caseCurrency: String,
-    remaining: BigDecimal,
-    items: List<Pair<BigDecimal, String>>
-): Boolean {
-    val totalNormalized = items.fold(BigDecimal.ZERO) { acc, item ->
-        acc + currencyService.convert(item.first.abs(), item.second, caseCurrency)
-    }
+private fun validateTotal(remaining: BigDecimal, normalizedAmounts: List<BigDecimal>): Boolean {
+    val totalNormalized = normalizedAmounts.fold(BigDecimal.ZERO) { acc, item -> acc + item.abs() }
     val tolerance = BigDecimal("0.0001")
     return totalNormalized - remaining <= tolerance
 }
 
+private fun normalizedAmount(
+    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
+    amount: BigDecimal,
+    currency: String,
+    caseCurrency: String
+): BigDecimal? {
+    if (currency.equals(caseCurrency, ignoreCase = true)) return amount.abs()
+    return currencyService.estimate(amount.abs(), currency, caseCurrency)?.amount
+}
+
 private suspend fun recordSingleRepayment(
     repository: org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository,
-    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
     advanceCase: AdvanceCaseWithDetails,
     participant: AdvanceParticipantEntity,
     receiveAccount: AccountEntity,
     amount: BigDecimal,
     currency: String,
+    normalizedAmount: BigDecimal,
     note: String,
     category: CategoryEntity?,
     tagIds: List<UUID>,
     isBorrowedByMe: Boolean
 ) {
-    val normalizedAmount = currencyService.convert(amount.abs(), currency, advanceCase.advanceCase.currencyCode)
     repository.recordAdvanceRepayment(
         advanceCase = advanceCase.advanceCase,
         participant = participant,

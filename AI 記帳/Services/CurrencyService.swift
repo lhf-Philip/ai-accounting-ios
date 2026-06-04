@@ -7,6 +7,11 @@ struct ExchangeRateResponse: Codable {
     let rates: [String: Double]
 }
 
+struct CurrencyConversionEstimate {
+    let amount: Decimal
+    let source: RateSourceState
+}
+
 class CurrencyService: ObservableObject {
     private struct ExchangeRateCache: Codable {
         let base: String
@@ -133,6 +138,33 @@ class CurrencyService: ObservableObject {
         let inMain = convert(amount: amount, from: source)
         return inMain * Decimal(targetRate)
     }
+
+    func estimate(amount: Decimal, from source: String, to target: String) -> CurrencyConversionEstimate? {
+        let sourceCode = source.uppercased()
+        let targetCode = target.uppercased()
+        if sourceCode == targetCode {
+            return CurrencyConversionEstimate(amount: amount, source: resolvedRateSourceState)
+        }
+
+        guard !resolvedRates.isEmpty else { return nil }
+
+        if sourceCode == mainCurrency.uppercased() {
+            guard let targetRate = resolvedRates[targetCode], targetRate.isFinite, targetRate > 0 else { return nil }
+            return CurrencyConversionEstimate(amount: amount * Decimal(targetRate), source: resolvedRateSourceState)
+        }
+
+        if targetCode == mainCurrency.uppercased() {
+            guard let sourceRate = resolvedRates[sourceCode], sourceRate.isFinite, sourceRate > 0 else { return nil }
+            return CurrencyConversionEstimate(amount: amount / Decimal(sourceRate), source: resolvedRateSourceState)
+        }
+
+        guard let sourceRate = resolvedRates[sourceCode], sourceRate.isFinite, sourceRate > 0,
+              let targetRate = resolvedRates[targetCode], targetRate.isFinite, targetRate > 0 else {
+            return nil
+        }
+        let inMain = amount / Decimal(sourceRate)
+        return CurrencyConversionEstimate(amount: inMain * Decimal(targetRate), source: resolvedRateSourceState)
+    }
     
     func getMarketRate(from source: String, to target: String) -> Double? {
         if source == target { return 1.0 }
@@ -142,8 +174,8 @@ class CurrencyService: ObservableObject {
 
     func previewInMainCurrency(amount: Decimal, from currency: String) -> (amount: Decimal, source: RateSourceState)? {
         guard currency.uppercased() != mainCurrency.uppercased() else { return nil }
-        guard !resolvedRates.isEmpty else { return nil }
-        return (convert(amount: amount, from: currency.uppercased()), resolvedRateSourceState)
+        guard let estimate = estimate(amount: amount, from: currency.uppercased(), to: mainCurrency) else { return nil }
+        return (estimate.amount, estimate.source)
     }
 
     var resolvedRateSourceState: RateSourceState {

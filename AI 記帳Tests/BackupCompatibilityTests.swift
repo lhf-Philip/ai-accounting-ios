@@ -378,6 +378,68 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertEqual(Decimal(40), payableCase.participants.first?.remainingAmount)
     }
 
+    func testCrossCurrencyAdvanceRepayment_preservesActualCurrencyAndManualSettlementAmount() throws {
+        let container = try makeInMemoryContainer()
+        let modelContext = ModelContext(container)
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-21T12:00:00Z"))
+
+        let payerAccount = Account(name: "HKD Wallet", currency: "HKD", type: .cash, baseBalance: 0)
+        let receiveAccount = Account(name: "CNY Wallet", currency: "CNY", type: .cash, baseBalance: 0)
+        let debtAccount = Account(name: "Friend A", currency: "HKD", type: .debt, baseBalance: 0)
+        modelContext.insert(payerAccount)
+        modelContext.insert(receiveAccount)
+        modelContext.insert(debtAccount)
+
+        let advanceCase = try AdvanceService.createAdvanceCase(
+            title: "晚餐代墊",
+            date: date,
+            currencyCode: "HKD",
+            myShareAmount: 0,
+            note: "",
+            payerAccount: payerAccount,
+            category: nil,
+            tags: [],
+            participants: [.init(debtAccount: debtAccount, owedAmount: 100)],
+            isBorrowedByMe: false,
+            modelContext: modelContext
+        )
+        let participant = try XCTUnwrap(advanceCase.participants.first)
+
+        let repayment = try AdvanceService.recordRepayment(
+            advanceCase: advanceCase,
+            participant: participant,
+            amount: 90,
+            currencyCode: "CNY",
+            date: date.addingTimeInterval(3600),
+            note: "朋友用人民幣還款",
+            receiveAccount: receiveAccount,
+            category: nil,
+            tags: [],
+            currencyService: CurrencyService.shared,
+            normalizedAmountOverride: 100,
+            modelContext: modelContext
+        )
+
+        XCTAssertEqual(Decimal(90), repayment.amount)
+        XCTAssertEqual("CNY", repayment.currencyCode)
+        XCTAssertEqual(Decimal(100), repayment.normalizedAmount)
+        XCTAssertEqual(Decimal.zero, participant.remainingAmount)
+
+        let linkedTransfers = try modelContext.fetch(FetchDescriptor<FinancialTransaction>())
+            .filter { $0.transferGroupID == repayment.linkedTransferGroupID }
+        XCTAssertEqual(2, linkedTransfers.count)
+        let incoming = try XCTUnwrap(linkedTransfers.first { $0.transferSide == .incoming })
+        XCTAssertEqual(receiveAccount.id, incoming.account?.id)
+        XCTAssertEqual(Decimal(90), incoming.amount)
+        XCTAssertEqual("CNY", incoming.currencyCode)
+
+        let exported = BackupManager.shared.createBackupData(modelContext: modelContext)
+        let exportedRepayment = try XCTUnwrap(exported.advanceRepayments?.first { $0.id == repayment.id })
+        XCTAssertEqual(Decimal(90), exportedRepayment.amount)
+        XCTAssertEqual("CNY", exportedRepayment.currencyCode)
+        XCTAssertEqual(Decimal(100), exportedRepayment.normalizedAmount)
+    }
+
     func testLegacyBorrowedAdvanceRepair_removesInflatedIncomingLegAndKeepsExpense() throws {
         let container = try makeInMemoryContainer()
         let modelContext = ModelContext(container)
