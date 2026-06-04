@@ -110,6 +110,7 @@ struct AddShortcutView: View {
                     }
                 }
             }
+            .interactiveKeyboardDismiss()
             .navigationTitle("新增捷徑")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }

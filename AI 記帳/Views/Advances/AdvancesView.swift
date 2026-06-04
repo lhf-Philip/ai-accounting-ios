@@ -687,6 +687,7 @@ struct AddAdvanceCaseView: View {
                     TextField("可填入店名、說明等", text: $note)
                 }
             }
+            .interactiveKeyboardDismiss()
             .navigationTitle("新增代墊")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1290,6 +1291,7 @@ struct AddAdvanceRepaymentView: View {
                     TextField("備註", text: $note)
                 }
             }
+            .interactiveKeyboardDismiss()
             .navigationTitle("記錄還款")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

@@ -3,6 +3,7 @@ package org.duckdns.lhfser.aiaccounting.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -48,7 +49,8 @@ fun TagEditorScreen(tagId: String?, onDone: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
-            .verticalScroll(scrollState),
+            .verticalScroll(scrollState)
+            .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("標籤資料", style = MaterialTheme.typography.titleMedium)
@@ -58,7 +60,9 @@ fun TagEditorScreen(tagId: String?, onDone: () -> Unit) {
                 onValueChange = { name = it },
                 label = { Text("標籤名稱") },
                 modifier = Modifier.fillMaxWidth()
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
         }
         Button(
             onClick = {

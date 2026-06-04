@@ -198,6 +198,7 @@ struct EditAdvanceTransferView: View {
                     }
                 }
             }
+            .interactiveKeyboardDismiss()
             .navigationTitle(titleText)
             .alert("輸入錯誤", isPresented: $showingValidationAlert) {
                 Button("確定", role: .cancel) {}

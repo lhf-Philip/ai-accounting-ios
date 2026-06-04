@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -65,7 +66,8 @@ fun CategoryEditorScreen(categoryId: String?, onDone: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
-            .verticalScroll(scrollState),
+            .verticalScroll(scrollState)
+            .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("分類資料", style = MaterialTheme.typography.titleMedium)
@@ -75,13 +77,17 @@ fun CategoryEditorScreen(categoryId: String?, onDone: () -> Unit) {
                 onValueChange = { name = it },
                 label = { Text("分類名稱") },
                 modifier = Modifier.fillMaxWidth()
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
             OutlinedTextField(
                 value = icon,
                 onValueChange = { icon = it },
                 label = { Text("圖示（SF Symbol 名稱）") },
                 modifier = Modifier.fillMaxWidth()
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ColorDot(colorHex = colorHex)
                 OutlinedTextField(
@@ -89,7 +95,9 @@ fun CategoryEditorScreen(categoryId: String?, onDone: () -> Unit) {
                     onValueChange = { colorHex = it },
                     label = { Text("顏色 Hex") },
                     modifier = Modifier.weight(1f)
-                )
+                ,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
             }
             Button(
                 onClick = {

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ProminentInlineTitleModifier: ViewModifier {
     let title: String
@@ -22,5 +23,25 @@ struct ProminentInlineTitleModifier: ViewModifier {
 extension View {
     func prominentInlineTitle(_ title: String) -> some View {
         modifier(ProminentInlineTitleModifier(title: title))
+    }
+
+    func keyboardDoneToolbar(title: String = "完成") -> some View {
+        toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button(title) {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil,
+                        from: nil,
+                        for: nil
+                    )
+                }
+            }
+        }
+    }
+
+    func interactiveKeyboardDismiss() -> some View {
+        scrollDismissesKeyboard(.interactively)
     }
 }

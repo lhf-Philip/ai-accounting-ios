@@ -96,6 +96,7 @@ struct EditAccountView: View {
                         .disabled(adjustmentAmountString.isEmpty)
                 }
             }
+            .interactiveKeyboardDismiss()
             .navigationTitle("編輯帳戶")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

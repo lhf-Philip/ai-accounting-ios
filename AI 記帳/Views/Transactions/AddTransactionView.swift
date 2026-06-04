@@ -186,6 +186,7 @@ struct AddTransactionView: View {
                     TextField("備註", text: $note)
                 }
             }
+            .interactiveKeyboardDismiss()
             .navigationTitle("記一筆")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -179,7 +180,8 @@ fun TransactionEditorScreen(
                 end = AppSpacing.screenHorizontal,
                 bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
             )
-            .verticalScroll(scrollState),
+            .verticalScroll(scrollState)
+            .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         ParitySectionHeader(
@@ -324,7 +326,9 @@ fun TransactionEditorScreen(
                 onValueChange = { note = it },
                 label = { Text("備註") },
                 modifier = Modifier.fillMaxWidth()
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
         }
 
         Button(
@@ -413,20 +417,26 @@ fun TransactionEditorScreen(
                         onValueChange = { newCategoryName = it },
                         label = { Text("分類名稱") },
                         modifier = Modifier.fillMaxWidth()
-                    )
+                    ,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                        keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
                     OutlinedTextField(
                         value = newCategoryIcon,
                         onValueChange = { newCategoryIcon = it },
                         label = { Text("圖示（SF Symbol 名稱）") },
                         modifier = Modifier.fillMaxWidth()
-                    )
+                    ,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                        keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         OutlinedTextField(
                             value = newCategoryColorHex,
                             onValueChange = { newCategoryColorHex = it },
                             label = { Text("顏色 Hex") },
                             modifier = Modifier.weight(1f)
-                        )
+                        ,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                            keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
                         TextButton(onClick = {
                             newCategoryColorHex = autoPickDistinctColor(categories.map { it.colorHex })
                         }) {
@@ -516,7 +526,9 @@ private fun AmountRow(
                 onValueChange = onAmountChange,
                 label = { Text("金額") },
                 modifier = Modifier.weight(1f)
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
         }
         CurrencyRateHint(
             currencyService = currencyService,

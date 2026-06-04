@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -107,7 +108,8 @@ fun AddTransferScreen(onDone: () -> Unit) {
                 end = AppSpacing.screenHorizontal,
                 bottom = AppSpacing.screenVertical + ParityTokens.FloatingContentBottomPadding
             )
-            .verticalScroll(scrollState),
+            .verticalScroll(scrollState)
+            .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         ParitySectionHeader(
@@ -240,7 +242,9 @@ fun AddTransferScreen(onDone: () -> Unit) {
                 onValueChange = { note = it },
                 label = { Text("備註") },
                 modifier = Modifier.fillMaxWidth()
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
         }
 
         ParitySectionHeader(
@@ -369,7 +373,9 @@ private fun AmountRow(
                 onValueChange = onAmountChange,
                 label = { Text("金額") },
                 modifier = Modifier.weight(1f)
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
         }
         CurrencyRateHint(
             currencyService = currencyService,

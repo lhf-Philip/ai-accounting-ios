@@ -309,7 +309,9 @@ fun BudgetsScreen() {
                             onValueChange = { amount = sanitizeAmount(it) },
                             label = { Text("預算金額") },
                             modifier = Modifier.weight(1f)
-                        )
+                        ,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                            keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.weight(1f)) {

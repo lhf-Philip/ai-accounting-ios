@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -97,7 +98,8 @@ fun ShortcutEditorScreen(shortcutId: String?, onDone: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical)
-            .verticalScroll(scrollState),
+            .verticalScroll(scrollState)
+            .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("捷徑外觀", style = MaterialTheme.typography.titleMedium)
@@ -107,13 +109,17 @@ fun ShortcutEditorScreen(shortcutId: String?, onDone: () -> Unit) {
                 onValueChange = { name = it },
                 label = { Text("捷徑名稱") },
                 modifier = Modifier.fillMaxWidth()
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
             OutlinedTextField(
                 value = icon,
                 onValueChange = { icon = it },
                 label = { Text("圖示（Emoji 或簡短文字）") },
                 modifier = Modifier.fillMaxWidth()
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
         }
 
         Text("預設交易內容", style = MaterialTheme.typography.titleMedium)
@@ -130,7 +136,9 @@ fun ShortcutEditorScreen(shortcutId: String?, onDone: () -> Unit) {
                 onValueChange = { note = it },
                 label = { Text("備註（選填）") },
                 modifier = Modifier.fillMaxWidth()
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
             AccountPicker(
                 accounts = availableAccounts,
                 selected = selectedAccount,
@@ -218,7 +226,9 @@ private fun AmountRow(
                 onValueChange = onAmountChange,
                 label = { Text("金額") },
                 modifier = Modifier.weight(1f)
-            )
+            ,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
         }
     }
 }

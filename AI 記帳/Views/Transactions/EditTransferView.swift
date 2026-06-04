@@ -212,6 +212,7 @@ struct EditTransferView: View {
                     }
                 }
             }
+            .interactiveKeyboardDismiss()
             .navigationTitle("編輯轉帳")
             .alert("輸入錯誤", isPresented: $showingValidationAlert) {
                 Button("確定", role: .cancel) {}

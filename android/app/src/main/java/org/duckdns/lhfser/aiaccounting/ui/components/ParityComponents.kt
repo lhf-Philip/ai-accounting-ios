@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -37,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -55,6 +57,12 @@ object ParityTokens {
     val BottomBarHeight = 72.dp
     val FloatingButtonSize = 60.dp
     val FloatingContentBottomPadding = 112.dp
+}
+
+@Composable
+fun keyboardDoneActions(): KeyboardActions {
+    val focusManager = LocalFocusManager.current
+    return KeyboardActions(onDone = { focusManager.clearFocus() })
 }
 
 @Composable

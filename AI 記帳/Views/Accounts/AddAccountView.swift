@@ -113,6 +113,7 @@ struct AddAccountView: View {
                     }
                 }
             }
+            .interactiveKeyboardDismiss()
             .navigationTitle("新增帳戶")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }

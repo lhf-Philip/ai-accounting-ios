@@ -111,6 +111,10 @@ private data class CurrencyReportAggregate(
 
 private data class ReportDetail(
     val title: String,
+    val estimatedAmount: BigDecimal,
+    val baseCurrency: String,
+    val originalCurrencySummary: String,
+    val estimateFootnote: String?,
     val transactions: List<TransactionWithDetails>
 )
 
@@ -282,7 +286,8 @@ fun ReportsScreen(
                             reportDetail = presentTransactions(
                                 flowMode = flowMode,
                                 item = item,
-                                tagName = selectedTag
+                                tagName = selectedTag,
+                                baseCurrency = baseCurrency
                             )
                         }
                     }
@@ -304,7 +309,7 @@ fun ReportsScreen(
                             if (chartMode == ReportChartMode.Tag) {
                                 selectedTag = item.name
                             } else {
-                                reportDetail = presentTransactions(flowMode, item, null)
+                                reportDetail = presentTransactions(flowMode, item, null, baseCurrency)
                             }
                         }
                     }
@@ -628,6 +633,7 @@ private fun ReportDetailSheet(
             title = detail.title,
             detail = "${detail.transactions.size} 筆"
         )
+        ReportDetailSummaryCard(detail = detail)
         LazyColumn(
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)
@@ -693,6 +699,83 @@ private fun ReportDetailSheet(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportDetailSummaryCard(detail: ReportDetail) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = androidx.compose.foundation.BorderStroke(
+            0.6.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.24f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(AppSpacing.card),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.inline)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        "明細總額",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "約 ${detail.estimatedAmount.asCurrencyText(detail.baseCurrency)}",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                ) {
+                    Text(
+                        "${detail.transactions.size} 筆",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    "原幣種合計",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    detail.originalCurrencySummary.ifBlank { "沒有金額資料" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            detail.estimateFootnote?.let { footnote ->
+                Text(
+                    footnote,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (footnote == "估算不完整") {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
@@ -839,7 +922,8 @@ private fun totalAmount(data: List<ReportSlice>): BigDecimal {
 private fun presentTransactions(
     flowMode: ReportFlowMode,
     item: ReportSlice,
-    tagName: String?
+    tagName: String?,
+    baseCurrency: String
 ): ReportDetail {
     val title = if (tagName != null) {
         "${flowMode.label}・$tagName・${item.name}"
@@ -847,7 +931,14 @@ private fun presentTransactions(
         "${flowMode.label}・${item.name}"
     }
     val sorted = item.transactions.sortedByDescending { it.transaction.date }
-    return ReportDetail(title = title, transactions = sorted)
+    return ReportDetail(
+        title = title,
+        estimatedAmount = item.amount,
+        baseCurrency = baseCurrency,
+        originalCurrencySummary = item.originalCurrencySummary,
+        estimateFootnote = item.estimateFootnote,
+        transactions = sorted
+    )
 }
 
 private fun parseColor(hex: String): Color {
