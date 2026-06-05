@@ -1,9 +1,55 @@
 import XCTest
 import SwiftData
+import SQLite3
 @testable import AI_記帳
 
 @MainActor
 final class BackupCompatibilityTests: XCTestCase {
+    func testLegacyStoreRepair_repairsInvalidFinancialTransactionEnumColumnsBeforeSwiftDataLoads() throws {
+        let storeURL = try makeTemporarySQLiteStoreURL(named: "legacy-transaction-enums.sqlite")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
+
+        try withSQLiteDatabase(at: storeURL) { db in
+            try execSQL(
+                """
+                CREATE TABLE ZFINANCIALTRANSACTION (
+                    Z_PK INTEGER PRIMARY KEY,
+                    ZTYPE VARCHAR,
+                    ZAMOUNT NUMERIC,
+                    ZLINKEDTRANSACTIONID VARCHAR,
+                    ZTRANSFERGROUPID VARCHAR,
+                    ZTRANSFERSIDE VARCHAR
+                );
+                INSERT INTO ZFINANCIALTRANSACTION (Z_PK, ZTYPE, ZAMOUNT, ZLINKEDTRANSACTIONID, ZTRANSFERGROUPID, ZTRANSFERSIDE)
+                VALUES
+                    (1, NULL, -120, NULL, NULL, NULL),
+                    (2, '', 250, NULL, NULL, NULL),
+                    (3, 'BadType', 500, NULL, 'group-1', NULL),
+                    (4, 'Transfer', -10, NULL, NULL, 'BadSide'),
+                    (5, 'Expense', -20, NULL, NULL, 'BadSide');
+                """,
+                db: db
+            )
+        }
+
+        LegacyStoreRepairService.repairLegacyFinancialTransactionEnumsIfNeeded(storeURL: storeURL)
+
+        let rows = try withSQLiteDatabase(at: storeURL) { db in
+            try queryTransactionEnumRows(db: db)
+        }
+
+        XCTAssertEqual("Expense", rows[1]?.type)
+        XCTAssertNil(rows[1]?.transferSide)
+        XCTAssertEqual("Income", rows[2]?.type)
+        XCTAssertNil(rows[2]?.transferSide)
+        XCTAssertEqual("Transfer", rows[3]?.type)
+        XCTAssertNil(rows[3]?.transferSide)
+        XCTAssertEqual("Transfer", rows[4]?.type)
+        XCTAssertEqual("Outgoing", rows[4]?.transferSide)
+        XCTAssertEqual("Expense", rows[5]?.type)
+        XCTAssertNil(rows[5]?.transferSide)
+    }
+
     func testLegacyAdvanceFixture_roundTripsWithBorrowedAdvanceWarning() async throws {
         let container = try makeInMemoryContainer()
         let modelContext = ModelContext(container)
@@ -619,6 +665,60 @@ final class BackupCompatibilityTests: XCTestCase {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(backup).write(to: tempURL, options: .atomic)
         return tempURL
+    }
+
+    private func makeTemporarySQLiteStoreURL(named name: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+        return url
+    }
+
+    private func withSQLiteDatabase<T>(at url: URL, body: (OpaquePointer) throws -> T) throws -> T {
+        var db: OpaquePointer?
+        let result = sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil)
+        guard result == SQLITE_OK, let db else {
+            let message = db.flatMap { sqlite3_errmsg($0) }.map { String(cString: $0) } ?? "unknown sqlite error"
+            if db != nil {
+                sqlite3_close(db)
+            }
+            throw NSError(domain: "BackupCompatibilitySQLite", code: Int(result), userInfo: [NSLocalizedDescriptionKey: message])
+        }
+        defer { sqlite3_close(db) }
+        return try body(db)
+    }
+
+    private func execSQL(_ sql: String, db: OpaquePointer) throws {
+        var errorMessage: UnsafeMutablePointer<CChar>?
+        let result = sqlite3_exec(db, sql, nil, nil, &errorMessage)
+        guard result == SQLITE_OK else {
+            let message = errorMessage.map { String(cString: $0) } ?? "unknown sqlite exec error"
+            if errorMessage != nil {
+                sqlite3_free(errorMessage)
+            }
+            throw NSError(domain: "BackupCompatibilitySQLite", code: Int(result), userInfo: [NSLocalizedDescriptionKey: message])
+        }
+    }
+
+    private func queryTransactionEnumRows(db: OpaquePointer) throws -> [Int: (type: String?, transferSide: String?)] {
+        let sql = "SELECT Z_PK, ZTYPE, ZTRANSFERSIDE FROM ZFINANCIALTRANSACTION ORDER BY Z_PK;"
+        var statement: OpaquePointer?
+        let prepareResult = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+        guard prepareResult == SQLITE_OK, let statement else {
+            let message = sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown sqlite prepare error"
+            throw NSError(domain: "BackupCompatibilitySQLite", code: Int(prepareResult), userInfo: [NSLocalizedDescriptionKey: message])
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var rows: [Int: (type: String?, transferSide: String?)] = [:]
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let id = Int(sqlite3_column_int(statement, 0))
+            let type = sqlite3_column_text(statement, 1).map { String(cString: $0) }
+            let transferSide = sqlite3_column_text(statement, 2).map { String(cString: $0) }
+            rows[id] = (type, transferSide)
+        }
+        return rows
     }
 }
 
