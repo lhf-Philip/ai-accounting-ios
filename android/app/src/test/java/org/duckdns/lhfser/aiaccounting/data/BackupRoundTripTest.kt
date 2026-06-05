@@ -19,6 +19,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceParticipantInput
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
+import org.duckdns.lhfser.aiaccounting.data.settlement.DebtSettlementBalanceCalculator
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -371,6 +372,85 @@ class BackupRoundTripTest {
         val incoming = checkNotNull(linkedTransactions.firstOrNull { it.accountId == receiveAccount.id })
         assertEquals(BigDecimal("90"), incoming.amount)
         assertEquals("CNY", incoming.currencyCode)
+    }
+
+    @Test
+    fun crossCurrencyAdvanceRepayment_semanticDebtBalanceUsesCaseCurrencyRemainingOnly() = runBlocking {
+        val payerAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            name = "JPY Wallet",
+            currency = "JPY",
+            type = AccountType.Cash,
+            baseBalance = BigDecimal.ZERO,
+            sortOrder = 0,
+            isArchived = false
+        )
+        val receiveAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            name = "HKD Wallet",
+            currency = "HKD",
+            type = AccountType.Cash,
+            baseBalance = BigDecimal.ZERO,
+            sortOrder = 1,
+            isArchived = false
+        )
+        val debtAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            name = "Friend A",
+            currency = "HKD",
+            type = AccountType.Debt,
+            baseBalance = BigDecimal.ZERO,
+            sortOrder = 2,
+            isArchived = false
+        )
+        database.accountDao().upsertAll(listOf(payerAccount, receiveAccount, debtAccount))
+
+        val date = Instant.parse("2026-03-21T12:00:00Z")
+        val caseId = repository.createAdvanceCase(
+            title = "日本旅行代墊",
+            date = date,
+            currencyCode = "JPY",
+            myShareAmount = BigDecimal.ZERO,
+            note = "",
+            payerAccount = payerAccount,
+            expenseCategory = null,
+            tagIds = emptyList(),
+            participants = listOf(AdvanceParticipantInput(debtAccount, BigDecimal("1000"))),
+            isBorrowedByMe = false
+        )
+        val advanceCase = checkNotNull(repository.getAdvanceCase(caseId))
+        val participant = advanceCase.participants.single()
+
+        repository.recordAdvanceRepayment(
+            advanceCase = advanceCase.advanceCase,
+            participant = participant,
+            amount = BigDecimal("50"),
+            normalizedAmount = BigDecimal("900"),
+            currencyCode = "HKD",
+            date = date.plusSeconds(3600),
+            note = "朋友用港幣還款",
+            receiveAccount = receiveAccount,
+            category = null,
+            tagIds = emptyList(),
+            isBorrowedByMe = false
+        )
+
+        val updatedCase = checkNotNull(repository.getAdvanceCase(caseId))
+        assertEquals(BigDecimal("100"), updatedCase.participants.single().owedAmount - updatedCase.participants.single().repaidAmount)
+
+        val transactions = database.transactionDao().getAllWithDetails()
+        val rawBalances = DebtSettlementBalanceCalculator.rawBalancesFor(debtAccount, transactions)
+        assertEquals(BigDecimal("1000"), rawBalances.first { it.currencyCode == "JPY" }.amount)
+        assertEquals(BigDecimal("-50"), rawBalances.first { it.currencyCode == "HKD" }.amount)
+
+        val semanticBalances = DebtSettlementBalanceCalculator.balancesFor(
+            debtAccount,
+            transactions,
+            listOf(updatedCase)
+        )
+        assertEquals(1, semanticBalances.size)
+        assertEquals("JPY", semanticBalances.single().currencyCode)
+        assertEquals(BigDecimal("100"), semanticBalances.single().amount)
     }
 
     @Test

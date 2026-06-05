@@ -29,8 +29,10 @@ import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
+import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.data.repository.LedgerDeletionResult
+import org.duckdns.lhfser.aiaccounting.data.settlement.DebtSettlementBalanceCalculator
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
@@ -57,6 +59,7 @@ fun AccountDetailScreen(
     val scope = rememberCoroutineScope()
     val accounts by repository.accounts.collectAsState(initial = emptyList())
     val transactions by repository.transactions.collectAsState(initial = emptyList())
+    val advanceCases by repository.advanceCases.collectAsState(initial = emptyList())
 
     val resolvedId = remember(accountId) { accountId?.let(UUID::fromString) }
     val account = remember(accounts, resolvedId) { accounts.firstOrNull { it.id == resolvedId } }
@@ -85,7 +88,7 @@ fun AccountDetailScreen(
             .filter { it.transaction.accountId == account.id }
             .sortedByDescending { it.transaction.date }
     }
-    val balances = remember(account, accountTransactions) { calculateBalances(account, accountTransactions) }
+    val balances = remember(account, transactions, advanceCases) { calculateBalances(account, transactions, advanceCases) }
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
@@ -309,20 +312,11 @@ private data class AccountCurrencyBalance(
 
 private fun calculateBalances(
     account: AccountEntity,
-    transactions: List<TransactionWithDetails>
+    transactions: List<TransactionWithDetails>,
+    advanceCases: List<AdvanceCaseWithDetails>
 ): List<AccountCurrencyBalance> {
-    val totals = linkedMapOf<String, BigDecimal>()
-    if (account.baseBalance != BigDecimal.ZERO) {
-        totals[account.currency] = account.baseBalance
-    }
-    transactions.forEach { tx ->
-        val currency = tx.transaction.currencyCode
-        totals[currency] = totals.getOrDefault(currency, BigDecimal.ZERO) + tx.transaction.amount
-    }
-    return totals.entries
-        .filter { it.value != BigDecimal.ZERO }
-        .sortedBy { it.key }
-        .map { AccountCurrencyBalance(it.key, it.value) }
+    return DebtSettlementBalanceCalculator.balancesFor(account, transactions, advanceCases)
+        .map { AccountCurrencyBalance(it.currencyCode, it.amount) }
 }
 
 private fun defaultTransactionTitle(type: TransactionType): String = when (type) {

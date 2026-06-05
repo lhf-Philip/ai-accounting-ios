@@ -94,6 +94,21 @@ Expected import defaults:
 - `myShareAmount = 0`
 - `normalizedAmount = amount`
 
+## Vector 6: Cross-Currency Advance Repayment Settlement Balance
+
+Input:
+- Advance case currency: `JPY`
+- Participant A owes: `1000 JPY`
+- Repayment actual amount: `50 HKD`
+- Repayment normalized amount: `900 JPY`
+
+Expected:
+- Participant A remaining amount: `100 JPY`
+- Settlement center / debt account semantic balance for A: `+100 JPY`
+- The actual `50 HKD` repayment remains visible in repayment history / timeline.
+- The actual `50 HKD` repayment must not appear as a separate reverse debt balance.
+- Raw linked advance transfer legs are implementation details and must not drive settlement summary balances.
+
 ## CI Gate Recommendation
 
 When Android data layer is ready, run these vectors in both platforms and compare:

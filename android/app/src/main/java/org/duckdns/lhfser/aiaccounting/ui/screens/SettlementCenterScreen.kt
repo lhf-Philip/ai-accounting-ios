@@ -37,6 +37,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
+import org.duckdns.lhfser.aiaccounting.data.settlement.DebtSettlementBalanceCalculator
 import org.duckdns.lhfser.aiaccounting.data.repository.MutualDebtOffsetCandidate
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
@@ -441,7 +442,7 @@ private fun buildPersonSummaries(
     mainCurrency: String
 ): List<SettlementPersonSummary> {
     val debtAccounts = accounts.filter { it.type == AccountType.Debt && !it.isArchived }
-    val balancesByAccount = calculateDebtBalances(debtAccounts, transactions)
+    val balancesByAccount = calculateDebtBalances(debtAccounts, transactions, advanceCases)
     val forgivenessByAccount = transactions
         .filter { it.account?.type == AccountType.Debt && TransactionSemantics.isDebtForgiveness(it.transaction.note) }
         .groupingBy { it.account?.id }
@@ -524,22 +525,12 @@ private inline fun <T> Iterable<T>.sumOfBigDecimal(selector: (T) -> BigDecimal):
 
 private fun calculateDebtBalances(
     accounts: List<AccountEntity>,
-    transactions: List<TransactionWithDetails>
+    transactions: List<TransactionWithDetails>,
+    advanceCases: List<AdvanceCaseWithDetails>
 ): Map<UUID, List<SettlementCurrencyBalance>> {
-    val grouped = transactions.groupBy { it.transaction.accountId }
     return accounts.associate { account ->
-        val totals = linkedMapOf<String, BigDecimal>()
-        if (account.baseBalance != BigDecimal.ZERO) {
-            totals[account.currency] = account.baseBalance
-        }
-        grouped[account.id].orEmpty().forEach { tx ->
-            val currency = tx.transaction.currencyCode
-            totals[currency] = totals.getOrDefault(currency, BigDecimal.ZERO) + tx.transaction.amount
-        }
-        account.id to totals.entries
-            .filter { it.value != BigDecimal.ZERO }
-            .sortedBy { it.key }
-            .map { SettlementCurrencyBalance(it.key, it.value) }
+        account.id to DebtSettlementBalanceCalculator.balancesFor(account, transactions, advanceCases)
+            .map { SettlementCurrencyBalance(it.currencyCode, it.amount) }
     }
 }
 

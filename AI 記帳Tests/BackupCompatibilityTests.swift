@@ -440,6 +440,69 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertEqual(Decimal(100), exportedRepayment.normalizedAmount)
     }
 
+    func testCrossCurrencyAdvanceRepayment_semanticDebtBalanceUsesCaseCurrencyRemainingOnly() throws {
+        let container = try makeInMemoryContainer()
+        let modelContext = ModelContext(container)
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-21T12:00:00Z"))
+
+        let payerAccount = Account(name: "JPY Wallet", currency: "JPY", type: .cash, baseBalance: 0)
+        let receiveAccount = Account(name: "HKD Wallet", currency: "HKD", type: .cash, baseBalance: 0)
+        let debtAccount = Account(name: "Friend A", currency: "HKD", type: .debt, baseBalance: 0)
+        modelContext.insert(payerAccount)
+        modelContext.insert(receiveAccount)
+        modelContext.insert(debtAccount)
+
+        let advanceCase = try AdvanceService.createAdvanceCase(
+            title: "日本旅行代墊",
+            date: date,
+            currencyCode: "JPY",
+            myShareAmount: 0,
+            note: "",
+            payerAccount: payerAccount,
+            category: nil,
+            tags: [],
+            participants: [.init(debtAccount: debtAccount, owedAmount: 1000)],
+            isBorrowedByMe: false,
+            modelContext: modelContext
+        )
+        let participant = try XCTUnwrap(advanceCase.participants.first)
+
+        _ = try AdvanceService.recordRepayment(
+            advanceCase: advanceCase,
+            participant: participant,
+            amount: 50,
+            currencyCode: "HKD",
+            date: date.addingTimeInterval(3600),
+            note: "朋友用港幣還款",
+            receiveAccount: receiveAccount,
+            category: nil,
+            tags: [],
+            currencyService: CurrencyService.shared,
+            normalizedAmountOverride: 900,
+            modelContext: modelContext
+        )
+
+        XCTAssertEqual(Decimal(100), participant.remainingAmount)
+
+        let transactions = try modelContext.fetch(FetchDescriptor<FinancialTransaction>())
+        let rawDebtBalances = DebtSettlementBalanceService.rawBalances(
+            for: debtAccount,
+            transactions: transactions
+        )
+        XCTAssertEqual(Decimal(1000), rawDebtBalances.first(where: { $0.currencyCode == "JPY" })?.amount)
+        XCTAssertEqual(Decimal(-50), rawDebtBalances.first(where: { $0.currencyCode == "HKD" })?.amount)
+
+        let semanticBalances = DebtSettlementBalanceService.balances(
+            for: debtAccount,
+            transactions: transactions,
+            advanceCases: [advanceCase],
+            modelContext: modelContext
+        )
+        XCTAssertEqual(1, semanticBalances.count)
+        XCTAssertEqual("JPY", semanticBalances.first?.currencyCode)
+        XCTAssertEqual(Decimal(100), semanticBalances.first?.amount)
+    }
+
     func testLegacyBorrowedAdvanceRepair_removesInflatedIncomingLegAndKeepsExpense() throws {
         let container = try makeInMemoryContainer()
         let modelContext = ModelContext(container)
