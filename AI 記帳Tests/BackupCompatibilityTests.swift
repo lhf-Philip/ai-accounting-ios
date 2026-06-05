@@ -424,6 +424,62 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertEqual(Decimal(40), payableCase.participants.first?.remainingAmount)
     }
 
+    func testManualDebtSettlement_closesSingleCurrencyAdvanceWithoutTransactions() throws {
+        let container = try makeInMemoryContainer()
+        let modelContext = ModelContext(container)
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-21T12:00:00Z"))
+
+        let ownAccount = Account(name: "JPY Wallet", currency: "JPY", type: .cash, baseBalance: 0)
+        let debtAccount = Account(name: "TKL", currency: "HKD", type: .debt, baseBalance: 0)
+        modelContext.insert(ownAccount)
+        modelContext.insert(debtAccount)
+        try modelContext.save()
+
+        let advanceCase = try AdvanceService.createAdvanceCase(
+            title: "豬骨拉麵",
+            date: date,
+            currencyCode: "JPY",
+            myShareAmount: 0,
+            note: "",
+            payerAccount: ownAccount,
+            category: nil,
+            tags: [],
+            participants: [.init(debtAccount: debtAccount, owedAmount: 1230)],
+            isBorrowedByMe: false,
+            modelContext: modelContext
+        )
+
+        let beforeTransactionCount = try modelContext.fetch(FetchDescriptor<FinancialTransaction>()).count
+        let result = try AdvanceService.recordManualDebtSettlement(
+            debtAccount: debtAccount,
+            currencyCode: "JPY",
+            direction: .receivable,
+            amount: 1230,
+            date: date.addingTimeInterval(600),
+            note: "手動結清日元餘額",
+            modelContext: modelContext
+        )
+
+        XCTAssertEqual(Decimal(1230), result.amount)
+        XCTAssertEqual(1, result.repaymentCount)
+        XCTAssertEqual(beforeTransactionCount, try modelContext.fetch(FetchDescriptor<FinancialTransaction>()).count)
+        XCTAssertEqual(Decimal.zero, advanceCase.participants.first?.remainingAmount)
+
+        let repayments = try modelContext.fetch(FetchDescriptor<AdvanceRepayment>())
+        XCTAssertEqual(1, repayments.count)
+        XCTAssertTrue(AdvanceService.isManualDebtSettlement(note: try XCTUnwrap(repayments.first?.note)))
+        XCTAssertNil(repayments.first?.linkedTransferGroupID)
+        XCTAssertNil(repayments.first?.receivedAccount)
+
+        let semanticBalances = DebtSettlementBalanceService.balances(
+            for: debtAccount,
+            transactions: try modelContext.fetch(FetchDescriptor<FinancialTransaction>()),
+            advanceCases: [advanceCase],
+            modelContext: modelContext
+        )
+        XCTAssertTrue(semanticBalances.isEmpty)
+    }
+
     func testCrossCurrencyAdvanceRepayment_preservesActualCurrencyAndManualSettlementAmount() throws {
         let container = try makeInMemoryContainer()
         let modelContext = ModelContext(container)

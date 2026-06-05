@@ -58,6 +58,25 @@ private struct SettlementDebtRoute: Identifiable, Hashable {
     }
 }
 
+private struct ManualDebtSettlementDraft: Identifiable {
+    let id = UUID()
+    let account: Account
+    let currencyCode: String
+    let direction: AdvanceService.ManualDebtSettlementDirection
+    let suggestedAmount: Decimal
+    let maximumAmount: Decimal
+    let visibleBalance: Decimal
+
+    var directionTitle: String {
+        switch direction {
+        case .receivable:
+            "結清對方欠你的 \(currencyCode)"
+        case .payable:
+            "結清你欠對方的 \(currencyCode)"
+        }
+    }
+}
+
 struct SettlementCenterView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Account.sortOrder) private var accounts: [Account]
@@ -69,6 +88,7 @@ struct SettlementCenterView: View {
     @State private var selectedPerson: SettlementPersonSummary?
     @State private var timelineFilter: SettlementTimelineFilter?
     @State private var debtRoute: SettlementDebtRoute?
+    @State private var manualDebtSettlementDraft: ManualDebtSettlementDraft?
     @State private var statusMessage: String?
 
     private var activeDebtAccounts: [Account] {
@@ -149,7 +169,10 @@ struct SettlementCenterView: View {
         }
 
         let allRepayments = advanceCases.flatMap(\.repayments)
-        items += allRepayments.filter { !AdvanceService.isMutualDebtOffset(note: $0.note) }.map { repayment in
+        items += allRepayments.filter {
+            !AdvanceService.isMutualDebtOffset(note: $0.note)
+                && !AdvanceService.isManualDebtSettlement(note: $0.note)
+        }.map { repayment in
             SettlementTimelineItem(
                 id: "repayment-\(repayment.id.uuidString)",
                 relatedAccountID: repayment.participant?.debtAccount?.id,
@@ -159,6 +182,26 @@ struct SettlementCenterView: View {
                 amount: repayment.amount,
                 currencyCode: repayment.currencyCode,
                 tint: .green
+            )
+        }
+
+        let manualRepaymentsByID = Dictionary(grouping: allRepayments.compactMap { repayment -> (UUID, AdvanceRepayment)? in
+            guard let settlementID = AdvanceService.manualDebtSettlementID(from: repayment.note) else { return nil }
+            return (settlementID, repayment)
+        }) { $0.0 }
+        items += manualRepaymentsByID.compactMap { settlementID, entries in
+            let repayments = entries.map(\.1)
+            guard let first = repayments.first else { return nil }
+            let total = repayments.reduce(Decimal.zero) { $0 + $1.normalizedAmount }
+            return SettlementTimelineItem(
+                id: "manual-settlement-\(settlementID.uuidString)",
+                relatedAccountID: first.participant?.debtAccount?.id,
+                date: first.date,
+                title: "跨幣種平賬",
+                subtitle: first.participant?.debtAccount?.name ?? "手動結清代墊餘額",
+                amount: total,
+                currencyCode: first.currencyCode,
+                tint: .indigo
             )
         }
 
@@ -315,6 +358,12 @@ struct SettlementCenterView: View {
                         recordOffset(candidate)
                     }
                 }
+                ForEach(manualSettlementDrafts(for: summary)) { draft in
+                    Button("\(draft.directionTitle) \(draft.suggestedAmount.formatted(.currency(code: draft.currencyCode)))") {
+                        selectedPerson = nil
+                        manualDebtSettlementDraft = draft
+                    }
+                }
             }
             if let summary = selectedPerson, summary.netBalanceInMainCurrency > 0 {
                 Button("記錄對方還款") {
@@ -385,6 +434,11 @@ struct SettlementCenterView: View {
                 )
             } else {
                 ContentUnavailableView("找不到對象", systemImage: "person.crop.circle.badge.exclamationmark")
+            }
+        }
+        .sheet(item: $manualDebtSettlementDraft) { draft in
+            ManualDebtSettlementSheet(draft: draft) { amount, note in
+                recordManualDebtSettlement(draft, amount: amount, note: note)
             }
         }
     }
@@ -591,6 +645,49 @@ struct SettlementCenterView: View {
         }
     }
 
+    private func manualSettlementDrafts(for summary: SettlementPersonSummary) -> [ManualDebtSettlementDraft] {
+        summary.balances.compactMap { balance in
+            let visibleAmount = abs(balance.amount)
+            guard visibleAmount > 0 else { return nil }
+            let direction: AdvanceService.ManualDebtSettlementDirection = balance.amount > 0 ? .receivable : .payable
+            let maximum = manualSettlementAvailableAmount(
+                for: summary.account,
+                currencyCode: balance.currencyCode,
+                direction: direction
+            )
+            guard maximum > 0 else { return nil }
+            return ManualDebtSettlementDraft(
+                account: summary.account,
+                currencyCode: balance.currencyCode,
+                direction: direction,
+                suggestedAmount: min(visibleAmount, maximum),
+                maximumAmount: maximum,
+                visibleBalance: balance.amount
+            )
+        }
+    }
+
+    private func manualSettlementAvailableAmount(
+        for account: Account,
+        currencyCode: String,
+        direction: AdvanceService.ManualDebtSettlementDirection
+    ) -> Decimal {
+        advanceCases
+            .filter { $0.currencyCode == currencyCode }
+            .flatMap { advanceCase -> [Decimal] in
+                let isPayableCase = advanceCase.payerAccount == nil
+                switch (direction, isPayableCase) {
+                case (.receivable, false), (.payable, true):
+                    return advanceCase.participants
+                        .filter { $0.debtAccount?.id == account.id }
+                        .map(\.remainingAmount)
+                default:
+                    return []
+                }
+            }
+            .reduce(Decimal.zero, +)
+    }
+
     private func debtTimelineTitle(for transaction: FinancialTransaction, fallback: String) -> String {
         let note = transaction.note
         if TransactionSemantics.isDebtForgiveness(note: note) {
@@ -625,5 +722,92 @@ struct SettlementCenterView: View {
             selectedPerson = nil
             statusMessage = error.localizedDescription
         }
+    }
+
+    private func recordManualDebtSettlement(_ draft: ManualDebtSettlementDraft, amount: Decimal, note: String) {
+        do {
+            let result = try AdvanceService.recordManualDebtSettlement(
+                debtAccount: draft.account,
+                currencyCode: draft.currencyCode,
+                direction: draft.direction,
+                amount: amount,
+                note: note,
+                modelContext: modelContext
+            )
+            manualDebtSettlementDraft = nil
+            statusMessage = "已跨幣種平賬 \(result.amount.formatted(.currency(code: result.currencyCode)))。"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct ManualDebtSettlementSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let draft: ManualDebtSettlementDraft
+    let onConfirm: (Decimal, String) -> Void
+    @State private var amountString: String
+    @State private var note: String
+    @State private var errorMessage: String?
+
+    init(draft: ManualDebtSettlementDraft, onConfirm: @escaping (Decimal, String) -> Void) {
+        self.draft = draft
+        self.onConfirm = onConfirm
+        _amountString = State(initialValue: NSDecimalNumber(decimal: draft.suggestedAmount).stringValue)
+        _note = State(initialValue: "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledContent("對象", value: draft.account.name)
+                    LabeledContent("幣種", value: draft.currencyCode)
+                    LabeledContent("結算方向", value: draft.directionTitle)
+                    LabeledContent("目前顯示淨額", value: draft.visibleBalance.formatted(.currency(code: draft.currencyCode)))
+                    LabeledContent("最多可結清", value: draft.maximumAmount.formatted(.currency(code: draft.currencyCode)))
+                } footer: {
+                    Text("這是手動平賬：不會建立現金或銀行交易，也不會計入收入/支出，只會在代墊紀錄中留下審計紀錄。")
+                }
+
+                Section("平賬金額") {
+                    TextField("金額", text: $amountString)
+                        .keyboardType(.decimalPad)
+                    TextField("備註（可選）", text: $note, axis: .vertical)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("跨幣種平賬")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("確認") {
+                        confirm()
+                    }
+                }
+            }
+        }
+    }
+
+    private func confirm() {
+        guard let amount = Decimal(string: amountString), amount > 0 else {
+            errorMessage = "請輸入有效金額。"
+            return
+        }
+        guard amount <= draft.maximumAmount else {
+            errorMessage = "平賬金額不能超過可結清金額。"
+            return
+        }
+        onConfirm(amount, note)
+        dismiss()
     }
 }
