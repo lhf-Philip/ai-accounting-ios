@@ -92,10 +92,23 @@ data class MutualDebtOffsetResult(
     val repaymentCount: Int
 )
 
+enum class ManualDebtSettlementDirection {
+    Receivable,
+    Payable
+}
+
+data class ManualDebtSettlementResult(
+    val settlementId: UUID,
+    val amount: BigDecimal,
+    val currencyCode: String,
+    val repaymentCount: Int
+)
+
 private const val RECURRING_STATUS_PENDING = "Pending"
 private const val RECURRING_STATUS_CONFIRMED = "Confirmed"
 private const val RECURRING_STATUS_SKIPPED = "Skipped"
 const val MUTUAL_DEBT_OFFSET_MARKER_PREFIX = "[債務抵銷:"
+const val MANUAL_DEBT_SETTLEMENT_MARKER_PREFIX = "[跨幣種平賬:"
 
 class AccountingRepository(
     private val database: AIAccountingDatabase,
@@ -225,6 +238,47 @@ class AccountingRepository(
         }
     }
 
+    suspend fun recordManualDebtSettlement(
+        debtAccountId: UUID,
+        currencyCode: String,
+        direction: ManualDebtSettlementDirection,
+        amount: BigDecimal,
+        date: Instant = Instant.now(),
+        note: String = ""
+    ): ManualDebtSettlementResult {
+        return database.withTransaction {
+            val debtAccount = accountDao.getAccount(debtAccountId) ?: error("找不到債務對象")
+            val normalizedAmount = amount.abs()
+            require(normalizedAmount > BigDecimal.ZERO) { "請輸入有效平賬金額" }
+
+            val offsetable = offsetableParticipants(debtAccountId, currencyCode, advanceDao.getAllCasesWithDetails())
+            val entries = when (direction) {
+                ManualDebtSettlementDirection.Receivable -> offsetable.receivable
+                ManualDebtSettlementDirection.Payable -> offsetable.payable
+            }
+            val availableAmount = entries.fold(BigDecimal.ZERO) { acc, entry -> acc + entry.remaining }
+            require(normalizedAmount <= availableAmount) { "平賬金額不能超過可結清金額" }
+
+            val now = Instant.now()
+            val settlementId = UUID.randomUUID()
+            val trimmedNote = note.trim()
+            val marker = "$MANUAL_DEBT_SETTLEMENT_MARKER_PREFIX$settlementId]"
+            val defaultNote = when (direction) {
+                ManualDebtSettlementDirection.Receivable -> "手動結清 ${debtAccount.name} 欠你的 $currencyCode 代墊餘額"
+                ManualDebtSettlementDirection.Payable -> "手動結清你欠 ${debtAccount.name} 的 $currencyCode 代墊餘額"
+            }
+            val finalNote = if (trimmedNote.isBlank()) "$marker $defaultNote" else "$marker $trimmedNote"
+            val repaymentCount = applyMutualDebtOffset(normalizedAmount, entries, date, finalNote, now)
+
+            ManualDebtSettlementResult(
+                settlementId = settlementId,
+                amount = normalizedAmount,
+                currencyCode = currencyCode,
+                repaymentCount = repaymentCount
+            )
+        }
+    }
+
     suspend fun buildDataHealthReport(): DataHealthReport {
         return DataHealthChecker.run(
             DataHealthSnapshot(
@@ -322,6 +376,20 @@ class AccountingRepository(
             if (end <= MUTUAL_DEBT_OFFSET_MARKER_PREFIX.length) return null
             return runCatching {
                 UUID.fromString(trimmed.substring(MUTUAL_DEBT_OFFSET_MARKER_PREFIX.length, end))
+            }.getOrNull()
+        }
+
+        fun isManualDebtSettlement(note: String): Boolean {
+            return note.trim().startsWith(MANUAL_DEBT_SETTLEMENT_MARKER_PREFIX)
+        }
+
+        fun manualDebtSettlementId(note: String): UUID? {
+            val trimmed = note.trim()
+            if (!trimmed.startsWith(MANUAL_DEBT_SETTLEMENT_MARKER_PREFIX)) return null
+            val end = trimmed.indexOf(']')
+            if (end <= MANUAL_DEBT_SETTLEMENT_MARKER_PREFIX.length) return null
+            return runCatching {
+                UUID.fromString(trimmed.substring(MANUAL_DEBT_SETTLEMENT_MARKER_PREFIX.length, end))
             }.getOrNull()
         }
     }

@@ -101,9 +101,22 @@ enum AdvanceService {
         let currencyCode: String
         let repaymentCount: Int
     }
+
+    enum ManualDebtSettlementDirection {
+        case receivable
+        case payable
+    }
+
+    struct ManualDebtSettlementResult {
+        let settlementID: UUID
+        let amount: Decimal
+        let currencyCode: String
+        let repaymentCount: Int
+    }
     
     private static let roundingTolerance = Decimal(string: "0.0001") ?? 0.0001
     static let mutualDebtOffsetMarkerPrefix = "[債務抵銷:"
+    static let manualDebtSettlementMarkerPrefix = "[跨幣種平賬:"
     
     static func totalAdvanced(for advanceCase: AdvanceCase) -> Decimal {
         advanceCase.myShareAmount + advanceCase.participants.reduce(Decimal.zero) { $0 + $1.owedAmount }
@@ -126,6 +139,20 @@ enum AdvanceService {
             return nil
         }
         let startIndex = trimmed.index(trimmed.startIndex, offsetBy: mutualDebtOffsetMarkerPrefix.count)
+        return UUID(uuidString: String(trimmed[startIndex..<closeIndex]))
+    }
+
+    static func isManualDebtSettlement(note: String) -> Bool {
+        note.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(manualDebtSettlementMarkerPrefix)
+    }
+
+    static func manualDebtSettlementID(from note: String) -> UUID? {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix(manualDebtSettlementMarkerPrefix),
+              let closeIndex = trimmed.firstIndex(of: "]") else {
+            return nil
+        }
+        let startIndex = trimmed.index(trimmed.startIndex, offsetBy: manualDebtSettlementMarkerPrefix.count)
         return UUID(uuidString: String(trimmed[startIndex..<closeIndex]))
     }
 
@@ -229,6 +256,58 @@ enum AdvanceService {
         }
         try modelContext.save()
         return repayments.count
+    }
+
+    @MainActor
+    static func recordManualDebtSettlement(
+        debtAccount: Account,
+        currencyCode: String,
+        direction: ManualDebtSettlementDirection,
+        amount: Decimal,
+        date: Date = Date(),
+        note: String = "",
+        modelContext: ModelContext
+    ) throws -> ManualDebtSettlementResult {
+        guard amount > roundingTolerance else {
+            throw AdvanceServiceError.invalidRepaymentAmount
+        }
+
+        let advanceCases = try modelContext.fetch(FetchDescriptor<AdvanceCase>())
+        let offsetable = offsetableParticipants(
+            debtAccount: debtAccount,
+            currencyCode: currencyCode,
+            advanceCases: advanceCases,
+            modelContext: modelContext
+        )
+        let entries = direction == .receivable ? offsetable.receivable : offsetable.payable
+        let availableAmount = entries.reduce(Decimal.zero) { $0 + $1.participant.remainingAmount }
+        guard amount <= availableAmount + roundingTolerance else {
+            throw AdvanceServiceError.repaymentExceedsRemaining
+        }
+
+        let settlementID = UUID()
+        let marker = "\(manualDebtSettlementMarkerPrefix)\(settlementID.uuidString)]"
+        let baseNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultNote = direction == .receivable
+            ? "手動結清 \(debtAccount.name) 欠你的 \(currencyCode) 代墊餘額"
+            : "手動結清你欠 \(debtAccount.name) 的 \(currencyCode) 代墊餘額"
+        let finalNote = baseNote.isEmpty ? "\(marker) \(defaultNote)" : "\(marker) \(baseNote)"
+
+        let repaymentCount = applyManualDebtSettlement(
+            amount: amount,
+            entries: entries,
+            date: date,
+            note: finalNote,
+            modelContext: modelContext
+        )
+
+        try modelContext.save()
+        return ManualDebtSettlementResult(
+            settlementID: settlementID,
+            amount: amount,
+            currencyCode: currencyCode,
+            repaymentCount: repaymentCount
+        )
     }
     
     @MainActor
@@ -732,6 +811,23 @@ enum AdvanceService {
         }
 
         return repaymentCount
+    }
+
+    @MainActor
+    private static func applyManualDebtSettlement(
+        amount: Decimal,
+        entries: [OffsetParticipantEntry],
+        date: Date,
+        note: String,
+        modelContext: ModelContext
+    ) -> Int {
+        applyMutualDebtOffset(
+            amount: amount,
+            entries: entries,
+            date: date,
+            note: note,
+            modelContext: modelContext
+        )
     }
     
     @MainActor

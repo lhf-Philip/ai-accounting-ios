@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,7 +30,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.KeyboardOptions
 import org.duckdns.lhfser.aiaccounting.core.model.AccountType
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
@@ -38,6 +41,7 @@ import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
 import org.duckdns.lhfser.aiaccounting.data.settlement.DebtSettlementBalanceCalculator
+import org.duckdns.lhfser.aiaccounting.data.repository.ManualDebtSettlementDirection
 import org.duckdns.lhfser.aiaccounting.data.repository.MutualDebtOffsetCandidate
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
@@ -89,6 +93,17 @@ private data class TimelineItem(
     val tint: Color
 )
 
+private data class ManualSettlementDraft(
+    val account: AccountEntity,
+    val currencyCode: String,
+    val direction: ManualDebtSettlementDirection,
+    val suggestedAmount: BigDecimal,
+    val maximumAmount: BigDecimal,
+    val visibleBalance: BigDecimal
+) {
+    val id: String = "${account.id}-$currencyCode-$direction"
+}
+
 @Composable
 fun SettlementCenterScreen(
     onOpenAdvanceCase: (String) -> Unit,
@@ -107,6 +122,7 @@ fun SettlementCenterScreen(
     val rateSnapshot = currencyService.rates
     var mode by rememberSaveable { mutableStateOf(SettlementMode.People) }
     var selectedPerson by remember { mutableStateOf<SettlementPersonSummary?>(null) }
+    var manualSettlementDraft by remember { mutableStateOf<ManualSettlementDraft?>(null) }
     var timelineFilter by remember { mutableStateOf<SettlementPersonSummary?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
 
@@ -281,6 +297,14 @@ fun SettlementCenterScreen(
                             }
                         }) { Text("抵銷 ${candidate.amount.asCurrencyText(candidate.currencyCode)}") }
                     }
+                    buildManualSettlementDrafts(summary, advanceCases).forEach { draft ->
+                        TextButton(onClick = {
+                            selectedPerson = null
+                            manualSettlementDraft = draft
+                        }) {
+                            Text("${manualSettlementLabel(draft.direction, draft.currencyCode)} ${draft.suggestedAmount.asCurrencyText(draft.currencyCode)}")
+                        }
+                    }
                     if (summary.netInMainCurrency.signum() > 0) {
                         TextButton(onClick = {
                             selectedPerson = null
@@ -313,6 +337,31 @@ fun SettlementCenterScreen(
         )
     }
 
+    manualSettlementDraft?.let { draft ->
+        ManualDebtSettlementDialog(
+            draft = draft,
+            onDismiss = { manualSettlementDraft = null },
+            onConfirm = { amount, note ->
+                manualSettlementDraft = null
+                scope.launch {
+                    runCatching {
+                        repository.recordManualDebtSettlement(
+                            debtAccountId = draft.account.id,
+                            currencyCode = draft.currencyCode,
+                            direction = draft.direction,
+                            amount = amount,
+                            note = note
+                        )
+                    }.onSuccess {
+                        message = "已跨幣種平賬 ${it.amount.asCurrencyText(it.currencyCode)}。"
+                    }.onFailure {
+                        message = it.message ?: "跨幣種平賬失敗。"
+                    }
+                }
+            }
+        )
+    }
+
     message?.let { text ->
         AlertDialog(
             onDismissRequest = { message = null },
@@ -323,6 +372,75 @@ fun SettlementCenterScreen(
             }
         )
     }
+}
+
+@Composable
+private fun ManualDebtSettlementDialog(
+    draft: ManualSettlementDraft,
+    onDismiss: () -> Unit,
+    onConfirm: (BigDecimal, String) -> Unit
+) {
+    var amountText by remember(draft.id) { mutableStateOf(draft.suggestedAmount.stripTrailingZeros().toPlainString()) }
+    var note by remember(draft.id) { mutableStateOf("") }
+    var errorText by remember(draft.id) { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("跨幣種平賬") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("對象：${draft.account.name}", style = MaterialTheme.typography.bodyMedium)
+                Text("方向：${manualSettlementLabel(draft.direction, draft.currencyCode)}", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "目前顯示淨額：${draft.visibleBalance.asCurrencyText(draft.currencyCode)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "最多可結清：${draft.maximumAmount.asCurrencyText(draft.currencyCode)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "這不會建立現金或銀行交易，也不會計入收入/支出，只會留下代墊審計紀錄。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                TextField(
+                    value = amountText,
+                    onValueChange = { amountText = it },
+                    label = { Text("平賬金額") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                TextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("備註（可選）") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                errorText?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val amount = runCatching { BigDecimal(amountText.trim()) }.getOrNull()
+                when {
+                    amount == null || amount <= BigDecimal.ZERO -> errorText = "請輸入有效金額。"
+                    amount > draft.maximumAmount -> errorText = "平賬金額不能超過可結清金額。"
+                    else -> onConfirm(amount, note)
+                }
+            }) {
+                Text("確認")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
 }
 
 @Composable
@@ -558,7 +676,10 @@ private fun buildTimelineItems(
             tint = Color(0xFFFF9800)
         )
         advanceCase.repayments
-            .filter { !AccountingRepository.isMutualDebtOffset(it.note) }
+            .filter {
+                !AccountingRepository.isMutualDebtOffset(it.note) &&
+                    !AccountingRepository.isManualDebtSettlement(it.note)
+            }
             .forEach { repayment ->
             val participant = advanceCase.participants.firstOrNull { it.id == repayment.participantId }
             items += TimelineItem(
@@ -573,6 +694,33 @@ private fun buildTimelineItems(
             )
         }
     }
+
+    advanceCases
+        .flatMap { advanceCase -> advanceCase.repayments.map { repayment -> advanceCase to repayment } }
+        .mapNotNull { (advanceCase, repayment) ->
+            AccountingRepository.manualDebtSettlementId(repayment.note)?.let { settlementId ->
+                settlementId to (advanceCase to repayment)
+            }
+        }
+        .groupBy { it.first }
+        .forEach { (settlementId, grouped) ->
+            val repayments = grouped.map { it.second.second }
+            val firstCase = grouped.firstOrNull()?.second?.first
+            val first = repayments.firstOrNull()
+            if (first != null) {
+                val participant = firstCase?.participants?.firstOrNull { it.id == first.participantId }
+                items += TimelineItem(
+                    id = "manual-settlement-$settlementId",
+                    relatedAccountId = participant?.debtAccountId,
+                    date = first.date,
+                    title = "跨幣種平賬",
+                    subtitle = participant?.name ?: "手動結清代墊餘額",
+                    amount = repayments.sumOfBigDecimal { it.normalizedAmount },
+                    currencyCode = first.currencyCode,
+                    tint = Color(0xFF3F51B5)
+                )
+            }
+        }
 
     advanceCases
         .flatMap { advanceCase -> advanceCase.repayments.map { repayment -> advanceCase to repayment } }
@@ -659,6 +807,63 @@ private fun topOutstandingParticipantText(advanceCase: AdvanceCaseWithDetails): 
     val outstanding = participant?.let { (it.owedAmount - it.repaidAmount).max(BigDecimal.ZERO) } ?: return null
     if (outstanding <= BigDecimal.ZERO) return null
     return "主要未清：${participant.name} ${outstanding.asCurrencyText(advanceCase.advanceCase.currencyCode)}"
+}
+
+private fun buildManualSettlementDrafts(
+    summary: SettlementPersonSummary,
+    advanceCases: List<AdvanceCaseWithDetails>
+): List<ManualSettlementDraft> {
+    return summary.balances.mapNotNull { balance ->
+        val visibleAmount = balance.amount.abs()
+        if (visibleAmount <= BigDecimal.ZERO) return@mapNotNull null
+        val direction = if (balance.amount.signum() > 0) {
+            ManualDebtSettlementDirection.Receivable
+        } else {
+            ManualDebtSettlementDirection.Payable
+        }
+        val maximum = manualSettlementAvailableAmount(summary.account, balance.currency, direction, advanceCases)
+        if (maximum <= BigDecimal.ZERO) return@mapNotNull null
+        ManualSettlementDraft(
+            account = summary.account,
+            currencyCode = balance.currency,
+            direction = direction,
+            suggestedAmount = visibleAmount.min(maximum),
+            maximumAmount = maximum,
+            visibleBalance = balance.amount
+        )
+    }
+}
+
+private fun manualSettlementAvailableAmount(
+    account: AccountEntity,
+    currencyCode: String,
+    direction: ManualDebtSettlementDirection,
+    advanceCases: List<AdvanceCaseWithDetails>
+): BigDecimal {
+    return advanceCases
+        .filter { it.advanceCase.currencyCode == currencyCode }
+        .flatMap { advanceCase ->
+            val isPayableCase = advanceCase.advanceCase.payerAccountId == null
+            val directionMatches = when (direction) {
+                ManualDebtSettlementDirection.Receivable -> !isPayableCase
+                ManualDebtSettlementDirection.Payable -> isPayableCase
+            }
+            if (!directionMatches) {
+                emptyList()
+            } else {
+                advanceCase.participants
+                    .filter { it.debtAccountId == account.id }
+                    .map { (it.owedAmount - it.repaidAmount).max(BigDecimal.ZERO) }
+            }
+        }
+        .sumOfBigDecimal { it }
+}
+
+private fun manualSettlementLabel(direction: ManualDebtSettlementDirection, currencyCode: String): String {
+    return when (direction) {
+        ManualDebtSettlementDirection.Receivable -> "結清對方欠你的 $currencyCode"
+        ManualDebtSettlementDirection.Payable -> "結清你欠對方的 $currencyCode"
+    }
 }
 
 private fun latestActivityDate(
