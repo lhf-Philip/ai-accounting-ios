@@ -4,6 +4,7 @@ import SwiftData
 struct AccountDetailView: View {
     let account: Account
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var allTransactions: [FinancialTransaction]
+    @Query(sort: \AdvanceCase.date, order: .reverse) private var advanceCases: [AdvanceCase]
     @Query private var advanceParticipants: [AdvanceParticipant]
     @Query private var advanceRepayments: [AdvanceRepayment]
     @Environment(\.modelContext) private var modelContext
@@ -21,8 +22,10 @@ struct AccountDetailView: View {
         let renderState = AccountDetailRenderState(
             account: account,
             allTransactions: allTransactions,
+            advanceCases: advanceCases,
             advanceParticipants: advanceParticipants,
-            advanceRepayments: advanceRepayments
+            advanceRepayments: advanceRepayments,
+            modelContext: modelContext
         )
 
         List {
@@ -165,8 +168,10 @@ private struct AccountDetailRenderState {
     init(
         account: Account,
         allTransactions: [FinancialTransaction],
+        advanceCases: [AdvanceCase],
         advanceParticipants: [AdvanceParticipant],
-        advanceRepayments: [AdvanceRepayment]
+        advanceRepayments: [AdvanceRepayment],
+        modelContext: ModelContext
     ) {
         let accountTransactions = allTransactions.filter { $0.account?.id == account.id }
         var advanceGroupIDs = Set(advanceParticipants.compactMap(\.initialTransferGroupID))
@@ -177,27 +182,24 @@ private struct AccountDetailRenderState {
         self.transferCounterpartByID = TransferPresentationService.counterpartMap(transactions: allTransactions)
         self.currencyBalances = Self.currencyBalances(
             account: account,
-            accountTransactions: accountTransactions
+            allTransactions: allTransactions,
+            advanceCases: advanceCases,
+            modelContext: modelContext
         )
     }
 
     private static func currencyBalances(
         account: Account,
-        accountTransactions: [FinancialTransaction]
+        allTransactions: [FinancialTransaction],
+        advanceCases: [AdvanceCase],
+        modelContext: ModelContext
     ) -> [AccountDetailView.CurrencyBalance] {
-        var balances: [String: Decimal] = [:]
-
-        if account.baseBalance != 0 {
-            balances[account.currency, default: 0] += account.baseBalance
-        }
-
-        for tx in accountTransactions {
-            balances[tx.currencyCode, default: 0] += tx.amount
-        }
-
-        return balances
-            .filter { $0.value != 0 }
-            .map { AccountDetailView.CurrencyBalance(currency: $0.key, amount: $0.value) }
-            .sorted { $0.currency < $1.currency }
+        DebtSettlementBalanceService.balances(
+            for: account,
+            transactions: allTransactions,
+            advanceCases: advanceCases,
+            modelContext: modelContext
+        )
+        .map { AccountDetailView.CurrencyBalance(currency: $0.currencyCode, amount: $0.amount) }
     }
 }

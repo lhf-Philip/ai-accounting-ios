@@ -29,7 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
+import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
+import org.duckdns.lhfser.aiaccounting.data.settlement.DebtSettlementBalanceCalculator
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
@@ -52,12 +54,13 @@ fun AccountsScreen(
     val currencyService = LocalCurrencyService.current
     val accounts by repository.accounts.collectAsState(initial = emptyList())
     val transactions by repository.transactions.collectAsState(initial = emptyList())
+    val advanceCases by repository.advanceCases.collectAsState(initial = emptyList())
     val rateSnapshot = currencyService.rates
     val mainCurrency = currencyService.mainCurrency
     var showArchived by rememberSaveable { mutableStateOf(false) }
 
-    val accountSummaries = remember(accounts, transactions) {
-        calculateBalances(accounts, transactions)
+    val accountSummaries = remember(accounts, transactions, advanceCases) {
+        calculateBalances(accounts, transactions, advanceCases)
     }
     val activeSummaries = remember(accountSummaries) {
         accountSummaries.filter { !it.account.isArchived }
@@ -316,23 +319,12 @@ private data class CurrencyHoldingSummary(
 
 private fun calculateBalances(
     accounts: List<AccountEntity>,
-    transactions: List<TransactionWithDetails>
+    transactions: List<TransactionWithDetails>,
+    advanceCases: List<AdvanceCaseWithDetails>
 ): List<AccountBalance> {
-    val grouped = transactions.groupBy { it.transaction.accountId }
     return accounts.map { account ->
-        val totals = linkedMapOf<String, BigDecimal>()
-        if (account.baseBalance != BigDecimal.ZERO) {
-            totals[account.currency] = account.baseBalance
-        }
-        grouped[account.id]?.forEach { tx ->
-            val currency = tx.transaction.currencyCode
-            totals[currency] = totals.getOrDefault(currency, BigDecimal.ZERO) + tx.transaction.amount
-        }
-
-        val balances = totals.entries
-            .filter { it.value != BigDecimal.ZERO }
-            .sortedBy { it.key }
-            .map { CurrencyBalance(currency = it.key, amount = it.value) }
+        val balances = DebtSettlementBalanceCalculator.balancesFor(account, transactions, advanceCases)
+            .map { CurrencyBalance(currency = it.currencyCode, amount = it.amount) }
 
         AccountBalance(account = account, balances = balances)
     }

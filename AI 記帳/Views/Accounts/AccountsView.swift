@@ -4,6 +4,8 @@ import SwiftData
 struct AccountsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Account.sortOrder) private var allAccounts: [Account]
+    @Query(sort: \FinancialTransaction.date, order: .reverse) private var allTransactions: [FinancialTransaction]
+    @Query(sort: \AdvanceCase.date, order: .reverse) private var advanceCases: [AdvanceCase]
     
     @StateObject private var currencyService = CurrencyService.shared
     @AppStorage("mainCurrency") private var mainCurrency: String = "HKD"
@@ -163,7 +165,7 @@ struct AccountsView: View {
     }
 
     private func accountRow(_ account: Account) -> some View {
-        AccountRowLink(account: account, showArchived: showArchived) {
+        AccountRowLink(account: account, balances: balances(for: account), showArchived: showArchived) {
             toggleArchive(account)
         } deleteAction: {
             deleteAccount(account)
@@ -337,9 +339,8 @@ struct AccountsView: View {
         let activeAccounts = allAccounts.filter { !$0.isArchived }
         
         for account in activeAccounts {
-            total += currencyService.convert(amount: account.baseBalance, from: account.currency)
-            for tx in account.transactions {
-                total += currencyService.convert(amount: tx.amount, from: tx.currencyCode)
+            for balance in balances(for: account) {
+                total += currencyService.convert(amount: balance.amount, from: balance.currencyCode)
             }
         }
         return total.formatted(.currency(code: mainCurrency))
@@ -351,10 +352,20 @@ struct AccountsView: View {
         let activeAccounts = allAccounts.filter { !$0.isArchived }
         
         for account in activeAccounts {
-            if account.baseBalance != 0 { totals[account.currency, default: 0] += account.baseBalance }
-            for tx in account.transactions { totals[tx.currencyCode, default: 0] += tx.amount }
+            for balance in balances(for: account) {
+                totals[balance.currencyCode, default: 0] += balance.amount
+            }
         }
         return totals.map { CurrencyTotal(currency: $0.key, amount: $0.value) }.sorted { $0.currency < $1.currency }
+    }
+
+    private func balances(for account: Account) -> [DebtSettlementCurrencyBalance] {
+        DebtSettlementBalanceService.balances(
+            for: account,
+            transactions: allTransactions,
+            advanceCases: advanceCases,
+            modelContext: modelContext
+        )
     }
 }
 
@@ -362,13 +373,14 @@ struct AccountsView: View {
 
 struct AccountRowLink: View {
     let account: Account
+    let balances: [DebtSettlementCurrencyBalance]
     let showArchived: Bool
     let archiveAction: () -> Void
     let deleteAction: () -> Void
     let editAction: () -> Void
     
     var body: some View {
-        NavigationLink(destination: AccountDetailView(account: account)) { AccountRow(account: account) }
+        NavigationLink(destination: AccountDetailView(account: account)) { AccountRow(account: account, balances: balances) }
             .swipeActions(edge: .leading) {
                 // 🔥 左滑：歸檔/還原
                 Button(action: archiveAction) {
@@ -385,6 +397,8 @@ struct AccountRowLink: View {
 
 struct AccountRow: View {
     let account: Account
+    let balances: [DebtSettlementCurrencyBalance]
+
     var body: some View {
         HStack {
             VStack(alignment: .leading) {
@@ -397,25 +411,17 @@ struct AccountRow: View {
             }
             Spacer()
             VStack(alignment: .trailing) {
-                let balances = calculateBalances(account: account)
                 if balances.isEmpty { Text("0.00").foregroundStyle(.secondary) }
                 else if balances.count == 1, let first = balances.first {
-                    Text(first.value.formatted(.currency(code: first.key))).bold().foregroundStyle(first.value >= 0 ? Color.primary : Color.red)
+                    Text(first.amount.formatted(.currency(code: first.currencyCode))).bold().foregroundStyle(first.amount >= 0 ? Color.primary : Color.red)
                 } else {
-                    ForEach(balances.prefix(2), id: \.key) { curr, amount in
-                        Text(amount.formatted(.currency(code: curr))).font(.subheadline).foregroundStyle(amount >= 0 ? Color.primary : Color.red)
+                    ForEach(balances.prefix(2)) { balance in
+                        Text(balance.amount.formatted(.currency(code: balance.currencyCode))).font(.subheadline).foregroundStyle(balance.amount >= 0 ? Color.primary : Color.red)
                     }
                     if balances.count > 2 { Text("...").font(.caption) }
                 }
             }
         }
         .opacity(account.isArchived ? 0.6 : 1.0) // 歸檔變淡
-    }
-    
-    func calculateBalances(account: Account) -> [(key: String, value: Decimal)] {
-        var dict: [String: Decimal] = [:]
-        if account.baseBalance != 0 { dict[account.currency] = account.baseBalance }
-        for tx in account.transactions { dict[tx.currencyCode, default: 0] += tx.amount }
-        return dict.filter { $0.value != 0 }.sorted { $0.key < $1.key }
     }
 }

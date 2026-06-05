@@ -554,17 +554,13 @@ struct SettlementCenterView: View {
     }
 
     private func balances(for account: Account) -> [SettlementCurrencyBalance] {
-        var totals: [String: Decimal] = [:]
-        if account.baseBalance != 0 {
-            totals[account.currency, default: 0] += account.baseBalance
-        }
-        for transaction in transactions where transaction.account?.id == account.id {
-            totals[transaction.currencyCode, default: 0] += transaction.amount
-        }
-        return totals
-            .filter { $0.value != 0 }
-            .sorted { $0.key < $1.key }
-            .map { SettlementCurrencyBalance(currencyCode: $0.key, amount: $0.value) }
+        DebtSettlementBalanceService.balances(
+            for: account,
+            transactions: transactions,
+            advanceCases: advanceCases,
+            modelContext: modelContext
+        )
+        .map { SettlementCurrencyBalance(currencyCode: $0.currencyCode, amount: $0.amount) }
     }
 
     private func latestActivityDate(for account: Account) -> Date? {
