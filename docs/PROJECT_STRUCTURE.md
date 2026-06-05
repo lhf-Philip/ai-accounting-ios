@@ -48,6 +48,8 @@ This document describes the current file layout for `AI 記帳`.
 ## Repository Docs
 
 - Root: `README*.md`, `CONTRIBUTING*.md`, `SECURITY*.md`, `LICENSE`.
+- `CONTEXT.md`: shared domain glossary and accounting semantics entry point.
+- `docs/adr/`: accepted architecture decision records for ledger and report semantics.
 - `docs/CI_CHECKLIST.md`: CI/release quality gate checklist.
 - `docs/specs/data-model.md`: cross-platform data contract.
 - `docs/specs/parity-test-vectors.md`: deterministic parity vectors.
