@@ -237,7 +237,9 @@ struct AI___App: App {
         
         // 4. 啟動前先修復舊資料的 Category.kind，避免 enum 強制轉型崩潰
         repairLegacyCategoryKindsIfNeeded(storeURL: storeURL)
-        // 5. 啟動前修復舊版「其他幣種餘額/餘額修正」被誤記為收支的資料
+        // 5. 啟動前修復舊資料的 FinancialTransaction enum 欄位，避免 enum 強制轉型崩潰
+        LegacyStoreRepairService.repairLegacyFinancialTransactionEnumsIfNeeded(storeURL: storeURL)
+        // 6. 啟動前修復舊版「其他幣種餘額/餘額修正」被誤記為收支的資料
         repairLegacyAssetAdjustmentTransactionsIfNeeded(storeURL: storeURL)
         
         let modelConfiguration = ModelConfiguration(
