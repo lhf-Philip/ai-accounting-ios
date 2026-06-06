@@ -1,7 +1,7 @@
 # Cross-Platform Parity Test Vectors
 
 Status: Active  
-Last updated: 2026-03-03
+Last updated: 2026-06-06
 
 This document defines deterministic input/output vectors for iOS and Android parity checks.
 
@@ -108,6 +108,118 @@ Expected:
 - The actual `50 HKD` repayment remains visible in repayment history / timeline.
 - The actual `50 HKD` repayment must not appear as a separate reverse debt balance.
 - Raw linked advance transfer legs are implementation details and must not drive settlement summary balances.
+
+## Vector 7: 我代墊他人
+
+Input:
+- Own account A pays `150 HKD`.
+- User share: `50 HKD`.
+- Participant P owes: `100 HKD`.
+
+Expected:
+- Own account A ledger delta: `-150 HKD`.
+- Expense report contribution: `50 HKD` only.
+- Participant P outstanding receivable: `100 HKD`.
+- The participant transfer legs contribute `0` to income/expense reports.
+
+## Vector 8: 他人代墊我 + Repayment
+
+Input:
+- Participant P pays `150 HKD` for the user.
+- No own account is selected at case creation.
+- The user later repays `150 HKD` from own account A.
+
+Expected after creation:
+- Own account A ledger delta: `0`.
+- Debt account P contains one `Expense -150 HKD`.
+- Expense report contribution: `150 HKD`.
+- Participant P outstanding payable: `150 HKD`.
+
+Expected after repayment:
+- Own account A repayment delta: `-150 HKD`.
+- Participant P outstanding payable: `0`.
+- Expense report contribution remains `150 HKD`; repayment does not count again.
+- Income report contribution remains `0`.
+
+## Vector 9: Mutual Debt Offset
+
+Input for the same participant and currency:
+- Participant P owes the user `100 HKD`.
+- The user owes participant P `40 HKD`.
+
+Expected after offset:
+- Offset amount: `40 HKD`.
+- Remaining receivable: `60 HKD`.
+- Remaining payable: `0 HKD`.
+- No `FinancialTransaction` is created.
+- Income/expense reports are unchanged.
+- Two auditable `AdvanceRepayment` records share one `[債務抵銷:<UUID>]` marker.
+
+## Vector 10: Debt Forgiveness
+
+Input:
+- Forgiveness amount: `40 HKD`.
+- Direction A: another person forgives what the user owes.
+- Direction B: the user forgives what another person owes.
+
+Expected:
+- The debt balance decreases in the selected direction.
+- No own cash/bank account moves.
+- Transaction persistence uses `Transfer` semantics and the `[免除債務]` marker.
+- Income report contribution: `0`.
+- Expense report contribution: `0`.
+
+## Vector 11: Same-Account Cross-Currency Transfer
+
+Input transfer group `G2` on account A:
+- Outgoing leg: `-100 HKD`.
+- Incoming leg: `+92 CNY`.
+
+Expected:
+- Both legs reference account A and group `G2`.
+- Linked transaction IDs and `Outgoing` / `Incoming` sides are preserved.
+- Income/expense reports are unaffected.
+- Backup export/import preserves both currencies, account ID, group ID, linked IDs, and transfer sides.
+
+## Vector 12: Asset Adjustment
+
+Input:
+- Asset adjustment record: `+1000 JPY`.
+- Persistence type: `Transfer`.
+- Note begins with `[資產調整]`.
+
+Expected:
+- Account asset estimate includes the adjustment according to account-balance rules.
+- Income report contribution: `0`.
+- Expense report contribution: `0`.
+- The ledger labels the record as an asset adjustment rather than ordinary income.
+
+## Vector 13: Settlement Report Exclusion Set
+
+Input:
+- One ordinary expense: `-20 HKD`.
+- One repayment transfer group.
+- One debt-forgiveness transfer.
+- One same-account cross-currency transfer group.
+- One asset adjustment transfer.
+- One mutual debt offset represented only by repayment markers.
+
+Expected:
+- Total expense: `20 HKD`.
+- Total income: `0 HKD`.
+- Settlement and transfer records remain auditable but never inflate income/expense totals.
+
+## Automated Coverage
+
+| Vector | iOS | Android |
+|---|---|---|
+| 1-5 | `BackupCompatibilityTests`, `LedgerSemanticVectorsTests` | `ParityVectorsTest`, `BackupRoundTripTest` |
+| 6 | `testCrossCurrencyAdvanceRepayment_semanticDebtBalanceUsesCaseCurrencyRemainingOnly` | `crossCurrencyAdvanceRepayment_semanticDebtBalanceUsesCaseCurrencyRemainingOnly` |
+| 7 | `testAdvancedOthersCreation_recordsFullOutflowAndOnlySelfShareExpense`, `LedgerSemanticVectorsTests.testVector7_iAdvancedOthers_reportsOnlyUserShare` | `advancedOthersCreation_recordsFullOutflowAndOnlySelfShareExpense`, `ParityVectorsTest.vector7_iAdvancedOthers_reportsOnlyUserShare` |
+| 8 | `testBorrowedAdvanceCreation_recordsDebtExpenseWithoutInflatingOwnAccount` | `borrowedAdvanceCreation_recordsDebtExpenseWithoutInflatingOwnAccount` |
+| 9 | `testMutualDebtOffset_settlesBidirectionalAdvancesWithoutTransactions` | `mutualDebtOffset_settlesBidirectionalAdvancesWithoutTransactions` |
+| 10, 12, 13 | `LedgerSemanticVectorsTests.testVector13_settlementRecordsAreExcludedFromReports` | `ParityVectorsTest.vector13_settlementRecordsAreExcludedFromReports` |
+| 11 | `testExportImport_preservesSameAccountCrossCurrencyTransferAndBudgetHistory_excludesUIPreferences` | `backupRoundTrip_preservesSameAccountCrossCurrencyTransferAndBudgetHistory` |
 
 ## CI Gate Recommendation
 

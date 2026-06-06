@@ -315,6 +315,75 @@ final class BackupCompatibilityTests: XCTestCase {
         let report = DataHealthCheckService.run(modelContext: modelContext)
         XCTAssertEqual(0, report.errorCount)
         XCTAssertEqual(0, report.warningCount)
+
+        let participant = try XCTUnwrap(advanceCase.participants.first)
+        _ = try AdvanceService.recordRepayment(
+            advanceCase: advanceCase,
+            participant: participant,
+            amount: 150,
+            currencyCode: "HKD",
+            date: date.addingTimeInterval(3_600),
+            note: "還款",
+            receiveAccount: ownAccount,
+            category: nil,
+            tags: [],
+            currencyService: CurrencyService.shared,
+            normalizedAmountOverride: 150,
+            direction: .othersAdvancedMe,
+            modelContext: modelContext
+        )
+
+        let transactionsAfterRepayment = try modelContext.fetch(FetchDescriptor<FinancialTransaction>())
+        let ownAccountAfterRepayment = transactionsAfterRepayment.filter { $0.account?.id == ownAccount.id }
+        let expenseTransactions = transactionsAfterRepayment.filter { $0.type == .expense }
+
+        XCTAssertEqual(1, ownAccountAfterRepayment.count)
+        XCTAssertEqual(.transfer, ownAccountAfterRepayment.first?.type)
+        XCTAssertEqual(Decimal(-150), ownAccountAfterRepayment.first?.amount)
+        XCTAssertEqual(1, expenseTransactions.count)
+        XCTAssertEqual(Decimal(-150), expenseTransactions.first?.amount)
+        XCTAssertEqual(Decimal.zero, participant.remainingAmount)
+    }
+
+    func testAdvancedOthersCreation_recordsFullOutflowAndOnlySelfShareExpense() throws {
+        let container = try makeInMemoryContainer()
+        let modelContext = ModelContext(container)
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-21T12:00:00Z"))
+
+        let ownAccount = Account(name: "Wallet", currency: "HKD", type: .cash, baseBalance: 0)
+        let debtAccount = Account(name: "Friend A", currency: "HKD", type: .debt, baseBalance: 0)
+        let category = Category(name: "Food", icon: "fork.knife", colorHex: "#FF8800", kind: .expense)
+        modelContext.insert(ownAccount)
+        modelContext.insert(debtAccount)
+        modelContext.insert(category)
+
+        let advanceCase = try AdvanceService.createAdvanceCase(
+            title: "代付晚餐",
+            date: date,
+            currencyCode: "HKD",
+            myShareAmount: 50,
+            note: "晚餐",
+            payerAccount: ownAccount,
+            category: category,
+            tags: [],
+            participants: [.init(debtAccount: debtAccount, owedAmount: 100)],
+            isBorrowedByMe: false,
+            modelContext: modelContext
+        )
+
+        let transactions = try modelContext.fetch(FetchDescriptor<FinancialTransaction>())
+        let ownAccountTransactions = transactions.filter { $0.account?.id == ownAccount.id }
+        let debtTransactions = transactions.filter { $0.account?.id == debtAccount.id }
+        let expenseTransactions = transactions.filter { $0.type == .expense }
+
+        XCTAssertEqual(Decimal(-150), ownAccountTransactions.reduce(0) { $0 + $1.amount })
+        XCTAssertEqual(1, expenseTransactions.count)
+        XCTAssertEqual(Decimal(-50), expenseTransactions.first?.amount)
+        XCTAssertEqual(category.id, expenseTransactions.first?.category?.id)
+        XCTAssertEqual(1, debtTransactions.count)
+        XCTAssertEqual(.transfer, debtTransactions.first?.type)
+        XCTAssertEqual(Decimal(100), debtTransactions.first?.amount)
+        XCTAssertEqual(Decimal(100), advanceCase.participants.first?.remainingAmount)
     }
 
     func testBorrowedAdvanceWithoutCategory_reportsUncategorisedExpenseWarning() throws {
