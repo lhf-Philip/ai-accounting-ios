@@ -8,6 +8,33 @@ enum DateFilterPreferenceKeys {
 }
 
 extension FilterType {
+    func dateInterval(
+        selectedDate: Date,
+        customStartDate: Date,
+        customEndDate: Date,
+        calendar: Calendar = .current
+    ) -> DateInterval? {
+        switch self {
+        case .all:
+            return nil
+        case .year:
+            return calendar.dateInterval(of: .year, for: selectedDate)
+        case .month:
+            return calendar.dateInterval(of: .month, for: selectedDate)
+        case .day:
+            return calendar.dateInterval(of: .day, for: selectedDate)
+        case .custom:
+            let range = normalizedCustomRange(start: customStartDate, end: customEndDate)
+            let start = calendar.startOfDay(for: range.start)
+            let end = calendar.date(
+                byAdding: .day,
+                value: 1,
+                to: calendar.startOfDay(for: range.end)
+            ) ?? range.end
+            return DateInterval(start: start, end: end)
+        }
+    }
+
     func displayString(
         selectedDate: Date,
         customStartDate: Date,
@@ -40,21 +67,15 @@ extension FilterType {
         customEndDate: Date,
         calendar: Calendar = .current
     ) -> Bool {
-        switch self {
-        case .all:
+        guard let interval = dateInterval(
+            selectedDate: selectedDate,
+            customStartDate: customStartDate,
+            customEndDate: customEndDate,
+            calendar: calendar
+        ) else {
             return true
-        case .year:
-            return calendar.isDate(date, equalTo: selectedDate, toGranularity: .year)
-        case .month:
-            return calendar.isDate(date, equalTo: selectedDate, toGranularity: .month)
-        case .day:
-            return calendar.isDate(date, equalTo: selectedDate, toGranularity: .day)
-        case .custom:
-            let range = normalizedCustomRange(start: customStartDate, end: customEndDate)
-            let startOfDay = calendar.startOfDay(for: range.start)
-            let exclusiveEnd = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: range.end)) ?? range.end
-            return date >= startOfDay && date < exclusiveEnd
         }
+        return date >= interval.start && date < interval.end
     }
 }
 

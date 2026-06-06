@@ -395,12 +395,17 @@ struct ChartsView: View {
     }
 }
 
+@MainActor
 private struct ChartsRenderState {
-    let filteredTransactions: [FinancialTransaction]
     let currentData: [ChartsView.ChartData]
     let budgetAlerts: [BudgetStatus]
 
+    private let snapshots: [ReportTransactionSnapshot]
+    private let transactionsByID: [UUID: FinancialTransaction]
     private let currencyService: CurrencyService
+    private let flow: ReportFlow
+    private let startDate: Date?
+    private let endDate: Date?
 
     init(
         transactions: [FinancialTransaction],
@@ -413,20 +418,32 @@ private struct ChartsRenderState {
         chartMode: ChartsView.ChartMode,
         flowMode: ChartsView.FlowMode
     ) {
-        let filteredTransactions = Self.filteredTransactions(
-            from: transactions,
-            filterType: filterType,
+        let interval = filterType.dateInterval(
             selectedDate: selectedDate,
             customStartDate: customStartDate,
-            customEndDate: customEndDate,
-            flowMode: flowMode
+            customEndDate: customEndDate
+        )
+        let snapshots = transactions.map(ReportTransactionSnapshot.init)
+        let transactionsByID = Dictionary(
+            uniqueKeysWithValues: transactions.map { ($0.id, $0) }
+        )
+        let flow: ReportFlow = flowMode == .expense ? .expense : .income
+        let grouping: ReportGroupingMode = chartMode == .category ? .category : .tag
+        let aggregation = ReportAggregationService.aggregate(
+            request: ReportAggregationRequest(
+                transactions: snapshots,
+                flow: flow,
+                grouping: grouping,
+                startDate: interval?.start,
+                endDate: interval?.end
+            ),
+            currencyConverter: currencyService
         )
 
-        self.filteredTransactions = filteredTransactions
-        self.currentData = Self.currentData(
-            from: filteredTransactions,
-            chartMode: chartMode,
-            currencyService: currencyService
+        self.currentData = Self.chartData(
+            from: aggregation.slices,
+            transactionsByID: transactionsByID,
+            chartMode: chartMode
         )
         self.budgetAlerts = BudgetService.statuses(
             for: BudgetService.monthKey(from: Date()),
@@ -435,159 +452,85 @@ private struct ChartsRenderState {
             currencyService: currencyService
         )
         .filter { $0.ratio >= 1 }
+        self.snapshots = snapshots
+        self.transactionsByID = transactionsByID
         self.currencyService = currencyService
+        self.flow = flow
+        self.startDate = interval?.start
+        self.endDate = interval?.end
     }
 
     func categoryBreakdown(for tagName: String?) -> [ChartsView.ChartData] {
         guard let tagName else { return [] }
 
-        let tagTransactions = filteredTransactions.filter { tx in
-            if tagName == "無標籤" { return tx.tags.isEmpty }
-            return tx.tags.contains { $0.name == tagName }
-        }
-        return Self.categoryBreakdown(
-            from: tagTransactions,
-            currencyService: currencyService
+        let aggregation = ReportAggregationService.aggregate(
+            request: ReportAggregationRequest(
+                transactions: snapshots,
+                flow: flow,
+                grouping: .category,
+                startDate: startDate,
+                endDate: endDate,
+                tagFilter: tagName
+            ),
+            currencyConverter: currencyService
+        )
+        return Self.chartData(
+            from: aggregation.slices,
+            transactionsByID: transactionsByID,
+            chartMode: .category
         )
     }
 
-    private static func filteredTransactions(
-        from transactions: [FinancialTransaction],
-        filterType: FilterType,
-        selectedDate: Date,
-        customStartDate: Date,
-        customEndDate: Date,
-        flowMode: ChartsView.FlowMode
-    ) -> [FinancialTransaction] {
-        return transactions.filter { tx in
-            if tx.type != flowMode.transactionType { return false }
-            return filterType.matches(
-                date: tx.date,
-                selectedDate: selectedDate,
-                customStartDate: customStartDate,
-                customEndDate: customEndDate
-            )
-        }
-    }
-
-    private static func currentData(
-        from transactions: [FinancialTransaction],
-        chartMode: ChartsView.ChartMode,
-        currencyService: CurrencyService
+    private static func chartData(
+        from slices: [ReportSlice],
+        transactionsByID: [UUID: FinancialTransaction],
+        chartMode: ChartsView.ChartMode
     ) -> [ChartsView.ChartData] {
-        switch chartMode {
-        case .category:
-            return categoryBreakdown(from: transactions, currencyService: currencyService)
-        case .tag:
-            return tagBreakdown(from: transactions, currencyService: currencyService)
-        }
-    }
-
-    private static func categoryBreakdown(
-        from transactions: [FinancialTransaction],
-        currencyService: CurrencyService
-    ) -> [ChartsView.ChartData] {
-        let grouped = Dictionary(grouping: transactions) { $0.category?.id.uuidString ?? "uncategorized" }
-        let mapped = grouped.map { item -> ChartsView.ChartData in
-            let aggregate = currencyAggregate(from: item.value, currencyService: currencyService)
-            let category = item.value.compactMap { $0.category }.first
-            let displayColor = category.map { Color(hex: $0.colorHex) } ?? .gray
-            return ChartsView.ChartData(
-                key: item.key,
-                name: category?.name ?? "未分類",
-                amount: aggregate.estimatedAmount,
-                color: displayColor,
-                transactions: item.value,
-                originalCurrencySummary: aggregate.originalCurrencySummary,
-                estimateFootnote: aggregate.estimateFootnote
-            )
-        }
-        return mapped.sorted { $0.amount > $1.amount }
-    }
-
-    private static func tagBreakdown(
-        from transactions: [FinancialTransaction],
-        currencyService: CurrencyService
-    ) -> [ChartsView.ChartData] {
-        var tagTransactions: [String: [FinancialTransaction]] = [:]
-        for tx in transactions {
-            if tx.tags.isEmpty {
-                tagTransactions["無標籤", default: []].append(tx)
+        slices.enumerated().map { index, slice in
+            let detail = slice.detailSummary
+            let displayColor: Color
+            if let colorHex = slice.categoryColorHex {
+                displayColor = Color(hex: colorHex)
+            } else if chartMode == .tag {
+                displayColor = Color.generateDistinctColor(index: index, total: slices.count)
             } else {
-                for tag in tx.tags {
-                    tagTransactions[tag.name, default: []].append(tx)
-                }
+                displayColor = .gray
             }
-        }
-        let sorted = tagTransactions
-            .map { item -> (key: String, aggregate: CurrencyReportAggregate, transactions: [FinancialTransaction]) in
-                (item.key, currencyAggregate(from: item.value, currencyService: currencyService), item.value)
-            }
-            .sorted { $0.aggregate.estimatedAmount > $1.aggregate.estimatedAmount }
-        return sorted.enumerated().map { index, item in
-            ChartsView.ChartData(
-                key: item.key,
-                name: item.key,
-                amount: item.aggregate.estimatedAmount,
-                color: Color.generateDistinctColor(index: index, total: sorted.count),
-                transactions: item.transactions,
-                originalCurrencySummary: item.aggregate.originalCurrencySummary,
-                estimateFootnote: item.aggregate.estimateFootnote
+            return ChartsView.ChartData(
+                key: slice.key,
+                name: slice.name,
+                amount: detail.estimatedAmount,
+                color: displayColor,
+                transactions: detail.transactionIDs.compactMap { transactionsByID[$0] },
+                originalCurrencySummary: reportCurrencySummary(detail.originalCurrencyTotals),
+                estimateFootnote: detail.estimateStatus.label
             )
         }
     }
 }
 
-private struct CurrencyReportAggregate {
-    let estimatedAmount: Decimal
-    let originalCurrencySummary: String
-    let estimateFootnote: String?
+private extension ReportTransactionSnapshot {
+    init(transaction: FinancialTransaction) {
+        self.init(
+            id: transaction.id,
+            amount: transaction.amount,
+            currencyCode: transaction.currencyCode,
+            date: transaction.date,
+            type: transaction.type,
+            categoryID: transaction.category?.id,
+            categoryName: transaction.category?.name,
+            categoryColorHex: transaction.category?.colorHex,
+            tagNames: transaction.tags.map(\.name)
+        )
+    }
 }
 
-private func currencyAggregate(
-    from transactions: [FinancialTransaction],
-    currencyService: CurrencyService
-) -> CurrencyReportAggregate {
-    var estimatedAmount = Decimal.zero
-    var originalTotals: [String: Decimal] = [:]
-    var usesEstimate = false
-    var hasUnavailableRate = false
-    let mainCurrency = currencyService.mainCurrency.uppercased()
-
-    for transaction in transactions {
-        let amount = abs(transaction.amount)
-        let currency = transaction.currencyCode.uppercased()
-        originalTotals[currency, default: 0] += amount
-
-        if currency == mainCurrency {
-            estimatedAmount += amount
-        } else if let estimate = currencyService.estimate(amount: amount, from: currency, to: mainCurrency) {
-            estimatedAmount += estimate.amount
-            usesEstimate = true
-        } else {
-            hasUnavailableRate = true
+private func reportCurrencySummary(_ totals: [ReportCurrencyTotal]) -> String {
+    totals
+        .map { total in
+            total.amount.formatted(.currency(code: total.currencyCode))
         }
-    }
-
-    let originalSummary = originalTotals
-        .sorted { $0.key < $1.key }
-        .map { amount in amount.value.formatted(.currency(code: amount.key)) }
         .joined(separator: " · ")
-
-    let footnote: String?
-    if hasUnavailableRate {
-        footnote = "估算不完整"
-    } else if usesEstimate {
-        footnote = currencyService.resolvedRateSourceState.label
-    } else {
-        footnote = nil
-    }
-
-    return CurrencyReportAggregate(
-        estimatedAmount: estimatedAmount,
-        originalCurrencySummary: originalSummary,
-        estimateFootnote: footnote
-    )
 }
 
 private struct ReportTransactionListView: View {

@@ -52,7 +52,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -61,6 +60,13 @@ import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.core.preferences.SharedDateFilterType
 import org.duckdns.lhfser.aiaccounting.core.preferences.resolveSharedDateRange
 import org.duckdns.lhfser.aiaccounting.core.preferences.sharedDateFilterLabel
+import org.duckdns.lhfser.aiaccounting.core.report.CurrencyServiceReportConverter
+import org.duckdns.lhfser.aiaccounting.core.report.ReportAggregationRequest
+import org.duckdns.lhfser.aiaccounting.core.report.ReportAggregationResult
+import org.duckdns.lhfser.aiaccounting.core.report.ReportAggregationService
+import org.duckdns.lhfser.aiaccounting.core.report.ReportFlow
+import org.duckdns.lhfser.aiaccounting.core.report.ReportGroupingMode
+import org.duckdns.lhfser.aiaccounting.core.report.ReportTransactionSnapshot
 import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.CategoryMonthlyBudgetEntity
@@ -83,28 +89,28 @@ import org.duckdns.lhfser.aiaccounting.ui.theme.AppSpacing
 import org.duckdns.lhfser.aiaccounting.ui.utils.asCurrencyText
 import org.duckdns.lhfser.aiaccounting.ui.utils.toDateText
 
-private enum class ReportChartMode(val label: String) {
-    Category("依分類"),
-    Tag("依標籤")
+private enum class ReportChartMode(
+    val label: String,
+    val groupingMode: ReportGroupingMode
+) {
+    Category("依分類", ReportGroupingMode.Category),
+    Tag("依標籤", ReportGroupingMode.Tag)
 }
 
-private enum class ReportFlowMode(val label: String, val type: TransactionType) {
-    Expense("支出", TransactionType.Expense),
-    Income("收入", TransactionType.Income)
+private enum class ReportFlowMode(
+    val label: String,
+    val reportFlow: ReportFlow
+) {
+    Expense("支出", ReportFlow.Expense),
+    Income("收入", ReportFlow.Income)
 }
 
-private data class ReportSlice(
+private data class ReportChartSlice(
     val key: String,
     val name: String,
     val amount: BigDecimal,
     val color: Color,
     val transactions: List<TransactionWithDetails>,
-    val originalCurrencySummary: String,
-    val estimateFootnote: String?
-)
-
-private data class CurrencyReportAggregate(
-    val estimatedAmount: BigDecimal,
     val originalCurrencySummary: String,
     val estimateFootnote: String?
 )
@@ -158,33 +164,77 @@ fun ReportsScreen(
     val (rangeStart, rangeEnd) = remember(filterType, selectedDate, customStartDate, customEndDate) {
         resolveSharedDateRange(filterType, selectedDate, customStartDate, customEndDate)
     }
-    val filteredTransactions = remember(transactions, flowMode, rangeStart, rangeEnd) {
-        filterTransactions(transactions, flowMode.type, rangeStart, rangeEnd)
-    }
     val baseCurrency = currencyService.mainCurrency
+    val reportConverter = remember(currencyService) {
+        CurrencyServiceReportConverter(currencyService)
+    }
+    val reportSnapshots = remember(transactions) {
+        transactions.map { it.toReportSnapshot() }
+    }
+    val transactionsById = remember(transactions) {
+        transactions.associateBy { it.transaction.id }
+    }
+    val rateSourceState = currencyService.resolvedRateSourceState
+    val rates = currencyService.rates
 
-    val chartData = remember(filteredTransactions, categories, chartMode, baseCurrency) {
-        when (chartMode) {
-            ReportChartMode.Category -> categoryBreakdown(filteredTransactions, categories, currencyService, baseCurrency)
-            ReportChartMode.Tag -> tagBreakdown(filteredTransactions, currencyService, baseCurrency)
-        }
+    val chartData = remember(
+        reportSnapshots,
+        transactionsById,
+        flowMode,
+        chartMode,
+        rangeStart,
+        rangeEnd,
+        baseCurrency,
+        rateSourceState,
+        rates
+    ) {
+        val result = ReportAggregationService.aggregate(
+            request = ReportAggregationRequest(
+                transactions = reportSnapshots,
+                flow = flowMode.reportFlow,
+                grouping = chartMode.groupingMode,
+                startDate = rangeStart,
+                endDate = rangeEnd
+            ),
+            currencyConverter = reportConverter
+        )
+        result.toChartSlices(
+            transactionsById = transactionsById,
+            chartMode = chartMode
+        )
     }
 
-    val tagDetailData = remember(filteredTransactions, categories, selectedTag, baseCurrency) {
+    val tagDetailData = remember(
+        reportSnapshots,
+        transactionsById,
+        flowMode,
+        selectedTag,
+        rangeStart,
+        rangeEnd,
+        baseCurrency,
+        rateSourceState,
+        rates
+    ) {
         if (chartMode == ReportChartMode.Tag && selectedTag != null) {
-            categoryBreakdown(
-                transactions = filteredTransactions.filter { tx ->
-                    if (selectedTag == "無標籤") tx.tags.isEmpty() else tx.tags.any { it.name == selectedTag }
-                },
-                categories = categories,
-                currencyService = currencyService,
-                baseCurrency = baseCurrency
+            ReportAggregationService.aggregate(
+                request = ReportAggregationRequest(
+                    transactions = reportSnapshots,
+                    flow = flowMode.reportFlow,
+                    grouping = ReportGroupingMode.Category,
+                    startDate = rangeStart,
+                    endDate = rangeEnd,
+                    tagFilter = selectedTag
+                ),
+                currencyConverter = reportConverter
+            ).toChartSlices(
+                transactionsById = transactionsById,
+                chartMode = ReportChartMode.Category
             )
         } else emptyList()
     }
 
-    val budgetAlerts = remember(budgets, categories, filteredTransactions, currencyService) {
-        buildBudgetAlerts(budgets, categories, filteredTransactions, currencyService)
+    val budgetAlerts = remember(budgets, categories, transactions, currencyService) {
+        buildBudgetAlerts(budgets, categories, transactions, currencyService)
     }
 
     @Composable
@@ -411,7 +461,7 @@ fun ReportsScreen(
 
 @Composable
 private fun ReportRow(
-    item: ReportSlice,
+    item: ReportChartSlice,
     total: BigDecimal,
     baseCurrency: String,
     trailingLabel: String,
@@ -475,7 +525,7 @@ private fun ReportRow(
 }
 
 @Composable
-private fun DonutChart(data: List<ReportSlice>, baseCurrency: String, title: String) {
+private fun DonutChart(data: List<ReportChartSlice>, baseCurrency: String, title: String) {
     val total = totalAmount(data)
     val trackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
     Surface(
@@ -801,127 +851,51 @@ private fun routeTransactionEdit(
     }
 }
 
-private fun filterTransactions(
-    transactions: List<TransactionWithDetails>,
-    type: TransactionType,
-    rangeStart: Instant?,
-    rangeEnd: Instant?
-): List<TransactionWithDetails> {
-    return transactions.filter { tx ->
-        if (tx.transaction.type != type) return@filter false
-        val date = tx.transaction.date
-        when {
-            rangeStart == null || rangeEnd == null -> true
-            else -> date >= rangeStart && date < rangeEnd
-        }
-    }
-}
-
-private fun categoryBreakdown(
-    transactions: List<TransactionWithDetails>,
-    categories: List<CategoryEntity>,
-    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
-    baseCurrency: String
-): List<ReportSlice> {
-	val grouped = transactions.groupBy { it.category?.id }
-	return grouped.mapNotNull { (categoryId, items) ->
-	    val category = categories.firstOrNull { it.id == categoryId }
-	    val aggregate = currencyAggregate(items, currencyService, baseCurrency)
-	    ReportSlice(
-	        key = categoryId?.toString() ?: "uncategorized",
-	        name = category?.name ?: "未分類",
-	        amount = aggregate.estimatedAmount,
-	        color = parseColor(category?.colorHex ?: "#90A4AE"),
-	        transactions = items,
-	        originalCurrencySummary = aggregate.originalCurrencySummary,
-	        estimateFootnote = aggregate.estimateFootnote
-	    )
-	}.sortedByDescending { it.amount }
-}
-
-private fun tagBreakdown(
-    transactions: List<TransactionWithDetails>,
-	currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
-	baseCurrency: String
-): List<ReportSlice> {
-	val tagTransactions = mutableMapOf<String, MutableList<TransactionWithDetails>>()
-	transactions.forEach { tx ->
-	    if (tx.tags.isEmpty()) {
-	        tagTransactions.getOrPut("無標籤") { mutableListOf() }.add(tx)
-	    } else {
-	        tx.tags.forEach { tag ->
-	            tagTransactions.getOrPut(tag.name) { mutableListOf() }.add(tx)
-	        }
-	    }
-	}
-	val sorted = tagTransactions.entries
-	    .map { entry -> entry.key to currencyAggregate(entry.value, currencyService, baseCurrency) }
-	    .sortedByDescending { it.second.estimatedAmount }
-	return sorted.mapIndexed { index, entry ->
-	    ReportSlice(
-	        key = entry.first,
-	        name = entry.first,
-	        amount = entry.second.estimatedAmount,
-	        color = generateDistinctColor(index),
-	        transactions = tagTransactions[entry.first]?.toList().orEmpty(),
-	        originalCurrencySummary = entry.second.originalCurrencySummary,
-	        estimateFootnote = entry.second.estimateFootnote
-	    )
-	}
-}
-
-private fun currencyAggregate(
-    transactions: List<TransactionWithDetails>,
-    currencyService: org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService,
-    baseCurrency: String
-): CurrencyReportAggregate {
-    var estimatedAmount = BigDecimal.ZERO
-    val originalTotals = mutableMapOf<String, BigDecimal>()
-    var usesEstimate = false
-    var hasUnavailableRate = false
-    val mainCurrency = baseCurrency.uppercase()
-
-    transactions.forEach { tx ->
-        val amount = tx.transaction.amount.abs()
-        val currency = tx.transaction.currencyCode.uppercase()
-        originalTotals[currency] = (originalTotals[currency] ?: BigDecimal.ZERO) + amount
-
-        if (currency == mainCurrency) {
-            estimatedAmount += amount
-        } else {
-            val estimate = currencyService.estimate(amount, currency, mainCurrency)
-            if (estimate != null) {
-                estimatedAmount += estimate.amount
-                usesEstimate = true
-            } else {
-                hasUnavailableRate = true
-            }
-        }
-    }
-
-    val originalSummary = originalTotals.entries
-        .sortedBy { it.key }
-        .joinToString(" · ") { it.value.asCurrencyText(it.key) }
-    val footnote = when {
-        hasUnavailableRate -> "估算不完整"
-        usesEstimate -> currencyService.resolvedRateSourceState.label
-        else -> null
-    }
-
-    return CurrencyReportAggregate(
-        estimatedAmount = estimatedAmount,
-        originalCurrencySummary = originalSummary,
-        estimateFootnote = footnote
+private fun TransactionWithDetails.toReportSnapshot(): ReportTransactionSnapshot {
+    return ReportTransactionSnapshot(
+        id = transaction.id,
+        amount = transaction.amount,
+        currencyCode = transaction.currencyCode,
+        date = transaction.date,
+        type = transaction.type,
+        categoryId = category?.id,
+        categoryName = category?.name,
+        categoryColorHex = category?.colorHex,
+        tagNames = tags.map { it.name }
     )
 }
 
-private fun totalAmount(data: List<ReportSlice>): BigDecimal {
+private fun ReportAggregationResult.toChartSlices(
+    transactionsById: Map<java.util.UUID, TransactionWithDetails>,
+    chartMode: ReportChartMode
+): List<ReportChartSlice> {
+    return slices.mapIndexed { index, slice ->
+        val detail = slice.detailSummary
+        ReportChartSlice(
+            key = slice.key,
+            name = slice.name,
+            amount = detail.estimatedAmount,
+            color = when {
+                slice.categoryColorHex != null -> parseColor(slice.categoryColorHex)
+                chartMode == ReportChartMode.Tag -> generateDistinctColor(index)
+                else -> parseColor("#90A4AE")
+            },
+            transactions = detail.transactionIds.mapNotNull(transactionsById::get),
+            originalCurrencySummary = detail.originalCurrencyTotals.joinToString(" · ") {
+                it.amount.asCurrencyText(it.currencyCode)
+            },
+            estimateFootnote = detail.estimateStatus.label
+        )
+    }
+}
+
+private fun totalAmount(data: List<ReportChartSlice>): BigDecimal {
     return data.fold(BigDecimal.ZERO) { acc, row -> acc + row.amount }
 }
 
 private fun presentTransactions(
     flowMode: ReportFlowMode,
-    item: ReportSlice,
+    item: ReportChartSlice,
     tagName: String?,
     baseCurrency: String
 ): ReportDetail {

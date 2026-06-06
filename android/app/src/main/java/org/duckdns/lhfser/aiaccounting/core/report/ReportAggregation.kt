@@ -1,0 +1,229 @@
+package org.duckdns.lhfser.aiaccounting.core.report
+
+import java.math.BigDecimal
+import java.time.Instant
+import java.util.UUID
+import org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService
+import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
+import org.duckdns.lhfser.aiaccounting.core.transactions.RateSourceState
+
+enum class ReportFlow(val transactionType: TransactionType) {
+    Expense(TransactionType.Expense),
+    Income(TransactionType.Income)
+}
+
+enum class ReportGroupingMode {
+    Category,
+    Tag
+}
+
+enum class ReportEstimateStatus(val label: String?) {
+    Exact(null),
+    Live("即時匯率"),
+    Cached("上次匯率"),
+    Partial("估算不完整"),
+    Unavailable("估算不完整")
+}
+
+data class ReportConversion(
+    val amount: BigDecimal,
+    val status: ReportEstimateStatus
+)
+
+interface ReportCurrencyConverting {
+    val mainCurrency: String
+    fun estimateInMainCurrency(amount: BigDecimal, currencyCode: String): ReportConversion?
+}
+
+data class ReportTransactionSnapshot(
+    val id: UUID,
+    val amount: BigDecimal,
+    val currencyCode: String,
+    val date: Instant,
+    val type: TransactionType,
+    val categoryId: UUID?,
+    val categoryName: String?,
+    val categoryColorHex: String?,
+    val tagNames: List<String>
+)
+
+data class ReportCurrencyTotal(
+    val currencyCode: String,
+    val amount: BigDecimal
+)
+
+data class ReportSlice(
+    val key: String,
+    val name: String,
+    val categoryColorHex: String?,
+    val estimatedAmount: BigDecimal,
+    val originalCurrencyTotals: List<ReportCurrencyTotal>,
+    val estimateStatus: ReportEstimateStatus,
+    val transactionIds: List<UUID>
+) {
+    val detailSummary: ReportDetailSummary
+        get() = ReportDetailSummary(
+            estimatedAmount = estimatedAmount,
+            originalCurrencyTotals = originalCurrencyTotals,
+            estimateStatus = estimateStatus,
+            transactionIds = transactionIds
+        )
+}
+
+data class ReportDetailSummary(
+    val estimatedAmount: BigDecimal,
+    val originalCurrencyTotals: List<ReportCurrencyTotal>,
+    val estimateStatus: ReportEstimateStatus,
+    val transactionIds: List<UUID>
+) {
+    val transactionCount: Int
+        get() = transactionIds.size
+}
+
+data class ReportAggregationRequest(
+    val transactions: List<ReportTransactionSnapshot>,
+    val flow: ReportFlow,
+    val grouping: ReportGroupingMode,
+    val startDate: Instant? = null,
+    val endDate: Instant? = null,
+    val tagFilter: String? = null
+)
+
+data class ReportAggregationResult(
+    val slices: List<ReportSlice>
+) {
+    val totalEstimatedAmount: BigDecimal
+        get() = slices.fold(BigDecimal.ZERO) { total, slice -> total + slice.estimatedAmount }
+}
+
+object ReportAggregationService {
+    fun aggregate(
+        request: ReportAggregationRequest,
+        currencyConverter: ReportCurrencyConverting
+    ): ReportAggregationResult {
+        val filtered = request.transactions.filter { transaction ->
+            transaction.type == request.flow.transactionType &&
+                (request.startDate == null || transaction.date >= request.startDate) &&
+                (request.endDate == null || transaction.date < request.endDate) &&
+                matchesTagFilter(transaction, request.tagFilter)
+        }
+
+        val grouped = when (request.grouping) {
+            ReportGroupingMode.Category -> filtered.groupBy {
+                it.categoryId?.toString() ?: "uncategorized"
+            }
+            ReportGroupingMode.Tag -> buildMap<String, MutableList<ReportTransactionSnapshot>> {
+                filtered.forEach { transaction ->
+                    val tags = transaction.tagNames.ifEmpty { listOf("無標籤") }
+                    tags.forEach { tagName ->
+                        getOrPut(tagName) { mutableListOf() }.add(transaction)
+                    }
+                }
+            }
+        }
+
+        return ReportAggregationResult(
+            slices = grouped.map { (key, transactions) ->
+                makeSlice(
+                    key = key,
+                    transactions = transactions,
+                    grouping = request.grouping,
+                    currencyConverter = currencyConverter
+                )
+            }.sortedWith(
+                compareByDescending<ReportSlice> { it.estimatedAmount }
+                    .thenBy { it.name.lowercase() }
+            )
+        )
+    }
+
+    private fun matchesTagFilter(
+        transaction: ReportTransactionSnapshot,
+        tagFilter: String?
+    ): Boolean {
+        if (tagFilter == null) return true
+        return if (tagFilter == "無標籤") {
+            transaction.tagNames.isEmpty()
+        } else {
+            tagFilter in transaction.tagNames
+        }
+    }
+
+    private fun makeSlice(
+        key: String,
+        transactions: List<ReportTransactionSnapshot>,
+        grouping: ReportGroupingMode,
+        currencyConverter: ReportCurrencyConverting
+    ): ReportSlice {
+        var estimatedAmount = BigDecimal.ZERO
+        val originalTotals = mutableMapOf<String, BigDecimal>()
+        val statuses = mutableListOf<ReportEstimateStatus>()
+        var unavailableCount = 0
+
+        transactions.forEach { transaction ->
+            val amount = transaction.amount.abs()
+            val currencyCode = transaction.currencyCode.uppercase()
+            originalTotals[currencyCode] = (originalTotals[currencyCode] ?: BigDecimal.ZERO) + amount
+
+            val conversion = currencyConverter.estimateInMainCurrency(amount, currencyCode)
+            if (conversion == null) {
+                unavailableCount += 1
+            } else {
+                estimatedAmount += conversion.amount
+                statuses += conversion.status
+            }
+        }
+
+        val status = when {
+            unavailableCount == transactions.size -> ReportEstimateStatus.Unavailable
+            unavailableCount > 0 -> ReportEstimateStatus.Partial
+            ReportEstimateStatus.Cached in statuses -> ReportEstimateStatus.Cached
+            ReportEstimateStatus.Live in statuses -> ReportEstimateStatus.Live
+            else -> ReportEstimateStatus.Exact
+        }
+        val first = transactions.firstOrNull()
+
+        return ReportSlice(
+            key = key,
+            name = when (grouping) {
+                ReportGroupingMode.Category -> first?.categoryName ?: "未分類"
+                ReportGroupingMode.Tag -> key
+            },
+            categoryColorHex = when (grouping) {
+                ReportGroupingMode.Category -> first?.categoryColorHex
+                ReportGroupingMode.Tag -> null
+            },
+            estimatedAmount = estimatedAmount,
+            originalCurrencyTotals = originalTotals.entries
+                .sortedBy { it.key }
+                .map { ReportCurrencyTotal(currencyCode = it.key, amount = it.value) },
+            estimateStatus = status,
+            transactionIds = transactions
+                .sortedByDescending { it.date }
+                .map { it.id }
+        )
+    }
+}
+
+class CurrencyServiceReportConverter(
+    private val currencyService: CurrencyService
+) : ReportCurrencyConverting {
+    override val mainCurrency: String
+        get() = currencyService.mainCurrency
+
+    override fun estimateInMainCurrency(
+        amount: BigDecimal,
+        currencyCode: String
+    ): ReportConversion? {
+        if (currencyCode.equals(mainCurrency, ignoreCase = true)) {
+            return ReportConversion(amount = amount, status = ReportEstimateStatus.Exact)
+        }
+        val estimate = currencyService.estimate(amount, currencyCode, mainCurrency) ?: return null
+        val status = when (estimate.source) {
+            RateSourceState.Live -> ReportEstimateStatus.Live
+            RateSourceState.Cached -> ReportEstimateStatus.Cached
+            RateSourceState.Unavailable -> return null
+        }
+        return ReportConversion(amount = estimate.amount, status = status)
+    }
+}
