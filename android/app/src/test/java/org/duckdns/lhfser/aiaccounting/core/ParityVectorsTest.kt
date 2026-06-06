@@ -16,6 +16,8 @@ import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.core.report.CategoryFilter
 import org.duckdns.lhfser.aiaccounting.core.report.IncomeExpenseCalculator
 import org.duckdns.lhfser.aiaccounting.core.report.transferGroupNet
+import org.duckdns.lhfser.aiaccounting.core.transactions.DebtForgivenessDirection
+import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -112,6 +114,105 @@ class ParityVectorsTest {
                 )
             ).setScale(2)
         )
+    }
+
+    @Test
+    fun vector6_crossCurrencyRepayment_usesNormalizedAmountForOutstanding() {
+        val progress = AdvanceProgressCalculator.compute(
+            listOf(
+                AdvanceParticipant(
+                    name = "Friend A",
+                    owedAmount = BigDecimal("1000"),
+                    repaidAmount = BigDecimal("900")
+                )
+            )
+        )
+
+        assertMoneyEquals("100.00", progress.outstandingTotal)
+    }
+
+    @Test
+    fun vector7_iAdvancedOthers_reportsOnlyUserShare() {
+        val calculator = IncomeExpenseCalculator(baseCurrencyCode = "HKD", fxRatesToBase = fxRates)
+        val now = Instant.parse("2026-03-01T00:00:00Z")
+        val transactions = listOf(
+            FinancialTransaction(amount = BigDecimal("-50"), currencyCode = "HKD", date = now, type = TransactionType.Expense),
+            FinancialTransaction(amount = BigDecimal("-100"), currencyCode = "HKD", date = now, type = TransactionType.Transfer),
+            FinancialTransaction(amount = BigDecimal("100"), currencyCode = "HKD", date = now, type = TransactionType.Transfer)
+        )
+        val progress = AdvanceProgressCalculator.compute(
+            listOf(
+                AdvanceParticipant(
+                    name = "Friend A",
+                    owedAmount = BigDecimal("100"),
+                    repaidAmount = BigDecimal.ZERO
+                )
+            )
+        )
+
+        val totals = calculator.totals(transactions)
+
+        assertMoneyEquals("50.00", totals.expenseBase)
+        assertMoneyEquals("0.00", totals.incomeBase)
+        assertMoneyEquals("100.00", progress.outstandingTotal)
+    }
+
+    @Test
+    fun vector8_othersAdvancedMe_repaymentDoesNotDoubleCountExpense() {
+        val calculator = IncomeExpenseCalculator(baseCurrencyCode = "HKD", fxRatesToBase = fxRates)
+        val now = Instant.parse("2026-03-01T00:00:00Z")
+        val transactions = listOf(
+            FinancialTransaction(amount = BigDecimal("-150"), currencyCode = "HKD", date = now, type = TransactionType.Expense),
+            FinancialTransaction(amount = BigDecimal("-150"), currencyCode = "HKD", date = now, type = TransactionType.Transfer),
+            FinancialTransaction(amount = BigDecimal("150"), currencyCode = "HKD", date = now, type = TransactionType.Transfer)
+        )
+        val progress = AdvanceProgressCalculator.compute(
+            listOf(
+                AdvanceParticipant(
+                    name = "Friend A",
+                    owedAmount = BigDecimal("150"),
+                    repaidAmount = BigDecimal("150")
+                )
+            )
+        )
+
+        val totals = calculator.totals(transactions)
+
+        assertMoneyEquals("150.00", totals.expenseBase)
+        assertMoneyEquals("0.00", totals.incomeBase)
+        assertMoneyEquals("0.00", progress.outstandingTotal)
+    }
+
+    @Test
+    fun vector13_settlementRecordsAreExcludedFromReports() {
+        val calculator = IncomeExpenseCalculator(baseCurrencyCode = "HKD", fxRatesToBase = fxRates)
+        val now = Instant.parse("2026-03-01T00:00:00Z")
+        val forgivenessNote = TransactionSemantics.debtForgivenessNote(
+            baseNote = "",
+            debtAccountName = "Friend A",
+            direction = DebtForgivenessDirection.ForgivenByOthers
+        )
+        val transactions = listOf(
+            FinancialTransaction(amount = BigDecimal("-20"), currencyCode = "HKD", date = now, type = TransactionType.Expense),
+            FinancialTransaction(amount = BigDecimal("-40"), currencyCode = "HKD", date = now, type = TransactionType.Transfer),
+            FinancialTransaction(amount = BigDecimal("40"), currencyCode = "HKD", date = now, type = TransactionType.Transfer),
+            FinancialTransaction(amount = BigDecimal("40"), currencyCode = "HKD", date = now, note = forgivenessNote, type = TransactionType.Transfer),
+            FinancialTransaction(amount = BigDecimal("-100"), currencyCode = "HKD", date = now, type = TransactionType.Transfer),
+            FinancialTransaction(amount = BigDecimal("92"), currencyCode = "CNY", date = now, type = TransactionType.Transfer),
+            FinancialTransaction(
+                amount = BigDecimal("1000"),
+                currencyCode = "JPY",
+                date = now,
+                note = "${TransactionSemantics.ASSET_ADJUSTMENT_MARKER} JPY",
+                type = TransactionType.Transfer
+            )
+        )
+
+        val totals = calculator.totals(transactions)
+
+        assertTrue(TransactionSemantics.isDebtForgiveness(forgivenessNote))
+        assertMoneyEquals("20.00", totals.expenseBase)
+        assertMoneyEquals("0.00", totals.incomeBase)
     }
 
     private fun assertMoneyEquals(expected: String, actual: BigDecimal) {

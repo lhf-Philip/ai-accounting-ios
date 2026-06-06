@@ -222,6 +222,105 @@ class BackupRoundTripTest {
         val report = repository.buildDataHealthReport()
         assertEquals(0, report.errorCount)
         assertEquals(0, report.warningCount)
+
+        val participant = advanceCase.participants.single()
+        repository.recordAdvanceRepayment(
+            advanceCase = advanceCase.advanceCase,
+            participant = participant,
+            amount = BigDecimal("150"),
+            normalizedAmount = BigDecimal("150"),
+            currencyCode = "HKD",
+            date = Instant.parse("2026-03-21T13:00:00Z"),
+            note = "還款",
+            receiveAccount = ownAccount,
+            category = null,
+            tagIds = emptyList(),
+            isBorrowedByMe = true
+        )
+
+        val updatedCase = checkNotNull(repository.getAdvanceCase(caseId))
+        val transactionsAfterRepayment = database.transactionDao().getAllWithDetails()
+        val ownAccountAfterRepayment = transactionsAfterRepayment.filter { it.transaction.accountId == ownAccount.id }
+        val expenseTransactions = transactionsAfterRepayment.filter {
+            it.transaction.type == TransactionType.Expense
+        }
+
+        assertEquals(1, ownAccountAfterRepayment.size)
+        assertEquals(TransactionType.Transfer, ownAccountAfterRepayment.single().transaction.type)
+        assertEquals(BigDecimal("-150"), ownAccountAfterRepayment.single().transaction.amount)
+        assertEquals(1, expenseTransactions.size)
+        assertEquals(BigDecimal("-150"), expenseTransactions.single().transaction.amount)
+        assertEquals(
+            BigDecimal.ZERO,
+            updatedCase.participants.single().owedAmount - updatedCase.participants.single().repaidAmount
+        )
+    }
+
+    @Test
+    fun advancedOthersCreation_recordsFullOutflowAndOnlySelfShareExpense() = runBlocking {
+        val ownAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            name = "Wallet",
+            currency = "HKD",
+            type = AccountType.Cash,
+            baseBalance = BigDecimal.ZERO,
+            sortOrder = 0,
+            isArchived = false
+        )
+        val debtAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            name = "Friend A",
+            currency = "HKD",
+            type = AccountType.Debt,
+            baseBalance = BigDecimal.ZERO,
+            sortOrder = 1,
+            isArchived = false
+        )
+        val category = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Food",
+            icon = "fork.knife",
+            colorHex = "#FF8800",
+            kind = CategoryKind.Expense
+        )
+        database.accountDao().upsertAll(listOf(ownAccount, debtAccount))
+        database.categoryDao().upsert(category)
+
+        val caseId = repository.createAdvanceCase(
+            title = "代付晚餐",
+            date = Instant.parse("2026-03-21T12:00:00Z"),
+            currencyCode = "HKD",
+            myShareAmount = BigDecimal("50"),
+            note = "晚餐",
+            payerAccount = ownAccount,
+            expenseCategory = category,
+            tagIds = emptyList(),
+            participants = listOf(AdvanceParticipantInput(debtAccount, BigDecimal("100"))),
+            isBorrowedByMe = false
+        )
+
+        val advanceCase = checkNotNull(repository.getAdvanceCase(caseId))
+        val transactions = database.transactionDao().getAllWithDetails()
+        val ownAccountTransactions = transactions.filter { it.transaction.accountId == ownAccount.id }
+        val debtTransactions = transactions.filter { it.transaction.accountId == debtAccount.id }
+        val expenseTransactions = transactions.filter { it.transaction.type == TransactionType.Expense }
+
+        assertEquals(
+            BigDecimal("-150"),
+            ownAccountTransactions.fold(BigDecimal.ZERO) { total, transaction ->
+                total + transaction.transaction.amount
+            }
+        )
+        assertEquals(1, expenseTransactions.size)
+        assertEquals(BigDecimal("-50"), expenseTransactions.single().transaction.amount)
+        assertEquals(category.id, expenseTransactions.single().transaction.categoryId)
+        assertEquals(1, debtTransactions.size)
+        assertEquals(TransactionType.Transfer, debtTransactions.single().transaction.type)
+        assertEquals(BigDecimal("100"), debtTransactions.single().transaction.amount)
+        assertEquals(
+            BigDecimal("100"),
+            advanceCase.participants.single().owedAmount - advanceCase.participants.single().repaidAmount
+        )
     }
 
     @Test
