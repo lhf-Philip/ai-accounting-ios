@@ -683,6 +683,8 @@ class BackupManager: NSObject, ObservableObject {
             }
         }
 
+        try modelContext.save()
+        _ = try AdvanceService.reconcileUnderstatedRepaymentTotals(modelContext: modelContext)
         try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: CurrencyService.shared)
         try modelContext.save()
     }

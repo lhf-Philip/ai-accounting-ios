@@ -480,6 +480,52 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertTrue(semanticBalances.isEmpty)
     }
 
+    func testRepaymentReconciliation_repairsUnderstatedParticipantTotal() throws {
+        let container = try makeInMemoryContainer()
+        let modelContext = ModelContext(container)
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-06-05T12:00:00Z"))
+
+        let debtAccount = Account(name: "TKL", currency: "HKD", type: .debt, baseBalance: 0)
+        let advanceCase = AdvanceCase(
+            title: "とり天定食",
+            date: date,
+            currencyCode: "JPY"
+        )
+        let participant = AdvanceParticipant(
+            name: "TKL",
+            owedAmount: 1510,
+            repaidAmount: 0,
+            advanceCase: advanceCase,
+            debtAccount: debtAccount
+        )
+        let repayment = AdvanceRepayment(
+            amount: 75,
+            currencyCode: "HKD",
+            normalizedAmount: 1510,
+            date: date,
+            note: "跨幣種還款",
+            advanceCase: advanceCase,
+            participant: participant
+        )
+        modelContext.insert(debtAccount)
+        modelContext.insert(advanceCase)
+        modelContext.insert(participant)
+        modelContext.insert(repayment)
+        try modelContext.save()
+
+        let reportBeforeRepair = DataHealthCheckService.run(modelContext: modelContext)
+        XCTAssertTrue(reportBeforeRepair.issues.contains { $0.title == "代墊還款累計偏低" })
+
+        let result = try AdvanceService.reconcileUnderstatedRepaymentTotals(modelContext: modelContext)
+
+        XCTAssertEqual(1, result.checkedParticipantCount)
+        XCTAssertEqual(1, result.updatedParticipantCount)
+        XCTAssertEqual(Decimal(1510), participant.repaidAmount)
+        XCTAssertEqual(Decimal.zero, participant.remainingAmount)
+        let reportAfterRepair = DataHealthCheckService.run(modelContext: modelContext)
+        XCTAssertFalse(reportAfterRepair.issues.contains { $0.title == "代墊還款累計偏低" })
+    }
+
     func testCrossCurrencyAdvanceRepayment_preservesActualCurrencyAndManualSettlementAmount() throws {
         let container = try makeInMemoryContainer()
         let modelContext = ModelContext(container)

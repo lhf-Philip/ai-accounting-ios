@@ -317,6 +317,33 @@ enum DataHealthCheckService {
                 )
             )
         }
+
+        let repaymentTotals = Dictionary(grouping: repayments.compactMap { repayment -> (UUID, Decimal)? in
+            guard let participantID = repayment.participant?.id,
+                  repayment.normalizedAmount > 0 else {
+                return nil
+            }
+            return (participantID, repayment.normalizedAmount)
+        }, by: \.0)
+        .mapValues { entries in
+            entries.reduce(Decimal.zero) { $0 + $1.1 }
+        }
+        let tolerance = Decimal(string: "0.0001") ?? 0.0001
+        let understatedRepaymentTotals = participants.filter { participant in
+            guard let repaymentTotal = repaymentTotals[participant.id] else { return false }
+            let expected = min(repaymentTotal, participant.owedAmount)
+            return expected - participant.repaidAmount > tolerance
+        }
+        if !understatedRepaymentTotals.isEmpty {
+            issues.append(
+                HealthIssue(
+                    severity: .warning,
+                    title: "代墊還款累計偏低",
+                    detail: "共有 \(understatedRepaymentTotals.count) 位對象的已還金額低於還款紀錄總和。",
+                    recommendation: "請執行「修復代墊還款累計」，再確認結算中心餘額。"
+                )
+            )
+        }
         
         let emptyCurrencyCases = cases.filter { $0.currencyCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         if !emptyCurrencyCases.isEmpty {

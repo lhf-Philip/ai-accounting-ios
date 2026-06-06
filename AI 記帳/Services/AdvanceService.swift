@@ -84,6 +84,11 @@ enum AdvanceService {
         let removedInflatedAccountTransactionCount: Int
     }
 
+    struct RepaymentReconciliationResult {
+        let checkedParticipantCount: Int
+        let updatedParticipantCount: Int
+    }
+
     struct MutualDebtOffsetCandidate: Identifiable {
         let id = UUID()
         let debtAccount: Account
@@ -126,6 +131,50 @@ enum AdvanceService {
         advanceCase.participants.reduce(Decimal.zero) { partial, participant in
             partial + participant.remainingAmount
         }
+    }
+
+    @MainActor
+    static func reconcileUnderstatedRepaymentTotals(
+        modelContext: ModelContext
+    ) throws -> RepaymentReconciliationResult {
+        let repayments = try modelContext.fetch(FetchDescriptor<AdvanceRepayment>())
+        let groupedTotals = Dictionary(grouping: repayments.compactMap { repayment -> (UUID, Decimal)? in
+            guard let participantID = repayment.participant?.id,
+                  repayment.normalizedAmount > 0 else {
+                return nil
+            }
+            return (participantID, repayment.normalizedAmount)
+        }, by: \.0)
+        .mapValues { entries in
+            entries.reduce(Decimal.zero) { $0 + $1.1 }
+        }
+
+        guard !groupedTotals.isEmpty else {
+            return RepaymentReconciliationResult(
+                checkedParticipantCount: 0,
+                updatedParticipantCount: 0
+            )
+        }
+
+        let participants = try modelContext.fetch(FetchDescriptor<AdvanceParticipant>())
+        var updatedCount = 0
+        for participant in participants {
+            guard let recordedTotal = groupedTotals[participant.id] else { continue }
+            let expectedTotal = min(recordedTotal, participant.owedAmount)
+            guard expectedTotal - participant.repaidAmount > roundingTolerance else { continue }
+            participant.repaidAmount = expectedTotal
+            participant.updatedAt = Date()
+            participant.advanceCase?.updatedAt = Date()
+            updatedCount += 1
+        }
+
+        if updatedCount > 0 {
+            try modelContext.save()
+        }
+        return RepaymentReconciliationResult(
+            checkedParticipantCount: groupedTotals.count,
+            updatedParticipantCount: updatedCount
+        )
     }
 
     static func isMutualDebtOffset(note: String) -> Bool {

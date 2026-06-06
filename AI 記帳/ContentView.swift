@@ -32,6 +32,7 @@ struct ContentView: View {
     @State private var idleBackupTask: Task<Void, Never>?
     @State private var showingUserGuide = false
     @State private var initialGuideChecked = false
+    @State private var didReconcileAdvanceRepayments = false
 #if DEBUG
     @State private var uiTestSeeded = false
 #endif
@@ -176,6 +177,18 @@ struct ContentView: View {
         .task(id: recurringSyncToken) {
             guard !isRunningXCTest else { return }
             syncRecurringOccurrences()
+        }
+        .task {
+            guard !isRunningXCTest, !didReconcileAdvanceRepayments else { return }
+            didReconcileAdvanceRepayments = true
+            do {
+                let result = try AdvanceService.reconcileUnderstatedRepaymentTotals(modelContext: modelContext)
+                if result.updatedParticipantCount > 0 {
+                    print("✅ 已修復代墊還款累計 \(result.updatedParticipantCount) 筆")
+                }
+            } catch {
+                print("⚠️ 修復代墊還款累計失敗: \(error)")
+            }
         }
     }
 

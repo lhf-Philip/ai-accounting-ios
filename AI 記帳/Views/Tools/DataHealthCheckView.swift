@@ -40,6 +40,15 @@ struct DataHealthCheckView: View {
                 Text("移除舊版他人代墊我誤寫入自己帳戶的入帳，改為借貸帳戶支出。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Button(isRunning ? "處理中..." : "修復代墊還款累計") {
+                    repairAdvanceRepaymentTotals()
+                }
+                .disabled(isRunning)
+
+                Text("依還款紀錄補回被低估的已還金額，不會自動降低既有已還金額。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             legacyDebtIncomeSection
@@ -234,6 +243,19 @@ struct DataHealthCheckView: View {
             alertMessage = "修復失敗：\(error.localizedDescription)"
         }
 
+        isRunning = false
+        showingAlert = true
+    }
+
+    private func repairAdvanceRepaymentTotals() {
+        isRunning = true
+        do {
+            let result = try AdvanceService.reconcileUnderstatedRepaymentTotals(modelContext: modelContext)
+            report = DataHealthCheckService.run(modelContext: modelContext)
+            alertMessage = "已檢查 \(result.checkedParticipantCount) 位有還款紀錄的對象，修復 \(result.updatedParticipantCount) 位。"
+        } catch {
+            alertMessage = "修復失敗：\(error.localizedDescription)"
+        }
         isRunning = false
         showingAlert = true
     }
