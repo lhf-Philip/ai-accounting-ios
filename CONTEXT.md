@@ -30,6 +30,7 @@ The app is not a double-entry accounting system. It still needs strict semantic 
 - **Transfer** does not count toward income or expense reports. It moves value between accounts or records settlement semantics.
 - **Asset adjustment** is represented as transfer-like bookkeeping and must not affect income/expense charts.
 - **Debt forgiveness** and **mutual debt offset** are not regular income/expense. They settle debt semantics without changing own-account cash flow.
+- **Refund / rebate** is not regular income. It reverses or reduces a previously recorded expense. If the refund is received by an own account, the own account increases. If the refund is received by a debt account holder, that person's debt balance moves in the user's favour.
 
 ## Advances
 
@@ -40,6 +41,7 @@ The app is not a double-entry accounting system. It still needs strict semantic 
 - **Advance repayment**: A settlement record for a participant. If real money moves, it may link to a transfer group. If it is a ledger-only offset, it can exist without a received account or transfer group.
 - **Cross-currency advance repayment**: The amount actually received or paid can use a different currency from the advance case. The repayment stores the actual currency amount and a normalized amount in the case currency for remaining-balance calculations.
 - **Mutual debt offset (`債務抵銷`)**: Ledger-only settlement between opposing advance balances for the same person and currency. It is not repayment by cash and not debt forgiveness.
+- **Refund on an advance (`退款`)**: A merchant or provider returns value related to a prior expense or advance. It reduces net expense for the linked category/tag up to the remaining original expense amount. Any excess is settlement-only, not income.
 
 ## Debt Management
 
@@ -55,6 +57,8 @@ The app is not a double-entry accounting system. It still needs strict semantic 
 - **Estimated main-currency total**: A report display amount converted into the main currency using the current rate system. It is a display estimate, not a stored historical FX snapshot.
 - **Estimate status**: Report UI should make clear whether conversion used live, cached, partial, or unavailable rates.
 - **Report drill-down**: Category/tag detail sheets should show both estimated main-currency totals and original-currency breakdowns so users can audit the estimate.
+- **Gross expense** is the original spending before refunds.
+- **Net expense** is gross expense minus refund reductions. Refunds must not be displayed as income to make net expense look better.
 
 ## Backup Roundtrip
 
@@ -76,3 +80,4 @@ Current ADRs:
 - `docs/adr/0001-ledger-classification.md`
 - `docs/adr/0002-advance-and-debt-settlement.md`
 - `docs/adr/0003-report-currency-estimates.md`
+- `docs/adr/0004-refund-semantics.md`

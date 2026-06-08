@@ -1,7 +1,7 @@
 # Cross-Platform Parity Test Vectors
 
 Status: Active  
-Last updated: 2026-06-06
+Last updated: 2026-06-09
 
 This document defines deterministic input/output vectors for iOS and Android parity checks.
 
@@ -209,6 +209,48 @@ Expected:
 - Total income: `0 HKD`.
 - Settlement and transfer records remain auditable but never inflate income/expense totals.
 
+## Vector 14: Refund To Own Account
+
+Input:
+- Original linked expense remaining: `20650 JPY`.
+- Refund amount: `2550 JPY`.
+- Refund destination: own account A.
+
+Expected:
+- Own account A ledger delta: `+2550 JPY`.
+- Debt balance delta: `0`.
+- Expense report reduction: `2550 JPY`.
+- Net expense delta: `-2550 JPY`.
+- Income report contribution: `0`.
+
+## Vector 15: Refund To Debt Account Holder
+
+Input:
+- Original linked expense remaining: `20650 JPY`.
+- Refund amount: `2550 JPY`.
+- Refund destination: debt account Colin.
+
+Expected:
+- Own account ledger delta: `0`.
+- Colin debt balance delta: `+2550 JPY` in the user's favour.
+- If the user still owes Colin, payable decreases by `2550 JPY`.
+- If the case is already settled, Colin now owes the user `2550 JPY`.
+- Expense report reduction: `2550 JPY`.
+- Income report contribution: `0`.
+
+## Vector 16: Refund Larger Than Remaining Expense
+
+Input:
+- Original linked expense remaining: `2000 JPY`.
+- Refund amount: `2550 JPY`.
+- Refund destination: debt account Colin.
+
+Expected:
+- Colin debt balance delta: `+2550 JPY` in the user's favour.
+- Expense report reduction is capped at `2000 JPY`.
+- Settlement-only amount: `550 JPY`.
+- Income report contribution: `0`.
+
 ## Automated Coverage
 
 | Vector | iOS | Android |
@@ -220,6 +262,7 @@ Expected:
 | 9 | `testMutualDebtOffset_settlesBidirectionalAdvancesWithoutTransactions` | `mutualDebtOffset_settlesBidirectionalAdvancesWithoutTransactions` |
 | 10, 12, 13 | `LedgerSemanticVectorsTests.testVector13_settlementRecordsAreExcludedFromReports` | `ParityVectorsTest.vector13_settlementRecordsAreExcludedFromReports` |
 | 11 | `testExportImport_preservesSameAccountCrossCurrencyTransferAndBudgetHistory_excludesUIPreferences` | `backupRoundTrip_preservesSameAccountCrossCurrencyTransferAndBudgetHistory` |
+| 14-16 | `RefundSemanticsServiceTests` | `RefundSemanticsTest` |
 
 ## CI Gate Recommendation
 

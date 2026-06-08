@@ -22,6 +22,7 @@ Report drill-down sheets should show the same information as the top-level repor
 - original currency breakdown;
 - transaction count;
 - estimate status when conversion is cached, partial, or unavailable.
+- gross expense, refund reduction, and net expense when a report slice contains linked refunds.
 
 Cross-currency advance repayments should preserve both actual payment currency and normalized case-currency amount. Reports should use transaction semantics for income/expense inclusion and should not treat repayment transfer movement as new spending.
 
@@ -29,6 +30,7 @@ Cross-currency advance repayments should preserve both actual payment currency a
 
 - Main-currency report totals are estimates unless the transaction currency already equals the main currency.
 - UI should avoid presenting converted totals as exact historical accounting facts.
+- Refund-aware reports should not hide the original gross spending; users need both gross and net numbers to audit travel or shared-expense categories.
 - Tests should use fixed exchange rates and exact decimal arithmetic.
 - Future work that stores historical FX snapshots must update this ADR, the data model contract, backup compatibility, and parity vectors.
 
