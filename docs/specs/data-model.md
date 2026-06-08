@@ -82,6 +82,7 @@ Invariants:
 - Transfer should not be counted as income/expense.
 - For transfer groups, legs should share `transferGroupID`.
 - Refund semantics are not represented by a dedicated persisted type yet. Until a future schema is defined, refund domain logic must treat refunds as expense reversals, never ordinary income.
+- Report aggregation may receive a non-persisted semantic snapshot that marks a transaction-like record as a refund. That snapshot is a UI/domain adapter only; it must not be exported as a new backup field until a persisted refund schema is explicitly added.
 
 ### `Shortcut`
 - `id: UUID` (unique)
@@ -172,6 +173,7 @@ Compatibility behavior currently implemented on import:
 - Asset-adjustment legacy records are represented as transfers and must not affect income/expense charts.
 - Multi-leg transfer editing must preserve `transferGroupID`.
 - Refunds are expense reversals. If a refund lands in an own account, the own account increases. If a refund lands with a debt account holder, the debt balance moves in the user's favour. Linked report reduction is capped at the remaining original expense amount.
+- Refund-aware report aggregation must expose gross amount, refund reduction, settlement-only excess, and net amount for report drill-down. Income reports must ignore refund records.
 
 ## Change Policy
 

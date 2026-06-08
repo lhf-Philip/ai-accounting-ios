@@ -221,6 +221,7 @@ Expected:
 - Debt balance delta: `0`.
 - Expense report reduction: `2550 JPY`.
 - Net expense delta: `-2550 JPY`.
+- Report drill-down shows gross expense, refund reduction, and net expense separately.
 - Income report contribution: `0`.
 
 ## Vector 15: Refund To Debt Account Holder
@@ -236,6 +237,7 @@ Expected:
 - If the user still owes Colin, payable decreases by `2550 JPY`.
 - If the case is already settled, Colin now owes the user `2550 JPY`.
 - Expense report reduction: `2550 JPY`.
+- Report drill-down shows gross expense `20650 JPY`, refund reduction `2550 JPY`, and net expense `18100 JPY`.
 - Income report contribution: `0`.
 
 ## Vector 16: Refund Larger Than Remaining Expense
@@ -249,6 +251,7 @@ Expected:
 - Colin debt balance delta: `+2550 JPY` in the user's favour.
 - Expense report reduction is capped at `2000 JPY`.
 - Settlement-only amount: `550 JPY`.
+- Report drill-down shows refund reduction `2000 JPY` separately from settlement-only `550 JPY`.
 - Income report contribution: `0`.
 
 ## Automated Coverage
@@ -262,7 +265,7 @@ Expected:
 | 9 | `testMutualDebtOffset_settlesBidirectionalAdvancesWithoutTransactions` | `mutualDebtOffset_settlesBidirectionalAdvancesWithoutTransactions` |
 | 10, 12, 13 | `LedgerSemanticVectorsTests.testVector13_settlementRecordsAreExcludedFromReports` | `ParityVectorsTest.vector13_settlementRecordsAreExcludedFromReports` |
 | 11 | `testExportImport_preservesSameAccountCrossCurrencyTransferAndBudgetHistory_excludesUIPreferences` | `backupRoundTrip_preservesSameAccountCrossCurrencyTransferAndBudgetHistory` |
-| 14-16 | `RefundSemanticsServiceTests` | `RefundSemanticsTest` |
+| 14-16 | `RefundSemanticsServiceTests`, `ReportAggregationServiceTests.testRefundAggregation_reducesExpenseWithoutCountingIncome`, `ReportAggregationServiceTests.testRefundAggregation_capsExpenseReductionAndKeepsExcessSettlementOnly` | `RefundSemanticsTest`, `ReportAggregationTest.refundAggregation_reducesExpenseWithoutCountingIncome`, `ReportAggregationTest.refundAggregation_capsExpenseReductionAndKeepsExcessSettlementOnly` |
 
 ## CI Gate Recommendation
 

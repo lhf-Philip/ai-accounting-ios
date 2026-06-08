@@ -42,9 +42,9 @@ jobs:
         run: chmod +x android/gradlew
 
       - name: Build Debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: ./gradlew :app:assembleDebug --no-daemon --console=plain --stacktrace
         working-directory: android
 
       - name: Run Unit Tests
-        run: ./gradlew :app:testDebugUnitTest --stacktrace
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --console=plain --stacktrace
         working-directory: android

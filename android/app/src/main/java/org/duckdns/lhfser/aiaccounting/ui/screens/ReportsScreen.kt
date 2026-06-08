@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -112,6 +113,12 @@ private data class ReportChartSlice(
     val color: Color,
     val transactions: List<TransactionWithDetails>,
     val originalCurrencySummary: String,
+    val grossEstimatedAmount: BigDecimal,
+    val grossOriginalCurrencySummary: String,
+    val refundReductionEstimatedAmount: BigDecimal,
+    val refundReductionOriginalCurrencySummary: String,
+    val refundSettlementOnlyEstimatedAmount: BigDecimal,
+    val refundSettlementOnlyOriginalCurrencySummary: String,
     val estimateFootnote: String?
 )
 
@@ -120,9 +127,19 @@ private data class ReportDetail(
     val estimatedAmount: BigDecimal,
     val baseCurrency: String,
     val originalCurrencySummary: String,
+    val grossEstimatedAmount: BigDecimal,
+    val grossOriginalCurrencySummary: String,
+    val refundReductionEstimatedAmount: BigDecimal,
+    val refundReductionOriginalCurrencySummary: String,
+    val refundSettlementOnlyEstimatedAmount: BigDecimal,
+    val refundSettlementOnlyOriginalCurrencySummary: String,
     val estimateFootnote: String?,
     val transactions: List<TransactionWithDetails>
-)
+) {
+    val hasRefundBreakdown: Boolean
+        get() = refundReductionEstimatedAmount.compareTo(BigDecimal.ZERO) != 0 ||
+            refundSettlementOnlyEstimatedAmount.compareTo(BigDecimal.ZERO) != 0
+}
 
 private data class BudgetAlert(
     val budget: CategoryMonthlyBudgetEntity,
@@ -815,6 +832,38 @@ private fun ReportDetailSummaryCard(detail: ReportDetail) {
                 )
             }
 
+            if (detail.hasRefundBreakdown) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.24f))
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "退款扣減",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    ReportBreakdownRow(
+                        title = "總支出",
+                        amount = detail.grossEstimatedAmount,
+                        baseCurrency = detail.baseCurrency,
+                        originalCurrencySummary = detail.grossOriginalCurrencySummary
+                    )
+                    ReportBreakdownRow(
+                        title = "退款扣減",
+                        amount = detail.refundReductionEstimatedAmount,
+                        baseCurrency = detail.baseCurrency,
+                        originalCurrencySummary = detail.refundReductionOriginalCurrencySummary
+                    )
+                    if (detail.refundSettlementOnlyEstimatedAmount.compareTo(BigDecimal.ZERO) != 0) {
+                        ReportBreakdownRow(
+                            title = "只作結算",
+                            amount = detail.refundSettlementOnlyEstimatedAmount,
+                            baseCurrency = detail.baseCurrency,
+                            originalCurrencySummary = detail.refundSettlementOnlyOriginalCurrencySummary
+                        )
+                    }
+                }
+            }
+
             detail.estimateFootnote?.let { footnote ->
                 Text(
                     footnote,
@@ -828,6 +877,43 @@ private fun ReportDetailSummaryCard(detail: ReportDetail) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ReportBreakdownRow(
+    title: String,
+    amount: BigDecimal,
+    baseCurrency: String,
+    originalCurrencySummary: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (originalCurrencySummary.isNotBlank()) {
+                Text(
+                    originalCurrencySummary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Text(
+            amount.asCurrencyText(baseCurrency),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 
@@ -884,6 +970,18 @@ private fun ReportAggregationResult.toChartSlices(
             originalCurrencySummary = detail.originalCurrencyTotals.joinToString(" · ") {
                 it.amount.asCurrencyText(it.currencyCode)
             },
+            grossEstimatedAmount = detail.grossEstimatedAmount,
+            grossOriginalCurrencySummary = detail.grossOriginalCurrencyTotals.joinToString(" · ") {
+                it.amount.asCurrencyText(it.currencyCode)
+            },
+            refundReductionEstimatedAmount = detail.refundReductionEstimatedAmount,
+            refundReductionOriginalCurrencySummary = detail.refundReductionOriginalCurrencyTotals.joinToString(" · ") {
+                it.amount.asCurrencyText(it.currencyCode)
+            },
+            refundSettlementOnlyEstimatedAmount = detail.refundSettlementOnlyEstimatedAmount,
+            refundSettlementOnlyOriginalCurrencySummary = detail.refundSettlementOnlyOriginalCurrencyTotals.joinToString(" · ") {
+                it.amount.asCurrencyText(it.currencyCode)
+            },
             estimateFootnote = detail.estimateStatus.label
         )
     }
@@ -910,6 +1008,12 @@ private fun presentTransactions(
         estimatedAmount = item.amount,
         baseCurrency = baseCurrency,
         originalCurrencySummary = item.originalCurrencySummary,
+        grossEstimatedAmount = item.grossEstimatedAmount,
+        grossOriginalCurrencySummary = item.grossOriginalCurrencySummary,
+        refundReductionEstimatedAmount = item.refundReductionEstimatedAmount,
+        refundReductionOriginalCurrencySummary = item.refundReductionOriginalCurrencySummary,
+        refundSettlementOnlyEstimatedAmount = item.refundSettlementOnlyEstimatedAmount,
+        refundSettlementOnlyOriginalCurrencySummary = item.refundSettlementOnlyOriginalCurrencySummary,
         estimateFootnote = item.estimateFootnote,
         transactions = sorted
     )
