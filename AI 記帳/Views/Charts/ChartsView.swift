@@ -57,8 +57,18 @@ struct ChartsView: View {
         let estimatedAmount: Decimal
         let mainCurrency: String
         let originalCurrencySummary: String
+        let grossEstimatedAmount: Decimal
+        let grossOriginalCurrencySummary: String
+        let refundReductionEstimatedAmount: Decimal
+        let refundReductionOriginalCurrencySummary: String
+        let refundSettlementOnlyEstimatedAmount: Decimal
+        let refundSettlementOnlyOriginalCurrencySummary: String
         let estimateFootnote: String?
         let transactions: [FinancialTransaction]
+
+        var hasRefundBreakdown: Bool {
+            refundReductionEstimatedAmount != 0 || refundSettlementOnlyEstimatedAmount != 0
+        }
     }
     
     var body: some View {
@@ -316,6 +326,12 @@ struct ChartsView: View {
         let color: Color
         let transactions: [FinancialTransaction]
         let originalCurrencySummary: String
+        let grossEstimatedAmount: Decimal
+        let grossOriginalCurrencySummary: String
+        let refundReductionEstimatedAmount: Decimal
+        let refundReductionOriginalCurrencySummary: String
+        let refundSettlementOnlyEstimatedAmount: Decimal
+        let refundSettlementOnlyOriginalCurrencySummary: String
         let estimateFootnote: String?
     }
     
@@ -334,6 +350,12 @@ struct ChartsView: View {
             estimatedAmount: item.amount,
             mainCurrency: currencyService.mainCurrency,
             originalCurrencySummary: item.originalCurrencySummary,
+            grossEstimatedAmount: item.grossEstimatedAmount,
+            grossOriginalCurrencySummary: item.grossOriginalCurrencySummary,
+            refundReductionEstimatedAmount: item.refundReductionEstimatedAmount,
+            refundReductionOriginalCurrencySummary: item.refundReductionOriginalCurrencySummary,
+            refundSettlementOnlyEstimatedAmount: item.refundSettlementOnlyEstimatedAmount,
+            refundSettlementOnlyOriginalCurrencySummary: item.refundSettlementOnlyOriginalCurrencySummary,
             estimateFootnote: item.estimateFootnote,
             transactions: sortedTransactions
         )
@@ -503,6 +525,12 @@ private struct ChartsRenderState {
                 color: displayColor,
                 transactions: detail.transactionIDs.compactMap { transactionsByID[$0] },
                 originalCurrencySummary: reportCurrencySummary(detail.originalCurrencyTotals),
+                grossEstimatedAmount: detail.grossEstimatedAmount,
+                grossOriginalCurrencySummary: reportCurrencySummary(detail.grossOriginalCurrencyTotals),
+                refundReductionEstimatedAmount: detail.refundReductionEstimatedAmount,
+                refundReductionOriginalCurrencySummary: reportCurrencySummary(detail.refundReductionOriginalCurrencyTotals),
+                refundSettlementOnlyEstimatedAmount: detail.refundSettlementOnlyEstimatedAmount,
+                refundSettlementOnlyOriginalCurrencySummary: reportCurrencySummary(detail.refundSettlementOnlyOriginalCurrencyTotals),
                 estimateFootnote: detail.estimateStatus.label
             )
         }
@@ -680,6 +708,38 @@ private struct ReportDetailSummaryCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if detail.hasRefundBreakdown {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("退款扣減")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    ReportBreakdownRow(
+                        title: "總支出",
+                        amount: detail.grossEstimatedAmount,
+                        mainCurrency: detail.mainCurrency,
+                        originalSummary: detail.grossOriginalCurrencySummary
+                    )
+                    ReportBreakdownRow(
+                        title: "退款扣減",
+                        amount: detail.refundReductionEstimatedAmount,
+                        mainCurrency: detail.mainCurrency,
+                        originalSummary: detail.refundReductionOriginalCurrencySummary
+                    )
+
+                    if detail.refundSettlementOnlyEstimatedAmount != 0 {
+                        ReportBreakdownRow(
+                            title: "只作結算",
+                            amount: detail.refundSettlementOnlyEstimatedAmount,
+                            mainCurrency: detail.mainCurrency,
+                            originalSummary: detail.refundSettlementOnlyOriginalCurrencySummary
+                        )
+                    }
+                }
+            }
+
             if let estimateFootnote = detail.estimateFootnote {
                 Label(estimateFootnote, systemImage: estimateFootnote == "估算不完整" ? "exclamationmark.triangle.fill" : "arrow.triangle.2.circlepath")
                     .font(.caption)
@@ -689,6 +749,33 @@ private struct ReportDetailSummaryCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+private struct ReportBreakdownRow: View {
+    let title: String
+    let amount: Decimal
+    let mainCurrency: String
+    let originalSummary: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                if !originalSummary.isEmpty {
+                    Text(originalSummary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            Text(amount.formatted(.currency(code: mainCurrency)))
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+        }
     }
 }
 

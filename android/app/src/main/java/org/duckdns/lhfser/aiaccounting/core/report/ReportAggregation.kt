@@ -5,6 +5,9 @@ import java.time.Instant
 import java.util.UUID
 import org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
+import org.duckdns.lhfser.aiaccounting.core.refund.RefundDestinationKind
+import org.duckdns.lhfser.aiaccounting.core.refund.RefundSemanticInput
+import org.duckdns.lhfser.aiaccounting.core.refund.RefundSemantics
 import org.duckdns.lhfser.aiaccounting.core.transactions.RateSourceState
 
 enum class ReportFlow(val transactionType: TransactionType) {
@@ -44,8 +47,17 @@ data class ReportTransactionSnapshot(
     val categoryId: UUID?,
     val categoryName: String?,
     val categoryColorHex: String?,
-    val tagNames: List<String>
+    val tagNames: List<String>,
+    val semantic: ReportTransactionSemantic = ReportTransactionSemantic.Regular
 )
+
+sealed interface ReportTransactionSemantic {
+    data object Regular : ReportTransactionSemantic
+    data class Refund(
+        val destination: RefundDestinationKind,
+        val originalExpenseRemaining: BigDecimal? = null
+    ) : ReportTransactionSemantic
+}
 
 data class ReportCurrencyTotal(
     val currencyCode: String,
@@ -58,6 +70,12 @@ data class ReportSlice(
     val categoryColorHex: String?,
     val estimatedAmount: BigDecimal,
     val originalCurrencyTotals: List<ReportCurrencyTotal>,
+    val grossEstimatedAmount: BigDecimal,
+    val grossOriginalCurrencyTotals: List<ReportCurrencyTotal>,
+    val refundReductionEstimatedAmount: BigDecimal,
+    val refundReductionOriginalCurrencyTotals: List<ReportCurrencyTotal>,
+    val refundSettlementOnlyEstimatedAmount: BigDecimal,
+    val refundSettlementOnlyOriginalCurrencyTotals: List<ReportCurrencyTotal>,
     val estimateStatus: ReportEstimateStatus,
     val transactionIds: List<UUID>
 ) {
@@ -65,6 +83,12 @@ data class ReportSlice(
         get() = ReportDetailSummary(
             estimatedAmount = estimatedAmount,
             originalCurrencyTotals = originalCurrencyTotals,
+            grossEstimatedAmount = grossEstimatedAmount,
+            grossOriginalCurrencyTotals = grossOriginalCurrencyTotals,
+            refundReductionEstimatedAmount = refundReductionEstimatedAmount,
+            refundReductionOriginalCurrencyTotals = refundReductionOriginalCurrencyTotals,
+            refundSettlementOnlyEstimatedAmount = refundSettlementOnlyEstimatedAmount,
+            refundSettlementOnlyOriginalCurrencyTotals = refundSettlementOnlyOriginalCurrencyTotals,
             estimateStatus = estimateStatus,
             transactionIds = transactionIds
         )
@@ -73,6 +97,12 @@ data class ReportSlice(
 data class ReportDetailSummary(
     val estimatedAmount: BigDecimal,
     val originalCurrencyTotals: List<ReportCurrencyTotal>,
+    val grossEstimatedAmount: BigDecimal,
+    val grossOriginalCurrencyTotals: List<ReportCurrencyTotal>,
+    val refundReductionEstimatedAmount: BigDecimal,
+    val refundReductionOriginalCurrencyTotals: List<ReportCurrencyTotal>,
+    val refundSettlementOnlyEstimatedAmount: BigDecimal,
+    val refundSettlementOnlyOriginalCurrencyTotals: List<ReportCurrencyTotal>,
     val estimateStatus: ReportEstimateStatus,
     val transactionIds: List<UUID>
 ) {
@@ -101,22 +131,23 @@ object ReportAggregationService {
         request: ReportAggregationRequest,
         currencyConverter: ReportCurrencyConverting
     ): ReportAggregationResult {
-        val filtered = request.transactions.filter { transaction ->
-            transaction.type == request.flow.transactionType &&
-                (request.startDate == null || transaction.date >= request.startDate) &&
-                (request.endDate == null || transaction.date < request.endDate) &&
-                matchesTagFilter(transaction, request.tagFilter)
+        val filtered = request.transactions.mapNotNull { transaction ->
+            val contribution = contributionFor(transaction, request.flow) ?: return@mapNotNull null
+            if (request.startDate != null && transaction.date < request.startDate) return@mapNotNull null
+            if (request.endDate != null && transaction.date >= request.endDate) return@mapNotNull null
+            if (!matchesTagFilter(transaction, request.tagFilter)) return@mapNotNull null
+            ReportAggregationItem(transaction = transaction, contribution = contribution)
         }
 
         val grouped = when (request.grouping) {
             ReportGroupingMode.Category -> filtered.groupBy {
-                it.categoryId?.toString() ?: "uncategorized"
+                it.transaction.categoryId?.toString() ?: "uncategorized"
             }
-            ReportGroupingMode.Tag -> buildMap<String, MutableList<ReportTransactionSnapshot>> {
-                filtered.forEach { transaction ->
-                    val tags = transaction.tagNames.ifEmpty { listOf("無標籤") }
+            ReportGroupingMode.Tag -> buildMap<String, MutableList<ReportAggregationItem>> {
+                filtered.forEach { item ->
+                    val tags = item.transaction.tagNames.ifEmpty { listOf("無標籤") }
                     tags.forEach { tagName ->
-                        getOrPut(tagName) { mutableListOf() }.add(transaction)
+                        getOrPut(tagName) { mutableListOf() }.add(item)
                     }
                 }
             }
@@ -149,39 +180,98 @@ object ReportAggregationService {
         }
     }
 
+    private fun contributionFor(
+        transaction: ReportTransactionSnapshot,
+        flow: ReportFlow
+    ): ReportContribution? {
+        return when (val semantic = transaction.semantic) {
+            ReportTransactionSemantic.Regular -> {
+                if (transaction.type != flow.transactionType) null else {
+                    ReportContribution.Regular(transaction.amount.abs())
+                }
+            }
+            is ReportTransactionSemantic.Refund -> {
+                if (flow != ReportFlow.Expense) return null
+                val effect = runCatching {
+                    RefundSemantics.effect(
+                        RefundSemanticInput(
+                            amount = transaction.amount.abs(),
+                            destination = semantic.destination,
+                            originalExpenseRemaining = semantic.originalExpenseRemaining
+                        )
+                    )
+                }.getOrNull() ?: return null
+                ReportContribution.Refund(
+                    reductionAmount = effect.expenseReduction,
+                    settlementOnlyAmount = effect.settlementOnlyAmount
+                )
+            }
+        }
+    }
+
     private fun makeSlice(
         key: String,
-        transactions: List<ReportTransactionSnapshot>,
+        transactions: List<ReportAggregationItem>,
         grouping: ReportGroupingMode,
         currencyConverter: ReportCurrencyConverting
     ): ReportSlice {
-        var estimatedAmount = BigDecimal.ZERO
-        val originalTotals = mutableMapOf<String, BigDecimal>()
+        val gross = ReportAmountAccumulator()
+        val refundReduction = ReportAmountAccumulator()
+        val refundSettlementOnly = ReportAmountAccumulator()
+        val netOriginalTotals = mutableMapOf<String, BigDecimal>()
         val statuses = mutableListOf<ReportEstimateStatus>()
         var unavailableCount = 0
+        var conversionAttemptCount = 0
 
-        transactions.forEach { transaction ->
-            val amount = transaction.amount.abs()
-            val currencyCode = transaction.currencyCode.uppercase()
-            originalTotals[currencyCode] = (originalTotals[currencyCode] ?: BigDecimal.ZERO) + amount
-
-            val conversion = currencyConverter.estimateInMainCurrency(amount, currencyCode)
-            if (conversion == null) {
-                unavailableCount += 1
-            } else {
-                estimatedAmount += conversion.amount
-                statuses += conversion.status
+        transactions.forEach { item ->
+            val currencyCode = item.transaction.currencyCode.uppercase()
+            when (val contribution = item.contribution) {
+                is ReportContribution.Regular -> {
+                    netOriginalTotals[currencyCode] = (netOriginalTotals[currencyCode] ?: BigDecimal.ZERO) + contribution.amount
+                    add(
+                        amount = contribution.amount,
+                        currencyCode = currencyCode,
+                        accumulator = gross,
+                        currencyConverter = currencyConverter,
+                        statuses = statuses,
+                        unavailableCount = { unavailableCount += 1 },
+                        conversionAttemptCount = { conversionAttemptCount += 1 }
+                    )
+                }
+                is ReportContribution.Refund -> {
+                    netOriginalTotals[currencyCode] = (netOriginalTotals[currencyCode] ?: BigDecimal.ZERO) - contribution.reductionAmount
+                    add(
+                        amount = contribution.reductionAmount,
+                        currencyCode = currencyCode,
+                        accumulator = refundReduction,
+                        currencyConverter = currencyConverter,
+                        statuses = statuses,
+                        unavailableCount = { unavailableCount += 1 },
+                        conversionAttemptCount = { conversionAttemptCount += 1 }
+                    )
+                    add(
+                        amount = contribution.settlementOnlyAmount,
+                        currencyCode = currencyCode,
+                        accumulator = refundSettlementOnly,
+                        currencyConverter = currencyConverter,
+                        statuses = statuses,
+                        unavailableCount = { unavailableCount += 1 },
+                        conversionAttemptCount = { conversionAttemptCount += 1 }
+                    )
+                }
             }
         }
+        val estimatedAmount = gross.estimatedAmount - refundReduction.estimatedAmount
 
         val status = when {
-            unavailableCount == transactions.size -> ReportEstimateStatus.Unavailable
+            conversionAttemptCount == 0 -> ReportEstimateStatus.Exact
+            unavailableCount == conversionAttemptCount -> ReportEstimateStatus.Unavailable
             unavailableCount > 0 -> ReportEstimateStatus.Partial
             ReportEstimateStatus.Cached in statuses -> ReportEstimateStatus.Cached
             ReportEstimateStatus.Live in statuses -> ReportEstimateStatus.Live
             else -> ReportEstimateStatus.Exact
         }
-        val first = transactions.firstOrNull()
+        val first = transactions.firstOrNull()?.transaction
 
         return ReportSlice(
             key = key,
@@ -194,15 +284,68 @@ object ReportAggregationService {
                 ReportGroupingMode.Tag -> null
             },
             estimatedAmount = estimatedAmount,
-            originalCurrencyTotals = originalTotals.entries
-                .sortedBy { it.key }
-                .map { ReportCurrencyTotal(currencyCode = it.key, amount = it.value) },
+            originalCurrencyTotals = netOriginalTotals.toCurrencyTotals(),
+            grossEstimatedAmount = gross.estimatedAmount,
+            grossOriginalCurrencyTotals = gross.originalCurrencyTotals,
+            refundReductionEstimatedAmount = refundReduction.estimatedAmount,
+            refundReductionOriginalCurrencyTotals = refundReduction.originalCurrencyTotals,
+            refundSettlementOnlyEstimatedAmount = refundSettlementOnly.estimatedAmount,
+            refundSettlementOnlyOriginalCurrencyTotals = refundSettlementOnly.originalCurrencyTotals,
             estimateStatus = status,
             transactionIds = transactions
-                .sortedByDescending { it.date }
-                .map { it.id }
+                .sortedByDescending { it.transaction.date }
+                .map { it.transaction.id }
         )
     }
+
+    private fun add(
+        amount: BigDecimal,
+        currencyCode: String,
+        accumulator: ReportAmountAccumulator,
+        currencyConverter: ReportCurrencyConverting,
+        statuses: MutableList<ReportEstimateStatus>,
+        unavailableCount: () -> Unit,
+        conversionAttemptCount: () -> Unit
+    ) {
+        if (amount.compareTo(BigDecimal.ZERO) == 0) return
+        accumulator.originalTotals[currencyCode] = (accumulator.originalTotals[currencyCode] ?: BigDecimal.ZERO) + amount
+        conversionAttemptCount()
+        val conversion = currencyConverter.estimateInMainCurrency(amount, currencyCode)
+        if (conversion == null) {
+            unavailableCount()
+        } else {
+            accumulator.estimatedAmount += conversion.amount
+            statuses += conversion.status
+        }
+    }
+}
+
+private data class ReportAggregationItem(
+    val transaction: ReportTransactionSnapshot,
+    val contribution: ReportContribution
+)
+
+private sealed interface ReportContribution {
+    data class Regular(val amount: BigDecimal) : ReportContribution
+    data class Refund(
+        val reductionAmount: BigDecimal,
+        val settlementOnlyAmount: BigDecimal
+    ) : ReportContribution
+}
+
+private data class ReportAmountAccumulator(
+    var estimatedAmount: BigDecimal = BigDecimal.ZERO,
+    val originalTotals: MutableMap<String, BigDecimal> = mutableMapOf()
+) {
+    val originalCurrencyTotals: List<ReportCurrencyTotal>
+        get() = originalTotals.toCurrencyTotals()
+}
+
+private fun Map<String, BigDecimal>.toCurrencyTotals(): List<ReportCurrencyTotal> {
+    return entries
+        .filter { it.value.compareTo(BigDecimal.ZERO) != 0 }
+        .sortedBy { it.key }
+        .map { ReportCurrencyTotal(currencyCode = it.key, amount = it.value) }
 }
 
 class CurrencyServiceReportConverter(

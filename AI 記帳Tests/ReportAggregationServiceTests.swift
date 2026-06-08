@@ -177,6 +177,103 @@ final class ReportAggregationServiceTests: XCTestCase {
         XCTAssertEqual(.cached, cached.slices.first?.estimateStatus)
     }
 
+    func testRefundAggregation_reducesExpenseWithoutCountingIncome() {
+        let travelID = UUID()
+        let expenseID = UUID()
+        let refundID = UUID()
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let transactions = [
+            snapshot(
+                id: expenseID,
+                amount: -20_650,
+                currency: "JPY",
+                date: date,
+                categoryId: travelID,
+                tags: ["旅行"]
+            ),
+            snapshot(
+                id: refundID,
+                amount: 2_550,
+                currency: "JPY",
+                date: date.addingTimeInterval(60),
+                type: .transfer,
+                categoryId: travelID,
+                tags: ["旅行"],
+                semantic: .refund(destination: .debtAccount, originalExpenseRemaining: 20_650)
+            )
+        ]
+        let converter = FixedReportCurrencyConverter(mainCurrency: "JPY")
+
+        let expense = aggregate(transactions, converter)
+        XCTAssertEqual(1, expense.slices.count)
+        let slice = expense.slices[0]
+
+        XCTAssertEqual("餐飲", slice.name)
+        XCTAssertEqual(Decimal(18_100), slice.estimatedAmount)
+        XCTAssertEqual(Decimal(20_650), slice.grossEstimatedAmount)
+        XCTAssertEqual(Decimal(2_550), slice.refundReductionEstimatedAmount)
+        XCTAssertEqual(Decimal.zero, slice.refundSettlementOnlyEstimatedAmount)
+        XCTAssertEqual(
+            [ReportCurrencyTotal(currencyCode: "JPY", amount: 18_100)],
+            slice.originalCurrencyTotals
+        )
+        XCTAssertEqual(
+            [ReportCurrencyTotal(currencyCode: "JPY", amount: 20_650)],
+            slice.grossOriginalCurrencyTotals
+        )
+        XCTAssertEqual(
+            [ReportCurrencyTotal(currencyCode: "JPY", amount: 2_550)],
+            slice.refundReductionOriginalCurrencyTotals
+        )
+        XCTAssertEqual([refundID, expenseID], slice.transactionIDs)
+
+        let income = ReportAggregationService.aggregate(
+            request: ReportAggregationRequest(
+                transactions: transactions,
+                flow: .income,
+                grouping: .category,
+                startDate: nil,
+                endDate: nil
+            ),
+            currencyConverter: converter
+        )
+        XCTAssertTrue(income.slices.isEmpty)
+    }
+
+    func testRefundAggregation_capsExpenseReductionAndKeepsExcessSettlementOnly() {
+        let travelID = UUID()
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let transactions = [
+            snapshot(
+                amount: -2_000,
+                currency: "JPY",
+                date: date,
+                categoryId: travelID
+            ),
+            snapshot(
+                amount: 2_550,
+                currency: "JPY",
+                date: date.addingTimeInterval(60),
+                type: .transfer,
+                categoryId: travelID,
+                semantic: .refund(destination: .debtAccount, originalExpenseRemaining: 2_000)
+            )
+        ]
+
+        let result = aggregate(transactions, FixedReportCurrencyConverter(mainCurrency: "JPY"))
+        XCTAssertEqual(1, result.slices.count)
+        let slice = result.slices[0]
+
+        XCTAssertEqual(Decimal.zero, slice.estimatedAmount)
+        XCTAssertEqual(Decimal(2_000), slice.refundReductionEstimatedAmount)
+        XCTAssertEqual(Decimal(550), slice.refundSettlementOnlyEstimatedAmount)
+        XCTAssertTrue(slice.originalCurrencyTotals.isEmpty)
+        XCTAssertEqual(
+            [ReportCurrencyTotal(currencyCode: "JPY", amount: 550)],
+            slice.refundSettlementOnlyOriginalCurrencyTotals
+        )
+    }
+
     func testSharedDateFilter_excludesExclusiveEndBoundary() {
         let calendar = Calendar(identifier: .gregorian)
         let selectedDate = Date(timeIntervalSince1970: 1_700_000_000)
@@ -208,17 +305,43 @@ final class ReportAggregationServiceTests: XCTestCase {
         )
     }
 
-    private func snapshot(amount: Decimal, currency: String, date: Date) -> ReportTransactionSnapshot {
+    private func aggregate(
+        _ transactions: [ReportTransactionSnapshot],
+        _ converter: ReportCurrencyConverting
+    ) -> ReportAggregationResult {
+        ReportAggregationService.aggregate(
+            request: ReportAggregationRequest(
+                transactions: transactions,
+                flow: .expense,
+                grouping: .category,
+                startDate: nil,
+                endDate: nil
+            ),
+            currencyConverter: converter
+        )
+    }
+
+    private func snapshot(
+        id: UUID = UUID(),
+        amount: Decimal,
+        currency: String,
+        date: Date,
+        type: TransactionType = .expense,
+        categoryId: UUID? = nil,
+        tags: [String] = [],
+        semantic: ReportTransactionSemantic = .regular
+    ) -> ReportTransactionSnapshot {
         ReportTransactionSnapshot(
-            id: UUID(),
+            id: id,
             amount: amount,
             currencyCode: currency,
             date: date,
-            type: .expense,
-            categoryID: nil,
-            categoryName: nil,
-            categoryColorHex: nil,
-            tagNames: []
+            type: type,
+            categoryID: categoryId,
+            categoryName: categoryId == nil ? nil : "餐飲",
+            categoryColorHex: categoryId == nil ? nil : "#FF0000",
+            tagNames: tags,
+            semantic: semantic
         )
     }
 }

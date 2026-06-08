@@ -37,6 +37,7 @@ When a refund is linked to a known original expense, report reduction is capped 
 - Refund forms should prefill as much as possible from the original expense or advance case.
 - Refund records must be auditable and reversible, because they can alter both reports and debt balances.
 - Report drill-down should show gross expense, refund reduction, net expense, original-currency totals, and estimate status.
+- Report aggregation should expose refund-aware summary fields from a single domain interface rather than forcing chart screens to infer refund effects from notes or transaction signs.
 - Cross-platform parity vectors must cover own-account refunds, debt-account refunds, capped reductions, and cross-currency display expectations.
 - v1 does not require a SwiftData or Room schema migration; persistence can be designed in a later PR after this semantic seam is stable.
 

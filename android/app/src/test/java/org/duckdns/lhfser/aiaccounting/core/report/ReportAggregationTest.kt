@@ -4,7 +4,9 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
+import org.duckdns.lhfser.aiaccounting.core.refund.RefundDestinationKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReportAggregationTest {
@@ -142,6 +144,106 @@ class ReportAggregationTest {
         assertEquals(ReportEstimateStatus.Cached, cached.slices.single().estimateStatus)
     }
 
+    @Test
+    fun refundAggregation_reducesExpenseWithoutCountingIncome() {
+        val travelId = UUID.randomUUID()
+        val expenseId = UUID.randomUUID()
+        val refundId = UUID.randomUUID()
+        val date = Instant.parse("2026-02-01T12:00:00Z")
+        val transactions = listOf(
+            snapshot(
+                id = expenseId,
+                amount = "-20650",
+                currency = "JPY",
+                date = date,
+                categoryId = travelId,
+                tags = listOf("旅行")
+            ),
+            snapshot(
+                id = refundId,
+                amount = "2550",
+                currency = "JPY",
+                date = date.plusSeconds(60),
+                type = TransactionType.Transfer,
+                categoryId = travelId,
+                tags = listOf("旅行"),
+                semantic = ReportTransactionSemantic.Refund(
+                    destination = RefundDestinationKind.DebtAccount,
+                    originalExpenseRemaining = BigDecimal("20650")
+                )
+            )
+        )
+        val converter = FixedReportCurrencyConverter(mainCurrency = "JPY")
+
+        val expense = aggregate(transactions, converter)
+        val slice = expense.slices.single()
+
+        assertEquals("餐飲", slice.name)
+        assertMoneyEquals("18100", slice.estimatedAmount)
+        assertMoneyEquals("20650", slice.grossEstimatedAmount)
+        assertMoneyEquals("2550", slice.refundReductionEstimatedAmount)
+        assertMoneyEquals("0", slice.refundSettlementOnlyEstimatedAmount)
+        assertEquals(
+            listOf(ReportCurrencyTotal(currencyCode = "JPY", amount = BigDecimal("18100"))),
+            slice.originalCurrencyTotals
+        )
+        assertEquals(
+            listOf(ReportCurrencyTotal(currencyCode = "JPY", amount = BigDecimal("20650"))),
+            slice.grossOriginalCurrencyTotals
+        )
+        assertEquals(
+            listOf(ReportCurrencyTotal(currencyCode = "JPY", amount = BigDecimal("2550"))),
+            slice.refundReductionOriginalCurrencyTotals
+        )
+        assertEquals(listOf(refundId, expenseId), slice.transactionIds)
+
+        val income = ReportAggregationService.aggregate(
+            request = ReportAggregationRequest(
+                transactions = transactions,
+                flow = ReportFlow.Income,
+                grouping = ReportGroupingMode.Category
+            ),
+            currencyConverter = converter
+        )
+        assertTrue(income.slices.isEmpty())
+    }
+
+    @Test
+    fun refundAggregation_capsExpenseReductionAndKeepsExcessSettlementOnly() {
+        val travelId = UUID.randomUUID()
+        val date = Instant.parse("2026-02-01T12:00:00Z")
+        val transactions = listOf(
+            snapshot(
+                amount = "-2000",
+                currency = "JPY",
+                date = date,
+                categoryId = travelId
+            ),
+            snapshot(
+                amount = "2550",
+                currency = "JPY",
+                date = date.plusSeconds(60),
+                type = TransactionType.Transfer,
+                categoryId = travelId,
+                semantic = ReportTransactionSemantic.Refund(
+                    destination = RefundDestinationKind.DebtAccount,
+                    originalExpenseRemaining = BigDecimal("2000")
+                )
+            )
+        )
+
+        val slice = aggregate(transactions, FixedReportCurrencyConverter(mainCurrency = "JPY")).slices.single()
+
+        assertMoneyEquals("0", slice.estimatedAmount)
+        assertMoneyEquals("2000", slice.refundReductionEstimatedAmount)
+        assertMoneyEquals("550", slice.refundSettlementOnlyEstimatedAmount)
+        assertEquals(emptyList<ReportCurrencyTotal>(), slice.originalCurrencyTotals)
+        assertEquals(
+            listOf(ReportCurrencyTotal(currencyCode = "JPY", amount = BigDecimal("550"))),
+            slice.refundSettlementOnlyOriginalCurrencyTotals
+        )
+    }
+
     private fun aggregate(
         transactions: List<ReportTransactionSnapshot>,
         converter: ReportCurrencyConverting
@@ -163,7 +265,8 @@ class ReportAggregationTest {
         date: Instant,
         type: TransactionType = TransactionType.Expense,
         categoryId: UUID? = UUID.randomUUID(),
-        tags: List<String> = emptyList()
+        tags: List<String> = emptyList(),
+        semantic: ReportTransactionSemantic = ReportTransactionSemantic.Regular
     ): ReportTransactionSnapshot {
         return ReportTransactionSnapshot(
             id = id,
@@ -174,7 +277,8 @@ class ReportAggregationTest {
             categoryId = categoryId,
             categoryName = categoryId?.let { "餐飲" },
             categoryColorHex = categoryId?.let { "#FF0000" },
-            tagNames = tags
+            tagNames = tags,
+            semantic = semantic
         )
     }
 
