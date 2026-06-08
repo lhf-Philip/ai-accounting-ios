@@ -81,6 +81,7 @@ Invariants:
 - Expense should be negative amount.
 - Transfer should not be counted as income/expense.
 - For transfer groups, legs should share `transferGroupID`.
+- Refund semantics are not represented by a dedicated persisted type yet. Until a future schema is defined, refund domain logic must treat refunds as expense reversals, never ordinary income.
 
 ### `Shortcut`
 - `id: UUID` (unique)
@@ -170,6 +171,7 @@ Compatibility behavior currently implemented on import:
 - Currency conversion is based on each transaction's `currencyCode`, not account default currency.
 - Asset-adjustment legacy records are represented as transfers and must not affect income/expense charts.
 - Multi-leg transfer editing must preserve `transferGroupID`.
+- Refunds are expense reversals. If a refund lands in an own account, the own account increases. If a refund lands with a debt account holder, the debt balance moves in the user's favour. Linked report reduction is capped at the remaining original expense amount.
 
 ## Change Policy
 
