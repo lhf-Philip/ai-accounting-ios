@@ -130,11 +130,23 @@ struct TransactionsListView: View {
     @ViewBuilder
     private func transactionEditor(for tx: FinancialTransaction, renderState: TransactionsRenderState) -> some View {
         if tx.type == .transfer {
-            if isAdvanceTransfer(tx, advanceGroupIDs: renderState.advanceGroupIDs) {
+            let group = TransferEditRoutingService.groupTransactions(
+                for: tx,
+                in: renderState.allTransactions
+            )
+            switch TransferEditRoutingService.classify(
+                transaction: tx,
+                groupTransactions: group,
+                advanceInitialGroupIDs: renderState.initialAdvanceGroupIDs,
+                advanceRepaymentGroupIDs: renderState.repaymentAdvanceGroupIDs
+            ) {
+            case .advanceInitial, .advanceRepayment:
                 EditAdvanceTransferView(originalTransaction: tx)
-            } else if TransactionSemantics.isDebtForgiveness(note: tx.note) {
+            case .debtForgiveness:
                 AddDebtView(existingForgivenessTransaction: tx)
-            } else {
+            case .debt:
+                AddDebtView(existingDebtTransaction: tx)
+            case .ordinary:
                 EditTransferView(originalTransaction: tx)
             }
         } else {
@@ -429,27 +441,17 @@ struct TransactionsListView: View {
         }
     }
     
-    private func isAdvanceTransfer(_ tx: FinancialTransaction, advanceGroupIDs: Set<UUID>) -> Bool {
-        guard tx.type == .transfer else { return false }
-        if let groupID = tx.transferGroupID, advanceGroupIDs.contains(groupID) {
-            return true
-        }
-        let compacted = tx.note.replacingOccurrences(of: " ", with: "")
-        return compacted.contains("(代墊給")
-            || compacted.contains("(代墊給我")
-            || compacted.contains("(還款至")
-            || compacted.contains("(還款給")
-    }
 }
 
 private struct TransactionsRenderState {
+    let allTransactions: [FinancialTransaction]
     let filteredTransactions: [FinancialTransaction]
     let filteredAdvanceCases: [AdvanceCase]
     let ledgerItems: [TransactionsListView.LedgerItem]
     let groupedTransactions: [TransactionsListView.TransactionGroup]
     let transferCounterpartByID: [UUID: TransferCounterpartInfo]
-    let advanceGroupIDs: Set<UUID>
     let initialAdvanceGroupIDs: Set<UUID>
+    let repaymentAdvanceGroupIDs: Set<UUID>
 
     init(
         transactions: [FinancialTransaction],
@@ -463,8 +465,7 @@ private struct TransactionsRenderState {
         searchText: String
     ) {
         let initialAdvanceGroupIDs = Set(advanceParticipants.compactMap(\.initialTransferGroupID))
-        var advanceGroupIDs = initialAdvanceGroupIDs
-        advanceGroupIDs.formUnion(advanceRepayments.compactMap(\.linkedTransferGroupID))
+        let repaymentAdvanceGroupIDs = Set(advanceRepayments.compactMap(\.linkedTransferGroupID))
 
         let filteredTransactions = Self.filteredTransactions(
             from: transactions,
@@ -488,13 +489,14 @@ private struct TransactionsRenderState {
             advanceCases: filteredAdvanceCases
         )
 
+        self.allTransactions = transactions
         self.filteredTransactions = filteredTransactions
         self.filteredAdvanceCases = filteredAdvanceCases
         self.ledgerItems = ledgerItems
         self.groupedTransactions = Self.groupedTransactions(from: ledgerItems, filterType: filterType)
         self.transferCounterpartByID = TransferPresentationService.counterpartMap(transactions: transactions)
-        self.advanceGroupIDs = advanceGroupIDs
         self.initialAdvanceGroupIDs = initialAdvanceGroupIDs
+        self.repaymentAdvanceGroupIDs = repaymentAdvanceGroupIDs
     }
 
     private static func filteredTransactions(
