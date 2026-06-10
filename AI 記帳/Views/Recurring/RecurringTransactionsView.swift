@@ -188,6 +188,10 @@ struct AddRecurringRuleView: View {
 
     private let currencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
 
+    private var availableCurrencies: [String] {
+        currencies.contains(currencyCode) ? currencies : [currencyCode] + currencies
+    }
+
     init(rule: RecurringRule? = nil) {
         self.rule = rule
     }
@@ -222,7 +226,7 @@ struct AddRecurringRuleView: View {
                     TextField("金額", text: $amountString)
                         .keyboardType(.decimalPad)
                     Picker("幣種", selection: $currencyCode) {
-                        ForEach(currencies, id: \.self) { code in
+                        ForEach(availableCurrencies, id: \.self) { code in
                             Text(code).tag(code)
                         }
                     }

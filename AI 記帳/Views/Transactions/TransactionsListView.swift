@@ -129,28 +129,29 @@ struct TransactionsListView: View {
 
     @ViewBuilder
     private func transactionEditor(for tx: FinancialTransaction, renderState: TransactionsRenderState) -> some View {
-        if tx.type == .transfer {
-            let group = TransferEditRoutingService.groupTransactions(
-                for: tx,
-                in: renderState.allTransactions
-            )
-            switch TransferEditRoutingService.classify(
-                transaction: tx,
-                groupTransactions: group,
-                advanceInitialGroupIDs: renderState.initialAdvanceGroupIDs,
-                advanceRepaymentGroupIDs: renderState.repaymentAdvanceGroupIDs
-            ) {
-            case .advanceInitial, .advanceRepayment:
-                EditAdvanceTransferView(originalTransaction: tx)
-            case .debtForgiveness:
-                AddDebtView(existingForgivenessTransaction: tx)
-            case .debt:
-                AddDebtView(existingDebtTransaction: tx)
-            case .ordinary:
+        let group = TransferEditRoutingService.groupTransactions(
+            for: tx,
+            in: renderState.allTransactions
+        )
+        switch TransferEditRoutingService.classify(
+            transaction: tx,
+            groupTransactions: group,
+            advanceSelfExpenseTransactionIDs: Set(advanceCases.compactMap(\.selfExpenseTransactionID)),
+            advanceInitialGroupIDs: renderState.initialAdvanceGroupIDs,
+            advanceRepaymentGroupIDs: renderState.repaymentAdvanceGroupIDs
+        ) {
+        case .advanceSelfExpense, .advanceInitial, .advanceRepayment:
+            EditAdvanceTransferView(originalTransaction: tx)
+        case .debtForgiveness:
+            AddDebtView(existingForgivenessTransaction: tx)
+        case .debt:
+            AddDebtView(existingDebtTransaction: tx)
+        case .ordinary:
+            if tx.type == .transfer {
                 EditTransferView(originalTransaction: tx)
+            } else {
+                EditTransactionView(transaction: tx)
             }
-        } else {
-            EditTransactionView(transaction: tx)
         }
     }
 

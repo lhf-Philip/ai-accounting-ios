@@ -564,6 +564,7 @@ private func reportCurrencySummary(_ totals: [ReportCurrencyTotal]) -> String {
 private struct ReportTransactionListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var allTransactions: [FinancialTransaction]
+    @Query private var advanceCases: [AdvanceCase]
     @Query private var advanceParticipants: [AdvanceParticipant]
     @Query private var advanceRepayments: [AdvanceRepayment]
 
@@ -642,25 +643,26 @@ private struct ReportTransactionListView: View {
 
     @ViewBuilder
     private func transactionEditor(for tx: FinancialTransaction, renderState: ReportTransactionListRenderState) -> some View {
-        if tx.type == .transfer {
-            let group = TransferEditRoutingService.groupTransactions(for: tx, in: renderState.allTransactions)
-            switch TransferEditRoutingService.classify(
-                transaction: tx,
-                groupTransactions: group,
-                advanceInitialGroupIDs: renderState.initialAdvanceGroupIDs,
-                advanceRepaymentGroupIDs: renderState.repaymentAdvanceGroupIDs
-            ) {
-            case .advanceInitial, .advanceRepayment:
-                EditAdvanceTransferView(originalTransaction: tx)
-            case .debtForgiveness:
-                AddDebtView(existingForgivenessTransaction: tx)
-            case .debt:
-                AddDebtView(existingDebtTransaction: tx)
-            case .ordinary:
+        let group = TransferEditRoutingService.groupTransactions(for: tx, in: renderState.allTransactions)
+        switch TransferEditRoutingService.classify(
+            transaction: tx,
+            groupTransactions: group,
+            advanceSelfExpenseTransactionIDs: Set(advanceCases.compactMap(\.selfExpenseTransactionID)),
+            advanceInitialGroupIDs: renderState.initialAdvanceGroupIDs,
+            advanceRepaymentGroupIDs: renderState.repaymentAdvanceGroupIDs
+        ) {
+        case .advanceSelfExpense, .advanceInitial, .advanceRepayment:
+            EditAdvanceTransferView(originalTransaction: tx)
+        case .debtForgiveness:
+            AddDebtView(existingForgivenessTransaction: tx)
+        case .debt:
+            AddDebtView(existingDebtTransaction: tx)
+        case .ordinary:
+            if tx.type == .transfer {
                 EditTransferView(originalTransaction: tx)
+            } else {
+                EditTransactionView(transaction: tx)
             }
-        } else {
-            EditTransactionView(transaction: tx)
         }
     }
 

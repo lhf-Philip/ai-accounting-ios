@@ -376,6 +376,10 @@ struct BudgetEditorView: View {
     @State private var errorMessage = ""
     
     private let currencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
+
+    private var availableCurrencies: [String] {
+        currencies.contains(currencyCode) ? currencies : [currencyCode] + currencies
+    }
     
     var body: some View {
         NavigationStack {
@@ -395,7 +399,7 @@ struct BudgetEditorView: View {
                 Section("預算") {
                     HStack {
                         Picker("幣種", selection: $currencyCode) {
-                            ForEach(currencies, id: \.self) { code in
+                            ForEach(availableCurrencies, id: \.self) { code in
                                 Text(code).tag(code)
                             }
                         }

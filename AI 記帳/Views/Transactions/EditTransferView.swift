@@ -91,7 +91,7 @@ struct EditTransferView: View {
 
                                 HStack {
                                     Picker("幣種", selection: $leg.currency) {
-                                        ForEach(currencies, id: \.self) { code in
+                                        ForEach(availableCurrencies(including: leg.currency), id: \.self) { code in
                                             Text(code).tag(code)
                                         }
                                     }
@@ -152,7 +152,7 @@ struct EditTransferView: View {
 
                                 HStack {
                                     Picker("幣種", selection: $leg.currency) {
-                                        ForEach(currencies, id: \.self) { code in
+                                        ForEach(availableCurrencies(including: leg.currency), id: \.self) { code in
                                             Text(code).tag(code)
                                         }
                                     }
@@ -264,7 +264,7 @@ struct EditTransferView: View {
                     errorMessage = "這是債務管理分錄，請從債務管理編輯。"
                 case .debtForgiveness:
                     errorMessage = "這是免除債務紀錄，請從債務管理編輯。"
-                case .advanceInitial, .advanceRepayment:
+                case .advanceSelfExpense, .advanceInitial, .advanceRepayment:
                     errorMessage = "這是代墊關聯分錄，請從代墊詳情編輯。"
                 case .ordinary:
                     break
@@ -435,6 +435,10 @@ struct EditTransferView: View {
             return tx.currencyCode
         }
         return tx?.account?.currency ?? "HKD"
+    }
+
+    private func availableCurrencies(including selected: String) -> [String] {
+        currencies.contains(selected) ? currencies : [selected] + currencies
     }
 
     private func parseLegs(from legs: [TransferLegInput], sideName: String) throws -> [DesiredLeg] {

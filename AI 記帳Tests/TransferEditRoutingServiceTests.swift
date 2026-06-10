@@ -77,4 +77,69 @@ final class TransferEditRoutingServiceTests: XCTestCase {
             )
         )
     }
+
+    func testBorrowedAdvanceExpenseRoutesAsAdvanceInitial() {
+        let debt = Account(name: "Friend", currency: "HKD", type: .debt, baseBalance: 0)
+        let groupID = UUID()
+        let expense = FinancialTransaction(
+            amount: -100,
+            currencyCode: "HKD",
+            type: .expense,
+            transferGroupID: groupID,
+            transferSide: .outgoing,
+            account: debt
+        )
+
+        XCTAssertEqual(
+            .advanceInitial,
+            TransferEditRoutingService.classify(
+                transaction: expense,
+                groupTransactions: [expense],
+                advanceInitialGroupIDs: [groupID],
+                advanceRepaymentGroupIDs: []
+            )
+        )
+    }
+
+    func testBorrowedAdvanceCurrentMarkerRoutesWithoutRelationshipIndexes() {
+        let debt = Account(name: "Friend", currency: "HKD", type: .debt, baseBalance: 0)
+        let expense = FinancialTransaction(
+            amount: -100,
+            currencyCode: "HKD",
+            note: "Dinner (他人代墊我：Friend)",
+            type: .expense,
+            account: debt
+        )
+
+        XCTAssertEqual(
+            .advanceInitial,
+            TransferEditRoutingService.classify(
+                transaction: expense,
+                groupTransactions: [expense],
+                advanceInitialGroupIDs: [],
+                advanceRepaymentGroupIDs: []
+            )
+        )
+    }
+
+    func testAdvanceSelfExpenseRoutesToAdvanceEditor() {
+        let wallet = Account(name: "Wallet", currency: "HKD", type: .cash, baseBalance: 0)
+        let expense = FinancialTransaction(
+            amount: -35.59,
+            currencyCode: "HKD",
+            type: .expense,
+            account: wallet
+        )
+
+        XCTAssertEqual(
+            .advanceSelfExpense,
+            TransferEditRoutingService.classify(
+                transaction: expense,
+                groupTransactions: [expense],
+                advanceSelfExpenseTransactionIDs: [expense.id],
+                advanceInitialGroupIDs: [],
+                advanceRepaymentGroupIDs: []
+            )
+        )
+    }
 }

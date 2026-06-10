@@ -261,6 +261,54 @@ class TransferGroupReplacementTest {
         assertProtected(repaymentGroupId)
     }
 
+    @Test
+    fun borrowedAdvanceExpense_routesToAdvanceEditorEvenThoughItIsNotATransfer() = runBlocking {
+        val caseId = repository.createAdvanceCase(
+            title = "Taxi",
+            date = Instant.parse("2026-06-01T10:00:00Z"),
+            currencyCode = "HKD",
+            myShareAmount = BigDecimal.ZERO,
+            note = "",
+            payerAccount = null,
+            expenseCategory = null,
+            tagIds = emptyList(),
+            participants = listOf(AdvanceParticipantInput(friend, BigDecimal("100"))),
+            isBorrowedByMe = true
+        )
+        val participant = requireNotNull(repository.getAdvanceCase(caseId)).participants.single()
+        val initialGroupId = requireNotNull(participant.initialTransferGroupId)
+        val expense = repository.getTransferGroup(initialGroupId).single()
+
+        assertEquals(TransactionType.Expense, expense.transaction.type)
+        assertEquals(
+            TransactionEditDestination.Advance(caseId.toString()),
+            resolveTransactionEditDestination(repository, expense)
+        )
+    }
+
+    @Test
+    fun advanceSelfExpense_routesToAdvanceEditor() = runBlocking {
+        val caseId = repository.createAdvanceCase(
+            title = "Trip",
+            date = Instant.parse("2026-06-01T10:00:00Z"),
+            currencyCode = "JPY",
+            myShareAmount = BigDecimal("500"),
+            note = "",
+            payerAccount = wallet,
+            expenseCategory = null,
+            tagIds = emptyList(),
+            participants = listOf(AdvanceParticipantInput(friend, BigDecimal("1000")))
+        )
+        val advanceCase = requireNotNull(repository.getAdvanceCase(caseId))
+        val selfExpenseId = requireNotNull(advanceCase.advanceCase.selfExpenseTransactionId)
+        val selfExpense = requireNotNull(repository.getTransaction(selfExpenseId))
+
+        assertEquals(
+            TransactionEditDestination.Advance(caseId.toString()),
+            resolveTransactionEditDestination(repository, selfExpense)
+        )
+    }
+
     private fun assertProtected(groupId: UUID) {
         assertThrows(IllegalArgumentException::class.java) {
             runBlocking {

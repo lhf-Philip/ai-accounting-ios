@@ -234,8 +234,7 @@ class BackupRoundTripTest {
             note = "還款",
             receiveAccount = ownAccount,
             category = null,
-            tagIds = emptyList(),
-            isBorrowedByMe = true
+            tagIds = emptyList()
         )
 
         val updatedCase = checkNotNull(repository.getAdvanceCase(caseId))
@@ -389,6 +388,16 @@ class BackupRoundTripTest {
         val exported = BackupJsonAdapter.gson.fromJson(repository.exportBackupJson(), FullBackupData::class.java)
         assertEquals(2, exported.advanceRepayments?.count { it.note?.contains("[債務抵銷:") == true })
 
+        val specialRepayment = checkNotNull(repository.getAdvanceCase(receivableCaseId))
+            .repayments
+            .single()
+        try {
+            repository.rollbackAdvanceRepayment(specialRepayment.id)
+            throw AssertionError("Expected special repayment rollback to require the group API.")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message.orEmpty().contains("整組撤銷"))
+        }
+
         val rollbackCount = repository.rollbackMutualDebtOffset(result.offsetGroupId)
         assertEquals(2, rollbackCount)
         val rolledBackReceivable = checkNotNull(repository.getAdvanceCase(receivableCaseId))
@@ -462,6 +471,22 @@ class BackupRoundTripTest {
 
         val exported = BackupJsonAdapter.gson.fromJson(repository.exportBackupJson(), FullBackupData::class.java)
         assertEquals(1, exported.advanceRepayments?.count { it.note?.contains("[跨幣種平賬:") == true })
+
+        try {
+            repository.rollbackAdvanceRepayment(advanceCase.repayments.single().id)
+            throw AssertionError("Expected manual settlement rollback to require the group API.")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message.orEmpty().contains("整組撤銷"))
+        }
+
+        val rollbackCount = repository.rollbackManualDebtSettlement(result.settlementId)
+        assertEquals(1, rollbackCount)
+        val rolledBack = checkNotNull(repository.getAdvanceCase(caseId))
+        assertEquals(
+            BigDecimal("1230"),
+            rolledBack.participants.single().owedAmount - rolledBack.participants.single().repaidAmount
+        )
+        assertTrue(rolledBack.repayments.isEmpty())
     }
 
     @Test
@@ -521,8 +546,7 @@ class BackupRoundTripTest {
             note = "朋友用人民幣還款",
             receiveAccount = receiveAccount,
             category = null,
-            tagIds = emptyList(),
-            isBorrowedByMe = false
+            tagIds = emptyList()
         )
 
         val updatedCase = checkNotNull(repository.getAdvanceCase(caseId))
@@ -598,8 +622,7 @@ class BackupRoundTripTest {
             note = "朋友用港幣還款",
             receiveAccount = receiveAccount,
             category = null,
-            tagIds = emptyList(),
-            isBorrowedByMe = false
+            tagIds = emptyList()
         )
 
         val updatedCase = checkNotNull(repository.getAdvanceCase(caseId))

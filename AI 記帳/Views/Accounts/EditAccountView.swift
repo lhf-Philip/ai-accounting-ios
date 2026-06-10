@@ -15,6 +15,14 @@ struct EditAccountView: View {
     @FocusState private var isAmountFocused: Bool
     
     let currencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
+
+    private var accountCurrencies: [String] {
+        currencies.contains(account.currency) ? currencies : [account.currency] + currencies
+    }
+
+    private var adjustmentCurrencies: [String] {
+        currencies.contains(adjustmentCurrency) ? currencies : [adjustmentCurrency] + currencies
+    }
     
     var currentHoldings: [(String, Decimal)] {
         let accountTxs = allTransactions.filter { $0.account?.id == account.id }
@@ -40,7 +48,7 @@ struct EditAccountView: View {
                     TextField("帳戶名稱", text: $account.name)
                     
                     Picker("主幣種", selection: $account.currency) {
-                        ForEach(currencies, id: \.self) { code in Text(code).tag(code) }
+                        ForEach(accountCurrencies, id: \.self) { code in Text(code).tag(code) }
                     }
                     .disabled(true)
                     
@@ -83,7 +91,7 @@ struct EditAccountView: View {
                 ) {
                     HStack {
                         Picker("", selection: $adjustmentCurrency) {
-                            ForEach(currencies, id: \.self) { code in Text(code).tag(code) }
+                            ForEach(adjustmentCurrencies, id: \.self) { code in Text(code).tag(code) }
                         }
                         .labelsHidden().frame(width: 80)
                         
