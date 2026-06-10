@@ -228,6 +228,7 @@ struct AdvanceCaseDetailView: View {
     let advanceCase: AdvanceCase
     @State private var selectedParticipantForRepayment: AdvanceParticipant?
     @State private var selectedParticipantForEdit: AdvanceParticipant?
+    @State private var selectedRepaymentForEdit: AdvanceRepayment?
     @State private var repaymentToRollback: AdvanceRepayment?
     @State private var selectedDeleteMode: DeleteMode?
     @State private var showingDeleteModeDialog = false
@@ -306,12 +307,28 @@ struct AdvanceCaseDetailView: View {
                 Section("還款紀錄") {
                     ForEach(sortedRepayments) { repayment in
                         repaymentRow(repayment)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if AdvanceService.repaymentRecordKind(note: repayment.note) == .ordinary,
+                                   repayment.linkedTransferGroupID != nil {
+                                    selectedRepaymentForEdit = repayment
+                                }
+                            }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if AdvanceService.repaymentRecordKind(note: repayment.note) == .ordinary,
+                                   repayment.linkedTransferGroupID != nil {
+                                    Button {
+                                        selectedRepaymentForEdit = repayment
+                                    } label: {
+                                        Label("編輯", systemImage: "pencil")
+                                    }
+                                    .tint(.blue)
+                                }
                                 Button(role: .destructive) {
                                     repaymentToRollback = repayment
                                     showingRollbackAlert = true
                                 } label: {
-                                    Label("沖銷", systemImage: "arrow.uturn.backward.circle")
+                                    Label("撤銷", systemImage: "arrow.uturn.backward.circle")
                                 }
                             }
                     }
@@ -324,6 +341,9 @@ struct AdvanceCaseDetailView: View {
         }
         .sheet(item: $selectedParticipantForEdit) { participant in
             EditAdvanceParticipantView(advanceCase: advanceCase, participant: participant)
+        }
+        .sheet(item: $selectedRepaymentForEdit) { repayment in
+            EditAdvanceTransferView(repayment: repayment)
         }
         .confirmationDialog("刪除代墊單", isPresented: $showingDeleteModeDialog, titleVisibility: .visible) {
             Button("只刪追蹤記錄", role: .destructive) {
@@ -352,13 +372,13 @@ struct AdvanceCaseDetailView: View {
                 Text("將只刪除代墊追蹤資料，原本的實際交易紀錄會保留。此操作無法復原。")
             }
         }
-        .alert("確認沖銷還款？", isPresented: $showingRollbackAlert, presenting: repaymentToRollback) { repayment in
+        .alert("確認撤銷紀錄？", isPresented: $showingRollbackAlert, presenting: repaymentToRollback) { repayment in
             Button("取消", role: .cancel) {}
-            Button("沖銷", role: .destructive) {
+            Button("撤銷", role: .destructive) {
                 rollbackRepayment(repayment)
             }
         } message: { repayment in
-            Text("將刪除 \(repayment.amount.formatted(.currency(code: repayment.currencyCode))) 的還款紀錄，並同步刪除對應借貸轉帳。")
+            Text(rollbackMessage(for: repayment))
         }
         .alert("操作失敗", isPresented: $showingError) {
             Button("好", role: .cancel) {}
@@ -446,21 +466,32 @@ struct AdvanceCaseDetailView: View {
     }
     
     private func repaymentRow(_ repayment: AdvanceRepayment) -> some View {
+        let recordKind = AdvanceService.repaymentRecordKind(note: repayment.note)
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(repayment.participant?.name ?? "未指定對象")
-                    .font(.body)
-                    .fontWeight(.semibold)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(repayment.participant?.name ?? "未指定對象")
+                        .font(.body)
+                        .fontWeight(.semibold)
+                    if recordKind != .ordinary {
+                        Text(repaymentKindLabel(recordKind))
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.orange)
+                    }
+                }
                 Spacer()
                 Text(repayment.amount.formatted(.currency(code: repayment.currencyCode)))
                     .font(.subheadline)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(recordKind == .ordinary ? .green : .orange)
             }
             
             HStack(spacing: 6) {
                 Text(repayment.date.formatted(date: .abbreviated, time: .shortened))
-                Text("•")
-                Text("入帳：\(repayment.receivedAccount?.name ?? "未指定")")
+                if recordKind == .ordinary {
+                    Text("•")
+                    Text("入帳：\(repayment.receivedAccount?.name ?? "未指定")")
+                }
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -482,14 +513,55 @@ struct AdvanceCaseDetailView: View {
     
     private func rollbackRepayment(_ repayment: AdvanceRepayment) {
         do {
-            try AdvanceService.rollbackRepayment(
-                advanceCase: advanceCase,
-                repayment: repayment,
-                modelContext: modelContext
-            )
+            switch AdvanceService.repaymentRecordKind(note: repayment.note) {
+            case .ordinary:
+                try AdvanceService.rollbackRepayment(
+                    advanceCase: advanceCase,
+                    repayment: repayment,
+                    modelContext: modelContext
+                )
+            case .mutualDebtOffset(let offsetID):
+                _ = try AdvanceService.rollbackMutualDebtOffset(
+                    offsetGroupID: offsetID,
+                    modelContext: modelContext
+                )
+            case .manualDebtSettlement(let settlementID):
+                _ = try AdvanceService.rollbackManualDebtSettlement(
+                    settlementID: settlementID,
+                    modelContext: modelContext
+                )
+            case .invalidSpecial:
+                throw AdvanceServiceError.specialRepaymentRequiresGroupRollback
+            }
         } catch {
             errorMessage = error.localizedDescription
             showingError = true
+        }
+    }
+
+    private func repaymentKindLabel(_ kind: AdvanceService.RepaymentRecordKind) -> String {
+        switch kind {
+        case .ordinary:
+            return "還款"
+        case .mutualDebtOffset:
+            return "債務抵銷"
+        case .manualDebtSettlement:
+            return "跨幣種平賬"
+        case .invalidSpecial:
+            return "特殊結算（資料異常）"
+        }
+    }
+
+    private func rollbackMessage(for repayment: AdvanceRepayment) -> String {
+        switch AdvanceService.repaymentRecordKind(note: repayment.note) {
+        case .ordinary:
+            return "將刪除 \(repayment.amount.formatted(.currency(code: repayment.currencyCode))) 的還款紀錄，並同步刪除對應借貸轉帳。"
+        case .mutualDebtOffset:
+            return "將整組撤銷這次債務抵銷，所有受影響案件的未清金額都會回復。"
+        case .manualDebtSettlement:
+            return "將整組撤銷這次跨幣種平賬，所有受影響案件的未清金額都會回復。"
+        case .invalidSpecial:
+            return "這筆特殊結算的識別資料不完整，請先使用資料健康檢查修復。"
         }
     }
     
@@ -832,6 +904,7 @@ struct AddAdvanceCaseView: View {
             )
             dismiss()
         } catch {
+            modelContext.rollback()
             showError(error.localizedDescription)
         }
     }

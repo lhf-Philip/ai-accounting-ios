@@ -18,27 +18,35 @@ suspend fun resolveTransactionEditDestination(
     item: TransactionWithDetails
 ): TransactionEditDestination {
     val transaction = item.transaction
-    if (transaction.type != TransactionType.Transfer) {
-        return TransactionEditDestination.Ordinary(transaction.id.toString())
-    }
     if (TransactionSemantics.isDebtForgiveness(transaction.note)) {
         return TransactionEditDestination.Debt(transaction.id.toString())
     }
 
+    repository.findAdvanceCaseIdBySelfExpense(transaction.id)?.let { caseId ->
+        return TransactionEditDestination.Advance(caseId.toString())
+    }
+
     val groupId = transaction.transferGroupId
-        ?: return TransactionEditDestination.Ordinary(transaction.id.toString())
-    val classification = repository.classifyTransferGroup(groupId)
-    return when (classification?.semantic) {
-        TransferGroupSemantic.Debt ->
-            TransactionEditDestination.Debt(transaction.id.toString())
-        TransferGroupSemantic.AdvanceInitial,
-        TransferGroupSemantic.AdvanceRepayment -> {
-            val caseId = requireNotNull(classification.advanceCaseId) {
-                "代墊分錄缺少案件關聯。"
+    if (groupId != null) {
+        val classification = repository.classifyTransferGroup(groupId)
+        when (classification?.semantic) {
+            TransferGroupSemantic.Debt ->
+                return TransactionEditDestination.Debt(transaction.id.toString())
+            TransferGroupSemantic.AdvanceInitial,
+            TransferGroupSemantic.AdvanceRepayment -> {
+                val caseId = requireNotNull(classification.advanceCaseId) {
+                    "代墊分錄缺少案件關聯。"
+                }
+                return TransactionEditDestination.Advance(caseId.toString())
             }
-            TransactionEditDestination.Advance(caseId.toString())
+            TransferGroupSemantic.Ordinary,
+            null -> Unit
         }
-        TransferGroupSemantic.Ordinary,
-        null -> TransactionEditDestination.Transfer(groupId.toString())
+    }
+
+    return if (transaction.type == TransactionType.Transfer && groupId != null) {
+        TransactionEditDestination.Transfer(groupId.toString())
+    } else {
+        TransactionEditDestination.Ordinary(transaction.id.toString())
     }
 }

@@ -483,6 +483,18 @@ final class BackupCompatibilityTests: XCTestCase {
         let repayments = try modelContext.fetch(FetchDescriptor<AdvanceRepayment>())
         XCTAssertEqual(2, repayments.count)
         XCTAssertTrue(repayments.allSatisfy { AdvanceService.mutualDebtOffsetID(from: $0.note) == result.offsetGroupID })
+        XCTAssertThrowsError(
+            try AdvanceService.rollbackRepayment(
+                advanceCase: try XCTUnwrap(repayments.first?.advanceCase),
+                repayment: try XCTUnwrap(repayments.first),
+                modelContext: modelContext
+            )
+        ) { error in
+            XCTAssertEqual(
+                AdvanceServiceError.specialRepaymentRequiresGroupRollback.localizedDescription,
+                error.localizedDescription
+            )
+        }
 
         let rollbackCount = try AdvanceService.rollbackMutualDebtOffset(
             offsetGroupID: result.offsetGroupID,
@@ -547,6 +559,27 @@ final class BackupCompatibilityTests: XCTestCase {
             modelContext: modelContext
         )
         XCTAssertTrue(semanticBalances.isEmpty)
+
+        XCTAssertThrowsError(
+            try AdvanceService.rollbackRepayment(
+                advanceCase: advanceCase,
+                repayment: try XCTUnwrap(repayments.first),
+                modelContext: modelContext
+            )
+        ) { error in
+            XCTAssertEqual(
+                AdvanceServiceError.specialRepaymentRequiresGroupRollback.localizedDescription,
+                error.localizedDescription
+            )
+        }
+
+        let rollbackCount = try AdvanceService.rollbackManualDebtSettlement(
+            settlementID: result.settlementID,
+            modelContext: modelContext
+        )
+        XCTAssertEqual(1, rollbackCount)
+        XCTAssertEqual(Decimal(1230), advanceCase.participants.first?.remainingAmount)
+        XCTAssertTrue(try modelContext.fetch(FetchDescriptor<AdvanceRepayment>()).isEmpty)
     }
 
     func testRepaymentReconciliation_repairsUnderstatedParticipantTotal() throws {

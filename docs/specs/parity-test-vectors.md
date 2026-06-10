@@ -254,6 +254,50 @@ Expected:
 - Report drill-down shows refund reduction `2000 JPY` separately from settlement-only `550 JPY`.
 - Income report contribution: `0`.
 
+## Vector 17: Cross-Currency Advance Repayment Edit
+
+Input:
+- Case currency: `JPY`.
+- Existing actual repayment: `50 HKD`.
+- Existing normalized settlement: `1000 JPY`.
+- Edit actual repayment to `60 HKD`.
+- Explicitly edit normalized settlement to `900 JPY`.
+
+Expected:
+- Actual repayment remains `60 HKD` on both transfer legs.
+- Participant repaid total becomes `900 JPY`; no current exchange rate is applied during save.
+- For `我代墊他人`, income category/tags are stored on the incoming own-account leg.
+- For `他人代墊我`, expense category/tags are stored on the outgoing own-account leg.
+- Creation timestamp and transfer-group identity remain unchanged.
+
+## Vector 18: Advance Own Share And Participant Correction
+
+Input:
+- Case currency: `JPY`.
+- Existing own-share expense: `725 JPY`.
+- Edit actual own-account debit to `35.59 CHF`, normalized case share to `725 JPY`.
+- Correct one participant owed amount from `1000 JPY` to `1200 JPY`.
+
+Expected:
+- The own-account expense stores `-35.59 CHF`.
+- The case summary continues to store the explicitly entered `725 JPY` share.
+- The participant and its initial transfer/expense bookkeeping both store `1200 JPY`.
+- Case-wide metadata edits update every participant's initial record atomically.
+- Reports use the edited expense category/tags without detaching the record from its advance case.
+
+## Vector 19: Special Settlement Group Rollback
+
+Input:
+- A mutual debt offset creates multiple repayments sharing `[債務抵銷:<UUID>]`.
+- A manual settlement creates one or more repayments sharing `[跨幣種平賬:<UUID>]`.
+
+Expected:
+- Generic single-repayment edit and rollback APIs reject both marker types.
+- The dedicated rollback API deletes every repayment with the matching marker.
+- Every affected participant's repaid total is reduced by the full grouped allocation.
+- No financial transaction is created or deleted by these marker-only rollbacks.
+- The advance detail UI labels these records as offset/settlement rather than ordinary repayment.
+
 ## Automated Coverage
 
 | Vector | iOS | Android |
@@ -266,6 +310,9 @@ Expected:
 | 10, 12, 13 | `LedgerSemanticVectorsTests.testVector13_settlementRecordsAreExcludedFromReports` | `ParityVectorsTest.vector13_settlementRecordsAreExcludedFromReports` |
 | 11 | `testExportImport_preservesSameAccountCrossCurrencyTransferAndBudgetHistory_excludesUIPreferences` | `backupRoundTrip_preservesSameAccountCrossCurrencyTransferAndBudgetHistory` |
 | 14-16 | `RefundSemanticsServiceTests`, `ReportAggregationServiceTests.testRefundAggregation_reducesExpenseWithoutCountingIncome`, `ReportAggregationServiceTests.testRefundAggregation_capsExpenseReductionAndKeepsExcessSettlementOnly` | `RefundSemanticsTest`, `ReportAggregationTest.refundAggregation_reducesExpenseWithoutCountingIncome`, `ReportAggregationTest.refundAggregation_capsExpenseReductionAndKeepsExcessSettlementOnly` |
+| 17 | `AdvanceEditingTests.testCrossCurrencyRepaymentEditPreservesExplicitNormalizedAmountAndIncomingMetadata`, `AdvanceEditingTests.testOthersAdvancedMeEditTagsOutgoingOwnLegAndRollbackRestoresParticipant` | `AdvanceEditingTest.crossCurrencyRepaymentEdit_preservesExplicitSettlementAndMovesMetadataToIncomingOwnLeg`, `AdvanceEditingTest.othersAdvancedMeRepaymentEdit_tagsOutgoingOwnLegAndRollbackRestoresParticipant` |
+| 18 | `AdvanceEditingTests.testSelfExpenseEditPreservesActualCurrencyAndNormalisedCaseShare`, `AdvanceEditingTests.testParticipantCorrectionUpdatesBorrowedInitialExpense`, `AdvanceEditingTests.testInitialEntryEditUpdatesCaseMetadataAcrossEveryParticipant` | `AdvanceEditingTest.selfExpenseEdit_preservesActualCurrencyAndNormalizedCaseShare`, `AdvanceEditingTest.participantCorrection_updatesBorrowedInitialExpenseAtomically`, `AdvanceEditingTest.initialMetadataEdit_updatesEveryParticipantGroup` |
+| 19 | `BackupCompatibilityTests.testMutualDebtOffset_settlesBidirectionalAdvancesWithoutTransactions`, `BackupCompatibilityTests.testManualDebtSettlement_closesSingleCurrencyAdvanceWithoutTransactions` | `BackupRoundTripTest.mutualDebtOffset_settlesBidirectionalAdvancesWithoutTransactions`, `BackupRoundTripTest.manualDebtSettlement_closesSingleCurrencyAdvanceWithoutTransactions` |
 
 ## CI Gate Recommendation
 

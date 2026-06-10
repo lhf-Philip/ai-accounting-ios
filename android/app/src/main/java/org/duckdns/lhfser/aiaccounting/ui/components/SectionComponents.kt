@@ -173,7 +173,12 @@ fun CurrencyPicker(
     onSelect: (String) -> Unit,
     buttonStyle: CurrencyButtonStyle = CurrencyButtonStyle.Tonal
 ) {
-    val currencies = listOf("HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP")
+    val standardCurrencies = listOf("HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP")
+    val currencies = if (selected in standardCurrencies) {
+        standardCurrencies
+    } else {
+        listOf(selected) + standardCurrencies
+    }
     val expanded = remember { mutableStateOf(false) }
     val onClick = { expanded.value = true }
     when (buttonStyle) {

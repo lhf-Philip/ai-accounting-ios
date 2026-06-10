@@ -14,6 +14,12 @@ enum AdvanceServiceError: LocalizedError {
     case invalidAdjustedOwedAmount
     case adjustedOwedLowerThanRepaid
     case missingRepaymentParticipant
+    case missingRepaymentLink
+    case invalidRepaymentStructure
+    case invalidSettlementAccount
+    case invalidSettlementCategory
+    case specialRepaymentRequiresGroupRollback
+    case missingSelfExpense
     case cannotDeleteAdvanceCaseWithoutModelContext
     
     var errorDescription: String? {
@@ -42,6 +48,18 @@ enum AdvanceServiceError: LocalizedError {
             return "更正後欠款不可低於已還金額。"
         case .missingRepaymentParticipant:
             return "找不到還款對應的對象資料。"
+        case .missingRepaymentLink:
+            return "找不到還款對應的轉帳分錄。"
+        case .invalidRepaymentStructure:
+            return "還款轉帳分錄不完整，無法安全編輯。"
+        case .invalidSettlementAccount:
+            return "請選擇未歸檔的非借貸帳戶作為付款或入帳帳戶。"
+        case .invalidSettlementCategory:
+            return "所選分類與這筆還款方向不相符。"
+        case .specialRepaymentRequiresGroupRollback:
+            return "債務抵銷或跨幣種平賬必須整組撤銷，不能當作普通還款單筆沖銷。"
+        case .missingSelfExpense:
+            return "找不到代墊案件對應的自己份額支出。"
         case .cannotDeleteAdvanceCaseWithoutModelContext:
             return "刪除代墊失敗：缺少可用資料上下文。"
         }
@@ -49,6 +67,13 @@ enum AdvanceServiceError: LocalizedError {
 }
 
 enum AdvanceService {
+    enum RepaymentRecordKind: Equatable {
+        case ordinary
+        case mutualDebtOffset(UUID)
+        case manualDebtSettlement(UUID)
+        case invalidSpecial
+    }
+
     enum SettlementDirection {
         case iAdvancedOthers
         case othersAdvancedMe
@@ -57,6 +82,37 @@ enum AdvanceService {
     struct ParticipantInput {
         let debtAccount: Account
         let owedAmount: Decimal
+    }
+
+    struct RepaymentEditDraft {
+        let receiveAccount: Account
+        let amount: Decimal
+        let currencyCode: String
+        let normalizedAmount: Decimal
+        let date: Date
+        let note: String
+        let category: Category?
+        let tags: [Tag]
+    }
+
+    struct SelfExpenseEditDraft {
+        let account: Account
+        let amount: Decimal
+        let currencyCode: String
+        let normalizedAmount: Decimal
+        let date: Date
+        let note: String
+        let category: Category?
+        let tags: [Tag]
+    }
+
+    struct InitialEntryEditDraft {
+        let payerAccount: Account?
+        let owedAmount: Decimal
+        let date: Date
+        let note: String
+        let category: Category?
+        let tags: [Tag]
     }
     
     struct DeleteAdvanceResult {
@@ -205,6 +261,22 @@ enum AdvanceService {
         return UUID(uuidString: String(trimmed[startIndex..<closeIndex]))
     }
 
+    static func repaymentRecordKind(note: String) -> RepaymentRecordKind {
+        if let offsetID = mutualDebtOffsetID(from: note) {
+            return .mutualDebtOffset(offsetID)
+        }
+        if isMutualDebtOffset(note: note) {
+            return .invalidSpecial
+        }
+        if let settlementID = manualDebtSettlementID(from: note) {
+            return .manualDebtSettlement(settlementID)
+        }
+        if isManualDebtSettlement(note: note) {
+            return .invalidSpecial
+        }
+        return .ordinary
+    }
+
     @MainActor
     static func mutualDebtOffsetCandidate(
         debtAccount: Account,
@@ -290,21 +362,10 @@ enum AdvanceService {
         offsetGroupID: UUID,
         modelContext: ModelContext
     ) throws -> Int {
-        let repayments = try modelContext.fetch(FetchDescriptor<AdvanceRepayment>())
-            .filter { mutualDebtOffsetID(from: $0.note) == offsetGroupID }
-        guard !repayments.isEmpty else { return 0 }
-
-        for repayment in repayments {
-            if let participant = repayment.participant {
-                let updated = participant.repaidAmount - repayment.normalizedAmount
-                participant.repaidAmount = updated > 0 ? updated : 0
-                participant.updatedAt = Date()
-            }
-            repayment.advanceCase?.updatedAt = Date()
-            modelContext.delete(repayment)
-        }
-        try modelContext.save()
-        return repayments.count
+        try rollbackSpecialRepaymentGroup(
+            matching: { mutualDebtOffsetID(from: $0.note) == offsetGroupID },
+            modelContext: modelContext
+        )
     }
 
     @MainActor
@@ -356,6 +417,17 @@ enum AdvanceService {
             amount: amount,
             currencyCode: currencyCode,
             repaymentCount: repaymentCount
+        )
+    }
+
+    @MainActor
+    static func rollbackManualDebtSettlement(
+        settlementID: UUID,
+        modelContext: ModelContext
+    ) throws -> Int {
+        try rollbackSpecialRepaymentGroup(
+            matching: { manualDebtSettlementID(from: $0.note) == settlementID },
+            modelContext: modelContext
         )
     }
     
@@ -607,6 +679,15 @@ enum AdvanceService {
         guard amount > 0 else {
             throw AdvanceServiceError.invalidRepaymentAmount
         }
+        let currencyCode = currencyCode
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        guard !currencyCode.isEmpty else {
+            throw AdvanceServiceError.invalidRepaymentAmount
+        }
+        guard receiveAccount.type != .debt, !receiveAccount.isArchived else {
+            throw AdvanceServiceError.invalidSettlementAccount
+        }
         
         let normalizedAmount = normalizedAmountOverride ?? currencyService.convert(
             amount: abs(amount),
@@ -629,6 +710,7 @@ enum AdvanceService {
         let transferGroupID = UUID()
 
         let settlementDirection = direction ?? inferSettlementDirection(for: participant, modelContext: modelContext)
+        try validateSettlementCategory(category, direction: settlementDirection)
         let outTx: FinancialTransaction
         let inTx: FinancialTransaction
 
@@ -725,6 +807,338 @@ enum AdvanceService {
     }
 
     @MainActor
+    static func updateSelfExpense(
+        advanceCase: AdvanceCase,
+        transaction: FinancialTransaction,
+        draft: SelfExpenseEditDraft,
+        modelContext: ModelContext
+    ) throws {
+        guard advanceCase.selfExpenseTransactionID == transaction.id,
+              transaction.type == .expense,
+              transaction.transferGroupID == nil,
+              transaction.linkedTransactionID == nil
+        else {
+            throw AdvanceServiceError.missingSelfExpense
+        }
+        guard draft.amount > 0, draft.normalizedAmount > 0 else {
+            throw AdvanceServiceError.invalidRepaymentAmount
+        }
+        guard draft.account.type != .debt, !draft.account.isArchived else {
+            throw AdvanceServiceError.invalidSettlementAccount
+        }
+        if let category = draft.category, !category.kind.supports(.expense) {
+            throw AdvanceServiceError.invalidRepaymentStructure
+        }
+
+        let originalBudgetKey = BudgetHistoryService.affectedKey(for: transaction)
+        let currencyCode = draft.currencyCode
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        guard !currencyCode.isEmpty else {
+            throw AdvanceServiceError.invalidRepaymentAmount
+        }
+
+        let now = Date()
+        transaction.amount = -abs(draft.amount)
+        transaction.currencyCode = currencyCode
+        transaction.date = draft.date
+        transaction.note = draft.note.trimmingCharacters(in: .whitespacesAndNewlines)
+        transaction.account = draft.account
+        transaction.category = draft.category
+        transaction.tags = draft.tags
+        transaction.updatedAt = now
+
+        advanceCase.myShareAmount = abs(draft.normalizedAmount)
+        advanceCase.expenseCategory = draft.category
+        advanceCase.updatedAt = now
+
+        let affectedKeys = [originalBudgetKey, BudgetHistoryService.affectedKey(for: transaction)]
+            .compactMap { $0 }
+        if affectedKeys.isEmpty {
+            try modelContext.save()
+        } else {
+            try BudgetHistoryService.shared.syncAffected(
+                keys: affectedKeys,
+                modelContext: modelContext,
+                currencyService: CurrencyService.shared
+            )
+        }
+    }
+
+    @MainActor
+    static func updateRepayment(
+        advanceCase: AdvanceCase,
+        repayment: AdvanceRepayment,
+        draft: RepaymentEditDraft,
+        modelContext: ModelContext
+    ) throws {
+        guard repayment.advanceCase?.id == advanceCase.id else {
+            throw AdvanceServiceError.participantNotInCase
+        }
+        guard let participant = repayment.participant else {
+            throw AdvanceServiceError.missingRepaymentParticipant
+        }
+        guard let debtAccount = participant.debtAccount else {
+            throw AdvanceServiceError.missingDebtAccount
+        }
+        guard draft.amount > 0, draft.normalizedAmount > 0 else {
+            throw AdvanceServiceError.invalidRepaymentAmount
+        }
+        guard draft.receiveAccount.type != .debt, !draft.receiveAccount.isArchived else {
+            throw AdvanceServiceError.invalidSettlementAccount
+        }
+        guard !isMutualDebtOffset(note: repayment.note),
+              !isManualDebtSettlement(note: repayment.note) else {
+            throw AdvanceServiceError.specialRepaymentRequiresGroupRollback
+        }
+        guard let groupID = repayment.linkedTransferGroupID else {
+            throw AdvanceServiceError.missingRepaymentLink
+        }
+
+        let descriptor = FetchDescriptor<FinancialTransaction>(
+            predicate: #Predicate { $0.transferGroupID == groupID }
+        )
+        let transfers = try modelContext.fetch(descriptor).filter { $0.type == .transfer }
+        guard transfers.count == 2,
+              let outgoing = transfers.first(where: { $0.transferSide == .outgoing || $0.amount < 0 }),
+              let incoming = transfers.first(where: { $0.transferSide == .incoming || $0.amount > 0 }),
+              outgoing.id != incoming.id
+        else {
+            throw AdvanceServiceError.invalidRepaymentStructure
+        }
+
+        let allRepayments = try modelContext.fetch(FetchDescriptor<AdvanceRepayment>())
+        let otherNormalized = allRepayments
+            .filter { $0.id != repayment.id && $0.participant?.id == participant.id }
+            .reduce(Decimal.zero) { $0 + $1.normalizedAmount }
+        let updatedRepaid = otherNormalized + abs(draft.normalizedAmount)
+        if updatedRepaid - participant.owedAmount > roundingTolerance {
+            throw AdvanceServiceError.repaymentExceedsRemaining
+        }
+
+        let direction = inferSettlementDirection(for: participant, modelContext: modelContext)
+        try validateSettlementCategory(draft.category, direction: direction)
+        let amount = abs(draft.amount)
+        let currencyCode = draft.currencyCode
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        guard !currencyCode.isEmpty else {
+            throw AdvanceServiceError.invalidRepaymentAmount
+        }
+        let finalNote = draft.note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let memo = finalNote.isEmpty ? advanceCase.title : finalNote
+        let now = Date()
+
+        outgoing.type = .transfer
+        outgoing.amount = -amount
+        outgoing.currencyCode = currencyCode
+        outgoing.date = draft.date
+        outgoing.transferGroupID = groupID
+        outgoing.transferSide = .outgoing
+        outgoing.linkedTransactionID = incoming.id
+        outgoing.updatedAt = now
+
+        incoming.type = .transfer
+        incoming.amount = amount
+        incoming.currencyCode = currencyCode
+        incoming.date = draft.date
+        incoming.transferGroupID = groupID
+        incoming.transferSide = .incoming
+        incoming.linkedTransactionID = outgoing.id
+        incoming.updatedAt = now
+
+        switch direction {
+        case .iAdvancedOthers:
+            outgoing.account = debtAccount
+            outgoing.note = "\(memo) (還款至 \(draft.receiveAccount.name))"
+            outgoing.category = nil
+            outgoing.tags = []
+
+            incoming.account = draft.receiveAccount
+            incoming.note = "\(memo) (來自 \(participant.name))"
+            incoming.category = draft.category
+            incoming.tags = draft.tags
+        case .othersAdvancedMe:
+            outgoing.account = draft.receiveAccount
+            outgoing.note = "\(memo) (還款給 \(participant.name))"
+            outgoing.category = draft.category
+            outgoing.tags = draft.tags
+
+            incoming.account = debtAccount
+            incoming.note = "\(memo) (來自 \(draft.receiveAccount.name))"
+            incoming.category = nil
+            incoming.tags = []
+        }
+
+        repayment.amount = amount
+        repayment.currencyCode = currencyCode
+        repayment.normalizedAmount = abs(draft.normalizedAmount)
+        repayment.date = draft.date
+        repayment.note = finalNote
+        repayment.receivedAccount = draft.receiveAccount
+
+        participant.repaidAmount = min(updatedRepaid, participant.owedAmount)
+        participant.updatedAt = now
+        advanceCase.updatedAt = now
+        try modelContext.save()
+    }
+
+    @MainActor
+    static func updateInitialEntry(
+        advanceCase: AdvanceCase,
+        participant: AdvanceParticipant,
+        draft: InitialEntryEditDraft,
+        modelContext: ModelContext
+    ) throws {
+        guard participant.advanceCase?.id == advanceCase.id else {
+            throw AdvanceServiceError.participantNotInCase
+        }
+        guard draft.owedAmount > 0 else {
+            throw AdvanceServiceError.invalidAdjustedOwedAmount
+        }
+        guard draft.owedAmount + roundingTolerance >= participant.repaidAmount else {
+            throw AdvanceServiceError.adjustedOwedLowerThanRepaid
+        }
+
+        let direction = inferSettlementDirection(for: participant, modelContext: modelContext)
+        if direction == .iAdvancedOthers {
+            guard let payerAccount = draft.payerAccount,
+                  payerAccount.type != .debt,
+                  !payerAccount.isArchived
+            else {
+                throw AdvanceServiceError.invalidPayerAccount
+            }
+        } else if let category = draft.category, !category.kind.supports(.expense) {
+            throw AdvanceServiceError.invalidSettlementCategory
+        }
+
+        let entries = try advanceCase.participants.map { caseParticipant -> (AdvanceParticipant, [FinancialTransaction]) in
+            guard let groupID = caseParticipant.initialTransferGroupID else {
+                throw AdvanceServiceError.missingRepaymentLink
+            }
+            let descriptor = FetchDescriptor<FinancialTransaction>(
+                predicate: #Predicate { $0.transferGroupID == groupID }
+            )
+            let transactions = try modelContext.fetch(descriptor)
+            guard !transactions.isEmpty,
+                  inferSettlementDirection(for: caseParticipant, modelContext: modelContext) == direction
+            else {
+                throw AdvanceServiceError.invalidRepaymentStructure
+            }
+            switch direction {
+            case .iAdvancedOthers:
+                guard transactions.count == 2,
+                      let outgoing = transactions.first(where: {
+                          $0.transferSide == .outgoing || $0.amount < 0
+                      }),
+                      let incoming = transactions.first(where: {
+                          $0.transferSide == .incoming || $0.amount > 0
+                      }),
+                      outgoing.id != incoming.id
+                else {
+                    throw AdvanceServiceError.invalidRepaymentStructure
+                }
+            case .othersAdvancedMe:
+                guard transactions.count == 1, caseParticipant.debtAccount != nil else {
+                    throw AdvanceServiceError.invalidRepaymentStructure
+                }
+            }
+            return (caseParticipant, transactions)
+        }
+
+        let originalBudgetKeys = entries
+            .flatMap(\.1)
+            .compactMap(BudgetHistoryService.affectedKey(for:))
+        let memo = draft.note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseMemo = memo.isEmpty ? advanceCase.title : memo
+        let now = Date()
+
+        for (caseParticipant, transactions) in entries {
+            let amount = caseParticipant.id == participant.id
+                ? abs(draft.owedAmount)
+                : abs(caseParticipant.owedAmount)
+            switch direction {
+            case .iAdvancedOthers:
+                guard let payerAccount = draft.payerAccount,
+                      let debtAccount = caseParticipant.debtAccount,
+                      let outgoing = transactions.first(where: {
+                          $0.transferSide == .outgoing || $0.amount < 0
+                      }),
+                      let incoming = transactions.first(where: {
+                          $0.transferSide == .incoming || $0.amount > 0
+                      })
+                else {
+                    throw AdvanceServiceError.invalidRepaymentStructure
+                }
+                outgoing.type = .transfer
+                outgoing.amount = -amount
+                outgoing.currencyCode = advanceCase.currencyCode
+                outgoing.date = draft.date
+                outgoing.note = "\(baseMemo) (代墊給 \(caseParticipant.name))"
+                outgoing.account = payerAccount
+                outgoing.category = nil
+                outgoing.tags = []
+                outgoing.transferSide = .outgoing
+                outgoing.linkedTransactionID = incoming.id
+                outgoing.updatedAt = now
+
+                incoming.type = .transfer
+                incoming.amount = amount
+                incoming.currencyCode = advanceCase.currencyCode
+                incoming.date = draft.date
+                incoming.note = "\(baseMemo) (來自 \(payerAccount.name))"
+                incoming.account = debtAccount
+                incoming.category = nil
+                incoming.tags = []
+                incoming.transferSide = .incoming
+                incoming.linkedTransactionID = outgoing.id
+                incoming.updatedAt = now
+            case .othersAdvancedMe:
+                guard let expense = transactions.first,
+                      let debtAccount = caseParticipant.debtAccount
+                else {
+                    throw AdvanceServiceError.invalidRepaymentStructure
+                }
+                expense.type = .expense
+                expense.amount = -amount
+                expense.currencyCode = advanceCase.currencyCode
+                expense.date = draft.date
+                expense.note = "\(baseMemo) (他人代墊我：\(caseParticipant.name))"
+                expense.account = debtAccount
+                expense.category = draft.category
+                expense.tags = draft.tags
+                expense.linkedTransactionID = nil
+                expense.transferSide = .outgoing
+                expense.updatedAt = now
+            }
+        }
+
+        participant.owedAmount = abs(draft.owedAmount)
+        participant.repaidAmount = min(participant.repaidAmount, participant.owedAmount)
+        participant.updatedAt = now
+        advanceCase.payerAccount = direction == .iAdvancedOthers ? draft.payerAccount : nil
+        if direction == .othersAdvancedMe {
+            advanceCase.expenseCategory = draft.category
+        }
+        advanceCase.date = draft.date
+        advanceCase.note = memo
+        advanceCase.updatedAt = now
+
+        let affectedKeys = originalBudgetKeys + entries
+            .flatMap(\.1)
+            .compactMap(BudgetHistoryService.affectedKey(for:))
+        if affectedKeys.isEmpty {
+            try modelContext.save()
+        } else {
+            try BudgetHistoryService.shared.syncAffected(
+                keys: affectedKeys,
+                modelContext: modelContext,
+                currencyService: CurrencyService.shared
+            )
+        }
+    }
+
+    @MainActor
     static func inferSettlementDirection(
         for participant: AdvanceParticipant,
         modelContext: ModelContext
@@ -746,7 +1160,8 @@ enum AdvanceService {
             return .othersAdvancedMe
         }
 
-        if outgoing.note.replacingOccurrences(of: " ", with: "").contains("(代墊給我") {
+        let compactedNote = outgoing.note.replacingOccurrences(of: " ", with: "")
+        if compactedNote.contains("(代墊給我") || compactedNote.contains("(他人代墊我") {
             return .othersAdvancedMe
         }
 
@@ -770,14 +1185,83 @@ enum AdvanceService {
             throw AdvanceServiceError.adjustedOwedLowerThanRepaid
         }
         
-        participant.owedAmount = newOwedAmount
-        if participant.repaidAmount > newOwedAmount {
-            participant.repaidAmount = newOwedAmount
+        guard let groupID = participant.initialTransferGroupID else {
+            throw AdvanceServiceError.missingRepaymentLink
         }
-        participant.updatedAt = Date()
-        advanceCase.updatedAt = Date()
-        
-        try modelContext.save()
+        let descriptor = FetchDescriptor<FinancialTransaction>(
+            predicate: #Predicate { $0.transferGroupID == groupID }
+        )
+        let linkedTransactions = try modelContext.fetch(descriptor)
+        guard !linkedTransactions.isEmpty else {
+            throw AdvanceServiceError.missingRepaymentLink
+        }
+        let originalBudgetKeys = linkedTransactions.compactMap(
+            BudgetHistoryService.affectedKey(for:)
+        )
+
+        let direction = inferSettlementDirection(for: participant, modelContext: modelContext)
+        let amount = abs(newOwedAmount)
+        let now = Date()
+        switch direction {
+        case .iAdvancedOthers:
+            guard linkedTransactions.count == 2 else {
+                throw AdvanceServiceError.invalidRepaymentStructure
+            }
+            for transaction in linkedTransactions {
+                let side = transaction.transferSide
+                    ?? (transaction.amount < 0 ? .outgoing : .incoming)
+                transaction.amount = side == .outgoing ? -amount : amount
+                transaction.currencyCode = advanceCase.currencyCode
+                transaction.date = advanceCase.date
+                transaction.transferSide = side
+                transaction.updatedAt = now
+            }
+        case .othersAdvancedMe:
+            guard linkedTransactions.count == 1,
+                  let expense = linkedTransactions.first,
+                  let debtAccount = participant.debtAccount
+            else {
+                throw AdvanceServiceError.invalidRepaymentStructure
+            }
+            expense.type = .expense
+            expense.amount = -amount
+            expense.currencyCode = advanceCase.currencyCode
+            expense.date = advanceCase.date
+            expense.linkedTransactionID = nil
+            expense.transferGroupID = groupID
+            expense.transferSide = .outgoing
+            expense.account = debtAccount
+            expense.category = advanceCase.expenseCategory
+            expense.updatedAt = now
+        }
+
+        participant.owedAmount = amount
+        participant.repaidAmount = min(participant.repaidAmount, amount)
+        participant.updatedAt = now
+        advanceCase.updatedAt = now
+        let affectedKeys = originalBudgetKeys + linkedTransactions.compactMap(
+            BudgetHistoryService.affectedKey(for:)
+        )
+        if affectedKeys.isEmpty {
+            try modelContext.save()
+        } else {
+            try BudgetHistoryService.shared.syncAffected(
+                keys: affectedKeys,
+                modelContext: modelContext,
+                currencyService: CurrencyService.shared
+            )
+        }
+    }
+
+    private static func validateSettlementCategory(
+        _ category: Category?,
+        direction: SettlementDirection
+    ) throws {
+        guard let category else { return }
+        let expectedType: TransactionType = direction == .iAdvancedOthers ? .income : .expense
+        guard category.kind.supports(expectedType) else {
+            throw AdvanceServiceError.invalidSettlementCategory
+        }
     }
 
     private struct OffsetParticipantEntry {
@@ -892,6 +1376,10 @@ enum AdvanceService {
         guard let participant = repayment.participant else {
             throw AdvanceServiceError.missingRepaymentParticipant
         }
+        guard !isMutualDebtOffset(note: repayment.note),
+              !isManualDebtSettlement(note: repayment.note) else {
+            throw AdvanceServiceError.specialRepaymentRequiresGroupRollback
+        }
         
         if let groupID = repayment.linkedTransferGroupID {
             let descriptor = FetchDescriptor<FinancialTransaction>(
@@ -912,6 +1400,29 @@ enum AdvanceService {
         if autosave {
             try modelContext.save()
         }
+    }
+
+    @MainActor
+    private static func rollbackSpecialRepaymentGroup(
+        matching predicate: (AdvanceRepayment) -> Bool,
+        modelContext: ModelContext
+    ) throws -> Int {
+        let repayments = try modelContext.fetch(FetchDescriptor<AdvanceRepayment>())
+            .filter(predicate)
+        guard !repayments.isEmpty else { return 0 }
+
+        let now = Date()
+        for repayment in repayments {
+            if let participant = repayment.participant {
+                let updated = participant.repaidAmount - repayment.normalizedAmount
+                participant.repaidAmount = updated > 0 ? updated : 0
+                participant.updatedAt = now
+            }
+            repayment.advanceCase?.updatedAt = now
+            modelContext.delete(repayment)
+        }
+        try modelContext.save()
+        return repayments.count
     }
     
     @MainActor
@@ -987,85 +1498,6 @@ enum AdvanceService {
         )
     }
 
-    @MainActor
-    static func syncLinkedTransferGroup(
-        groupID: UUID,
-        modelContext: ModelContext
-    ) throws {
-        let txDescriptor = FetchDescriptor<FinancialTransaction>(
-            predicate: #Predicate { $0.transferGroupID == groupID }
-        )
-        let transfers = try modelContext.fetch(txDescriptor).filter { $0.type == .transfer }
-        guard !transfers.isEmpty else { return }
-
-        let outgoing = transfers.first(where: { $0.transferSide == .outgoing || $0.amount < 0 })
-        let incoming = transfers.first(where: { $0.transferSide == .incoming || $0.amount > 0 })
-        let now = Date()
-
-        let participantDescriptor = FetchDescriptor<AdvanceParticipant>(
-            predicate: #Predicate { $0.initialTransferGroupID == groupID }
-        )
-        if let participant = try modelContext.fetch(participantDescriptor).first {
-            if incoming == nil, outgoing?.type == .expense, let debtAccount = outgoing?.account {
-                participant.debtAccount = debtAccount
-                participant.name = debtAccount.name
-            } else if let incoming, let debtAccount = incoming.account {
-                participant.debtAccount = debtAccount
-                participant.name = debtAccount.name
-            }
-
-            if let advanceCase = participant.advanceCase {
-                if let outgoing, incoming != nil {
-                    advanceCase.payerAccount = outgoing.account
-                }
-                if let amountSource = incoming ?? outgoing {
-                    let normalized = CurrencyService.shared.convert(
-                        amount: abs(amountSource.amount),
-                        from: amountSource.currencyCode,
-                        to: advanceCase.currencyCode
-                    )
-                    participant.owedAmount = normalized >= participant.repaidAmount
-                        ? normalized
-                        : participant.repaidAmount
-                }
-                advanceCase.updatedAt = now
-            }
-            participant.updatedAt = now
-        }
-
-        let repaymentDescriptor = FetchDescriptor<AdvanceRepayment>(
-            predicate: #Predicate { $0.linkedTransferGroupID == groupID }
-        )
-        if let repayment = try modelContext.fetch(repaymentDescriptor).first {
-            if let incoming {
-                repayment.amount = abs(incoming.amount)
-                repayment.currencyCode = incoming.currencyCode
-                repayment.date = incoming.date
-                repayment.note = extractTransferMemo(incoming.note)
-                repayment.receivedAccount = incoming.account
-
-                if let advanceCase = repayment.advanceCase {
-                    repayment.normalizedAmount = CurrencyService.shared.convert(
-                        amount: abs(incoming.amount),
-                        from: incoming.currencyCode,
-                        to: advanceCase.currencyCode
-                    )
-                    advanceCase.updatedAt = now
-                }
-            }
-
-            if let participant = repayment.participant, let advanceCase = repayment.advanceCase {
-                let normalizedTotal = advanceCase.repayments
-                    .filter { $0.participant?.id == participant.id }
-                    .reduce(Decimal.zero) { $0 + $1.normalizedAmount }
-                participant.repaidAmount = normalizedTotal > participant.owedAmount
-                    ? participant.owedAmount
-                    : normalizedTotal
-                participant.updatedAt = now
-            }
-        }
-    }
-    
     @MainActor
     static func repairLegacyLinks(modelContext: ModelContext) throws -> LegacyLinkRepairResult {
         let advanceCases = try modelContext.fetch(FetchDescriptor<AdvanceCase>())
