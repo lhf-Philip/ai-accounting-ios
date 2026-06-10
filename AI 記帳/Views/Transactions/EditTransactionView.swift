@@ -12,6 +12,7 @@ struct EditTransactionView: View {
     @Query(sort: \Tag.name) private var tags: [Tag]
     
     @State private var amountString: String = ""
+    @State private var selectedCurrency = "HKD"
     @State private var selectedType: TransactionType = .expense
     @State private var selectedAccount: Account?
     @State private var selectedCategory: Category?
@@ -24,6 +25,12 @@ struct EditTransactionView: View {
     
     // 🔥 新增：焦點控制
     @FocusState private var isAmountFocused: Bool
+
+    private let currencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
+
+    private var availableCurrencies: [String] {
+        currencies.contains(selectedCurrency) ? currencies : [selectedCurrency] + currencies
+    }
 
     private var selectableAccounts: [Account] {
         let allowed = TransactionSemantics.allowedAccounts(for: selectedType, from: accounts)
@@ -68,22 +75,29 @@ struct EditTransactionView: View {
                     }
 
                     HStack {
-                        Text(selectedAccount?.currency ?? transaction.currencyCode)
+                        Picker("幣種", selection: $selectedCurrency) {
+                            ForEach(availableCurrencies, id: \.self) { code in
+                                Text(code).tag(code)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 88)
+
                         TextField("金額", text: amountBinding)
                             .keyboardType(.decimalPad)
-                            .focused($isAmountFocused) // 🔥 綁定焦點
+                            .focused($isAmountFocused)
                             .accessibilityIdentifier("transactionEditor.amountField")
                     }
                     CurrencyRateHintView(
                         currencyService: currencyService,
                         amount: Decimal(string: amountString),
-                        currencyCode: transaction.currencyCode
+                        currencyCode: selectedCurrency
                     )
                 }
 
                 Section("詳細資訊") {
                     Picker("帳戶", selection: $selectedAccount) {
-                        Text("無").tag(nil as Account?)
+                        Text("選擇帳戶").tag(nil as Account?)
                         ForEach(selectableAccounts) { acc in
                             Text(acc.name).tag(acc as Account?)
                         }
@@ -136,6 +150,7 @@ struct EditTransactionView: View {
                     Button("完成") {
                         saveChanges()
                     }
+                    .disabled(!canSubmit)
                     .accessibilityIdentifier("transactionEditor.saveButton")
                 }
                 
@@ -170,14 +185,17 @@ struct EditTransactionView: View {
             }
 
             let previousKey = originalBudgetKey
-            transaction.type = selectedType
-            transaction.account = selectedAccount
-            transaction.category = selectedType == .transfer ? nil : selectedCategory
-            transaction.date = selectedDate
-            transaction.note = note
-            transaction.tags = selectedType == .transfer ? [] : Array(selectedTags)
-            transaction.amount = signedAmount(from: amount)
-            transaction.updatedAt = Date()
+            let draft = OrdinaryTransactionEditDraft(
+                amount: amount,
+                currencyCode: selectedCurrency,
+                date: selectedDate,
+                note: note,
+                type: selectedType,
+                account: selectedAccount,
+                category: selectedCategory,
+                tags: Array(selectedTags)
+            )
+            try TransactionEditService.apply(draft, to: transaction)
             try modelContext.save()
             let currentKey = BudgetHistoryService.affectedKey(for: transaction)
             try BudgetHistoryService.shared.syncAffected(
@@ -187,6 +205,7 @@ struct EditTransactionView: View {
             )
             dismiss()
         } catch {
+            modelContext.rollback()
             errorMessage = error.localizedDescription
         }
     }
@@ -196,6 +215,9 @@ struct EditTransactionView: View {
         didLoadDraft = true
         selectedType = transaction.type
         selectedAccount = transaction.account
+        selectedCurrency = transaction.currencyCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? (transaction.account?.currency ?? "HKD")
+            : transaction.currencyCode.uppercased()
         selectedCategory = transaction.category
         selectedDate = transaction.date
         note = transaction.note
@@ -204,13 +226,12 @@ struct EditTransactionView: View {
         originalBudgetKey = BudgetHistoryService.affectedKey(for: transaction)
     }
 
-    private func signedAmount(from amount: Decimal) -> Decimal {
-        if selectedType == .transfer {
-            return transaction.amount >= 0 ? abs(amount) : -abs(amount)
-        }
-        return selectedType == .expense ? -abs(amount) : abs(amount)
+    private var canSubmit: Bool {
+        positiveDecimal(from: amountString) != nil
+            && selectedAccount != nil
+            && !selectedCurrency.isEmpty
     }
-    
+
     private var filteredCategories: [Category] {
         categories.filter { $0.kind.supports(selectedType) }
     }

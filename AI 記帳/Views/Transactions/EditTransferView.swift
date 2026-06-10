@@ -293,15 +293,19 @@ struct EditTransferView: View {
             let parsedOutgoing = try parseLegs(from: outgoingLegs, sideName: "轉出")
             let parsedIncoming = try parseLegs(from: incomingLegs, sideName: "轉入")
 
-            let outgoingIDs = Set(parsedOutgoing.map { $0.account.id })
-            let incomingIDs = Set(parsedIncoming.map { $0.account.id })
+            let outgoingIdentities = parsedOutgoing.map {
+                TransferLegIdentity(accountID: $0.account.id, currencyCode: $0.currency)
+            }
+            let incomingIdentities = parsedIncoming.map {
+                TransferLegIdentity(accountID: $0.account.id, currencyCode: $0.currency)
+            }
 
-            if outgoingIDs.count != parsedOutgoing.count {
-                showValidation("轉出帳戶不可重複，請合併金額。")
+            if TransactionEditService.hasDuplicateTransferLegs(outgoingIdentities) {
+                showValidation("相同帳戶及幣種不可重複，請合併金額。")
                 return
             }
-            if incomingIDs.count != parsedIncoming.count {
-                showValidation("轉入帳戶不可重複，請合併金額。")
+            if TransactionEditService.hasDuplicateTransferLegs(incomingIdentities) {
+                showValidation("相同帳戶及幣種不可重複，請合併金額。")
                 return
             }
 
