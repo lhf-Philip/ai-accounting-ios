@@ -266,14 +266,14 @@ fun RecurringRuleEditorScreen(
     val accounts by repository.accounts.collectAsState(initial = emptyList())
     val categories by repository.categories.collectAsState(initial = emptyList())
     val tags by repository.tags.collectAsState(initial = emptyList())
-    val rules by repository.recurringRules.collectAsState(initial = emptyList())
     val scrollState = rememberScrollState()
 
     val parsedRuleId = remember(ruleId) { ruleId?.let { runCatching { UUID.fromString(it) }.getOrNull() } ?: UUID.randomUUID() }
-    val existingRule = rules.firstOrNull { it.id == parsedRuleId }
     val ownAccounts = accounts.filter { it.type != AccountType.Debt && !it.isArchived }
 
     var loaded by remember(parsedRuleId) { mutableStateOf(false) }
+    var existingRule by remember(parsedRuleId) { mutableStateOf<RecurringRuleEntity?>(null) }
+    var loadError by remember(parsedRuleId) { mutableStateOf<String?>(null) }
     var title by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var currencyCode by remember { mutableStateOf(currencyService.mainCurrency) }
@@ -290,24 +290,34 @@ fun RecurringRuleEditorScreen(
 
     val filteredCategories = categories.filter { it.kind.supports(type) }
 
-    LaunchedEffect(existingRule, ownAccounts, filteredCategories) {
-        if (loaded) return@LaunchedEffect
-        if (existingRule != null) {
-            title = existingRule.title
-            amount = existingRule.amount.toPlainString()
-            currencyCode = existingRule.currencyCode
-            type = existingRule.type
-            note = existingRule.note
-            frequency = RecurringFrequencyOption.fromRaw(existingRule.frequency)
-            intervalCount = existingRule.intervalCount.toString()
-            nextDueDate = existingRule.nextDueDate.atZone(ZoneId.systemDefault()).toLocalDate().toString()
-            isPaused = existingRule.isPaused
-            selectedAccount = ownAccounts.firstOrNull { it.id == existingRule.accountId }
-            selectedCategory = filteredCategories.firstOrNull { it.id == existingRule.categoryId }
-            val existingTagIds = repository.getRecurringRuleTagIds(existingRule.id).toSet()
-            selectedTags = tags.filter { it.id in existingTagIds }
+    LaunchedEffect(ruleId) {
+        if (ruleId == null || loaded) return@LaunchedEffect
+        val editorData = repository.getRecurringRuleEditorData(parsedRuleId)
+        if (editorData == null) {
+            loadError = "找不到要編輯的定期規則。"
             loaded = true
-        } else if (ownAccounts.isNotEmpty()) {
+            return@LaunchedEffect
+        }
+
+        val rule = editorData.rule
+        existingRule = rule
+        title = rule.title
+        amount = rule.amount.toPlainString()
+        currencyCode = rule.currencyCode
+        type = rule.type
+        note = rule.note
+        frequency = RecurringFrequencyOption.fromRaw(rule.frequency)
+        intervalCount = rule.intervalCount.toString()
+        nextDueDate = rule.nextDueDate.atZone(ZoneId.systemDefault()).toLocalDate().toString()
+        isPaused = rule.isPaused
+        selectedAccount = editorData.account
+        selectedCategory = editorData.category
+        selectedTags = editorData.tags
+        loaded = true
+    }
+
+    LaunchedEffect(ruleId, ownAccounts, filteredCategories) {
+        if (ruleId == null && !loaded && ownAccounts.isNotEmpty()) {
             selectedAccount = ownAccounts.first()
             currencyCode = selectedAccount?.currency ?: currencyService.mainCurrency
             selectedCategory = filteredCategories.firstOrNull()
@@ -316,7 +326,11 @@ fun RecurringRuleEditorScreen(
     }
 
     LaunchedEffect(type, filteredCategories) {
-        if (selectedCategory != null && filteredCategories.none { it.id == selectedCategory?.id }) {
+        if (
+            categories.isNotEmpty() &&
+            selectedCategory != null &&
+            filteredCategories.none { it.id == selectedCategory?.id }
+        ) {
             selectedCategory = filteredCategories.firstOrNull()
         }
     }
@@ -335,9 +349,16 @@ fun RecurringRuleEditorScreen(
         verticalArrangement = Arrangement.spacedBy(AppSpacing.section)
     ) {
         ParityTopSection(
-            title = if (existingRule == null) "新增定期記帳" else "編輯定期記帳",
+            title = if (ruleId == null) "新增定期記帳" else "編輯定期記帳",
             subtitle = "到期後先進待確認，不會偷偷寫入帳目。"
         )
+
+        if (loadError != null) {
+            Text(
+                text = loadError.orEmpty(),
+                color = MaterialTheme.colorScheme.error
+            )
+        }
 
         SectionCard {
             Column(modifier = Modifier.padding(AppSpacing.card), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -462,7 +483,10 @@ fun RecurringRuleEditorScreen(
                     }
                 }
             },
-            enabled = selectedAccount != null && amount.toBigDecimalOrNull()?.let { it > BigDecimal.ZERO } == true && parseDateInput(nextDueDate) != null,
+            enabled = loadError == null &&
+                selectedAccount != null &&
+                amount.toBigDecimalOrNull()?.let { it > BigDecimal.ZERO } == true &&
+                parseDateInput(nextDueDate) != null,
             modifier = Modifier.fillMaxWidth().height(52.dp)
         ) {
             Text("儲存")
@@ -475,7 +499,8 @@ fun RecurringRuleEditorScreen(
         }
     }
 
-    if (showDeleteConfirm && existingRule != null) {
+    val ruleToDelete = existingRule
+    if (showDeleteConfirm && ruleToDelete != null) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("刪除定期規則？") },
@@ -485,7 +510,7 @@ fun RecurringRuleEditorScreen(
                     onClick = {
                         showDeleteConfirm = false
                         scope.launch {
-                            repository.deleteRecurringRule(existingRule)
+                            repository.deleteRecurringRule(ruleToDelete)
                             onDone()
                         }
                     }

@@ -13,6 +13,7 @@ import org.duckdns.lhfser.aiaccounting.core.currency.CurrencyService
 import org.duckdns.lhfser.aiaccounting.core.health.DataHealthChecker
 import org.duckdns.lhfser.aiaccounting.core.health.DataHealthReport
 import org.duckdns.lhfser.aiaccounting.core.health.DataHealthSnapshot
+import org.duckdns.lhfser.aiaccounting.core.model.AccountType
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.core.model.TransferSide
 import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
@@ -64,6 +65,22 @@ data class AccountDeletionImpact(
     val isEmptyAccount: Boolean
         get() = !counts.hasBookkeeping
 }
+
+data class AccountEditDraft(
+    val accountId: UUID?,
+    val name: String,
+    val requestedCurrency: String,
+    val type: AccountType,
+    val baseBalance: BigDecimal,
+    val isArchived: Boolean
+)
+
+data class RecurringRuleEditorData(
+    val rule: RecurringRuleEntity,
+    val account: AccountEntity?,
+    val category: CategoryEntity?,
+    val tags: List<TagEntity>
+)
 
 enum class LedgerDeletionResult {
     Deleted,
@@ -536,6 +553,34 @@ class AccountingRepository(
         accountDao.upsert(account)
     }
 
+    suspend fun saveAccountEdit(draft: AccountEditDraft): UUID {
+        require(draft.name.isNotBlank()) { "請輸入帳戶名稱。" }
+
+        return database.withTransaction {
+            val existing = draft.accountId?.let { accountId ->
+                requireNotNull(accountDao.getAccount(accountId)) {
+                    "找不到要編輯的帳戶。"
+                }
+            }
+            if (existing == null) {
+                require(draft.requestedCurrency.isNotBlank()) { "請選擇主幣種。" }
+            }
+            val accountId = existing?.id ?: draft.accountId ?: UUID.randomUUID()
+            val account = AccountEntity(
+                id = accountId,
+                name = draft.name.trim(),
+                currency = existing?.currency ?: draft.requestedCurrency.trim().uppercase(),
+                type = draft.type,
+                baseBalance = draft.baseBalance,
+                sortOrder = existing?.sortOrder
+                    ?: ((accountDao.getAll().maxOfOrNull { it.sortOrder } ?: -1) + 1),
+                isArchived = draft.isArchived
+            )
+            accountDao.upsert(account)
+            accountId
+        }
+    }
+
     suspend fun previewAccountDeletion(accountId: UUID): AccountDeletionImpact? {
         return buildAccountDeletionTargets(accountId)?.impact
     }
@@ -715,6 +760,19 @@ class AccountingRepository(
 
     suspend fun getRecurringRuleTagIds(ruleId: UUID): List<UUID> {
         return recurringDao.getRuleTags(ruleId).map { it.tagId }
+    }
+
+    suspend fun getRecurringRuleEditorData(ruleId: UUID): RecurringRuleEditorData? {
+        return database.withTransaction {
+            val rule = recurringDao.getRule(ruleId) ?: return@withTransaction null
+            val tagIds = recurringDao.getRuleTags(ruleId).mapTo(mutableSetOf()) { it.tagId }
+            RecurringRuleEditorData(
+                rule = rule,
+                account = rule.accountId?.let { accountDao.getAccount(it) },
+                category = rule.categoryId?.let { categoryDao.getCategory(it) },
+                tags = tagDao.getAll().filter { it.id in tagIds }
+            )
+        }
     }
 
     suspend fun upsertRecurringRule(rule: RecurringRuleEntity, tagIds: List<UUID> = emptyList()) {
