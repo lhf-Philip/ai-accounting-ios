@@ -563,6 +563,7 @@ private func reportCurrencySummary(_ totals: [ReportCurrencyTotal]) -> String {
 
 private struct ReportTransactionListView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \FinancialTransaction.date, order: .reverse) private var allTransactions: [FinancialTransaction]
     @Query private var advanceParticipants: [AdvanceParticipant]
     @Query private var advanceRepayments: [AdvanceRepayment]
 
@@ -574,6 +575,7 @@ private struct ReportTransactionListView: View {
     var body: some View {
         let renderState = ReportTransactionListRenderState(
             transactions: detail.transactions,
+            allTransactions: allTransactions,
             advanceParticipants: advanceParticipants,
             advanceRepayments: advanceRepayments
         )
@@ -641,11 +643,20 @@ private struct ReportTransactionListView: View {
     @ViewBuilder
     private func transactionEditor(for tx: FinancialTransaction, renderState: ReportTransactionListRenderState) -> some View {
         if tx.type == .transfer {
-            if isAdvanceTransfer(tx, advanceGroupIDs: renderState.advanceGroupIDs) {
+            let group = TransferEditRoutingService.groupTransactions(for: tx, in: renderState.allTransactions)
+            switch TransferEditRoutingService.classify(
+                transaction: tx,
+                groupTransactions: group,
+                advanceInitialGroupIDs: renderState.initialAdvanceGroupIDs,
+                advanceRepaymentGroupIDs: renderState.repaymentAdvanceGroupIDs
+            ) {
+            case .advanceInitial, .advanceRepayment:
                 EditAdvanceTransferView(originalTransaction: tx)
-            } else if TransactionSemantics.isDebtForgiveness(note: tx.note) {
+            case .debtForgiveness:
                 AddDebtView(existingForgivenessTransaction: tx)
-            } else {
+            case .debt:
+                AddDebtView(existingDebtTransaction: tx)
+            case .ordinary:
                 EditTransferView(originalTransaction: tx)
             }
         } else {
@@ -661,17 +672,6 @@ private struct ReportTransactionListView: View {
         }
     }
 
-    private func isAdvanceTransfer(_ tx: FinancialTransaction, advanceGroupIDs: Set<UUID>) -> Bool {
-        guard tx.type == .transfer else { return false }
-        if let groupID = tx.transferGroupID, advanceGroupIDs.contains(groupID) {
-            return true
-        }
-        let compacted = tx.note.replacingOccurrences(of: " ", with: "")
-        return compacted.contains("(代墊給")
-            || compacted.contains("(代墊給我")
-            || compacted.contains("(還款至")
-            || compacted.contains("(還款給")
-    }
 }
 
 private struct ReportDetailSummaryCard: View {
@@ -780,19 +780,22 @@ private struct ReportBreakdownRow: View {
 }
 
 private struct ReportTransactionListRenderState {
+    let allTransactions: [FinancialTransaction]
     let transferCounterpartByID: [UUID: TransferCounterpartInfo]
     let groupedTransactions: [(title: String, items: [FinancialTransaction])]
-    let advanceGroupIDs: Set<UUID>
+    let initialAdvanceGroupIDs: Set<UUID>
+    let repaymentAdvanceGroupIDs: Set<UUID>
 
     init(
         transactions: [FinancialTransaction],
+        allTransactions: [FinancialTransaction],
         advanceParticipants: [AdvanceParticipant],
         advanceRepayments: [AdvanceRepayment]
     ) {
-        var advanceGroupIDs = Set(advanceParticipants.compactMap(\.initialTransferGroupID))
-        advanceGroupIDs.formUnion(advanceRepayments.compactMap(\.linkedTransferGroupID))
-        self.advanceGroupIDs = advanceGroupIDs
-        self.transferCounterpartByID = TransferPresentationService.counterpartMap(transactions: transactions)
+        self.allTransactions = allTransactions
+        self.initialAdvanceGroupIDs = Set(advanceParticipants.compactMap(\.initialTransferGroupID))
+        self.repaymentAdvanceGroupIDs = Set(advanceRepayments.compactMap(\.linkedTransferGroupID))
+        self.transferCounterpartByID = TransferPresentationService.counterpartMap(transactions: allTransactions)
         self.groupedTransactions = Self.groupedTransactions(from: transactions)
     }
 

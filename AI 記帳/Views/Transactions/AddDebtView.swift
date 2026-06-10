@@ -8,6 +8,7 @@ struct AddDebtView: View {
 
     @Query(sort: \Account.sortOrder) private var allAccounts: [Account]
     private let existingForgivenessTransactionID: UUID?
+    private let existingDebtTransactionID: UUID?
     private let presetDebtAccountID: UUID?
     private let presetMode: DebtMode?
     private let presetForgivenessDirection: DebtForgivenessDirection?
@@ -73,17 +74,20 @@ struct AddDebtView: View {
 
     @State private var splitLegs: [SplitLeg] = [SplitLeg()]
     @State private var mergeLegs: [MergeLeg] = [MergeLeg()]
+    @State private var existingDebtGroupID: UUID?
 
     @FocusState private var isAmountFocused: Bool
 
     init(
         existingForgivenessTransaction: FinancialTransaction? = nil,
+        existingDebtTransaction: FinancialTransaction? = nil,
         presetDebtAccount: Account? = nil,
         presetMode: DebtMode? = nil,
         presetForgivenessDirection: DebtForgivenessDirection? = nil,
         presetNote: String? = nil
     ) {
         self.existingForgivenessTransactionID = existingForgivenessTransaction?.id
+        self.existingDebtTransactionID = existingDebtTransaction?.id
         self.presetDebtAccountID = presetDebtAccount?.id
         self.presetMode = presetMode
         self.presetForgivenessDirection = presetForgivenessDirection
@@ -100,6 +104,7 @@ struct AddDebtView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .disabled(existingDebtGroupID != nil)
 
                     if mode == .forgive {
                         Picker("免除方向", selection: $forgivenessDirection) {
@@ -108,6 +113,7 @@ struct AddDebtView: View {
                             }
                         }
                         .pickerStyle(.segmented)
+                        .disabled(existingDebtGroupID != nil)
                     } else {
                         Picker("模式", selection: $entryMode) {
                             ForEach(EntryMode.allCases) { option in
@@ -115,6 +121,12 @@ struct AddDebtView: View {
                             }
                         }
                         .pickerStyle(.segmented)
+                        .disabled(existingDebtGroupID != nil)
+                        if existingDebtGroupID != nil {
+                            Text("編輯既有債務時會保留借入／還款方向與原本的轉帳關聯。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -145,7 +157,7 @@ struct AddDebtView: View {
                             }
                         }
                         .onChange(of: selectedMyAccount) { _, _ in
-                            if let acc = selectedMyAccount {
+                            if existingDebtGroupID == nil, let acc = selectedMyAccount {
                                 selectedCurrency = acc.currency
                             }
                         }
@@ -182,7 +194,13 @@ struct AddDebtView: View {
                     Button("取消") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(existingForgivenessTransactionID == nil ? "確認" : "儲存") { saveTransaction() }
+                    Button(
+                        existingForgivenessTransactionID == nil && existingDebtTransactionID == nil
+                            ? "確認"
+                            : "儲存"
+                    ) {
+                        saveTransaction()
+                    }
                         .disabled(!canSubmit)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
@@ -204,6 +222,7 @@ struct AddDebtView: View {
                     date = transaction.date
                     note = extractForgivenessNote(transaction.note)
                 }
+                loadExistingDebtTransaction()
                 if selectedMyAccount == nil {
                     selectedMyAccount = myAccounts.first
                 }
@@ -211,7 +230,7 @@ struct AddDebtView: View {
                     selectedDebtAccount = debtAccounts.first
                 }
                 applyPresetIfNeeded()
-                if let acc = selectedMyAccount {
+                if existingDebtGroupID == nil, let acc = selectedMyAccount {
                     selectedCurrency = acc.currency
                 }
                 if splitLegs.first?.account == nil, let first = myAccounts.first {
@@ -424,6 +443,17 @@ struct AddDebtView: View {
             return
         }
 
+        if existingDebtGroupID != nil {
+            do {
+                try updateExistingDebtPair(debtAccount: debtAcc)
+                dismiss()
+            } catch {
+                modelContext.rollback()
+                showValidation(error.localizedDescription)
+            }
+            return
+        }
+
         switch effectiveEntryMode {
         case .normal:
             guard let amount = positiveDecimal(from: amountString) else {
@@ -607,6 +637,87 @@ struct AddDebtView: View {
         }
     }
 
+    private func loadExistingDebtTransaction() {
+        guard existingDebtGroupID == nil,
+              let existingDebtTransactionID,
+              let original = allAccounts
+                .flatMap(\.transactions)
+                .first(where: { $0.id == existingDebtTransactionID }),
+              let groupID = original.transferGroupID
+        else {
+            return
+        }
+
+        let group = allAccounts
+            .flatMap(\.transactions)
+            .filter { $0.transferGroupID == groupID }
+        guard group.count == 2,
+              let debtTransaction = group.first(where: { $0.account?.type == .debt }),
+              let ownTransaction = group.first(where: { $0.account?.type != .debt }),
+              let debtAccount = debtTransaction.account,
+              let ownAccount = ownTransaction.account
+        else {
+            showValidation("這筆債務轉帳的分錄結構不完整。")
+            return
+        }
+
+        existingDebtGroupID = groupID
+        let debtSide = debtTransaction.transferSide
+            ?? (debtTransaction.amount < 0 ? .outgoing : .incoming)
+        mode = debtSide == .outgoing ? .borrow : .repay
+        entryMode = .normal
+        selectedDebtAccount = debtAccount
+        selectedMyAccount = ownAccount
+        selectedCurrency = ownTransaction.currencyCode
+        amountString = NSDecimalNumber(decimal: abs(ownTransaction.amount)).stringValue
+        date = ownTransaction.date
+        note = extractDebtNote(group.first(where: { !$0.note.isEmpty })?.note ?? "")
+    }
+
+    private func updateExistingDebtPair(debtAccount: Account) throws {
+        guard let groupID = existingDebtGroupID,
+              let myAccount = selectedMyAccount,
+              let amount = positiveDecimal(from: amountString)
+        else {
+            throw NSError(
+                domain: "AddDebtView",
+                code: 20,
+                userInfo: [NSLocalizedDescriptionKey: "請輸入完整金額並選擇自己的帳戶。"]
+            )
+        }
+
+        let group = allAccounts
+            .flatMap(\.transactions)
+            .filter { $0.transferGroupID == groupID }
+        guard group.count == 2,
+              let debtTransaction = group.first(where: { $0.account?.type == .debt }),
+              let ownTransaction = group.first(where: { $0.account?.type != .debt })
+        else {
+            throw NSError(
+                domain: "AddDebtView",
+                code: 21,
+                userInfo: [NSLocalizedDescriptionKey: "找不到完整的債務轉帳分錄。"]
+            )
+        }
+
+        try DebtTransferEditService.apply(
+            DebtTransferEditDraft(
+                debtAccount: debtAccount,
+                ownAccount: myAccount,
+                amount: amount,
+                currencyCode: selectedCurrency,
+                date: date,
+                note: note,
+                direction: mode == .borrow ? .borrow : .repay
+            ),
+            debtTransaction: debtTransaction,
+            ownTransaction: ownTransaction,
+            updatedAt: Date()
+        )
+
+        try modelContext.save()
+    }
+
     private func indexedMemo(base: String, mode: EntryMode, index: Int, count: Int) -> String {
         let suffix: String
         switch mode {
@@ -623,6 +734,15 @@ struct AddDebtView: View {
             return suffix
         }
         return "\(trimmed) \(suffix)"
+    }
+
+    private func extractDebtNote(_ value: String) -> String {
+        let separators = [" (借入至", " (來自", " (還款給", " (轉至"]
+        let indexes = separators.compactMap { value.range(of: $0)?.lowerBound }
+        guard let first = indexes.min() else {
+            return value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return String(value[..<first]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func positiveDecimal(from value: String) -> Decimal? {

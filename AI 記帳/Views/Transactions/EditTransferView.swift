@@ -9,6 +9,8 @@ struct EditTransferView: View {
     let originalTransaction: FinancialTransaction
 
     @Query(sort: \Account.name) private var accounts: [Account]
+    @Query private var advanceParticipants: [AdvanceParticipant]
+    @Query private var advanceRepayments: [AdvanceRepayment]
 
     private struct TransferLegInput: Identifiable {
         let id: UUID
@@ -250,6 +252,26 @@ struct EditTransferView: View {
                 isLoading = false
                 return
             }
+            let semantic = TransferEditRoutingService.classify(
+                transaction: originalTransaction,
+                groupTransactions: groupTransactions,
+                advanceInitialGroupIDs: Set(advanceParticipants.compactMap(\.initialTransferGroupID)),
+                advanceRepaymentGroupIDs: Set(advanceRepayments.compactMap(\.linkedTransferGroupID))
+            )
+            guard semantic == .ordinary else {
+                switch semantic {
+                case .debt:
+                    errorMessage = "這是債務管理分錄，請從債務管理編輯。"
+                case .debtForgiveness:
+                    errorMessage = "這是免除債務紀錄，請從債務管理編輯。"
+                case .advanceInitial, .advanceRepayment:
+                    errorMessage = "這是代墊關聯分錄，請從代墊詳情編輯。"
+                case .ordinary:
+                    break
+                }
+                isLoading = false
+                return
+            }
 
             let outgoing = groupTransactions.filter { isOutgoing($0) }
             let incoming = groupTransactions.filter { !isOutgoing($0) }
@@ -364,6 +386,7 @@ struct EditTransferView: View {
             try modelContext.save()
             dismiss()
         } catch {
+            modelContext.rollback()
             showValidation(error.localizedDescription)
         }
     }

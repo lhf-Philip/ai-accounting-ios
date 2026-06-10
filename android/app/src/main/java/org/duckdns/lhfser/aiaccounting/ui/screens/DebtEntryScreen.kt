@@ -35,6 +35,9 @@ import org.duckdns.lhfser.aiaccounting.core.transactions.DebtForgivenessDirectio
 import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
+import org.duckdns.lhfser.aiaccounting.data.repository.TransferGroupReplacementDraft
+import org.duckdns.lhfser.aiaccounting.data.repository.TransferGroupSemantic
+import org.duckdns.lhfser.aiaccounting.data.repository.TransferReplacementLeg
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
@@ -114,6 +117,7 @@ fun DebtEntryScreen(
     var mergeLegs by remember { mutableStateOf(listOf(DebtMergeLeg())) }
     var validationMessage by remember { mutableStateOf<String?>(null) }
     var didApplyPreset by remember { mutableStateOf(false) }
+    var editingDebtGroupId by remember { mutableStateOf<UUID?>(null) }
 
     val selectedDebtBalance = remember(selectedDebtAccount, transactions) {
         val account = selectedDebtAccount ?: return@remember BigDecimal.ZERO
@@ -163,9 +167,10 @@ fun DebtEntryScreen(
         }
     }
 
-    LaunchedEffect(transactionId, accounts) {
+    LaunchedEffect(transactionId) {
         val id = transactionId?.let(UUID::fromString) ?: return@LaunchedEffect
-        val existing = repository.getTransaction(id)?.transaction ?: return@LaunchedEffect
+        val existingWithDetails = repository.getTransaction(id) ?: return@LaunchedEffect
+        val existing = existingWithDetails.transaction
         if (existing.type == TransactionType.Transfer && TransactionSemantics.isDebtForgiveness(existing.note)) {
             mode = DebtMode.Forgive
             entryMode = DebtEntryMode.Normal
@@ -176,7 +181,41 @@ fun DebtEntryScreen(
             amountInput = existing.amount.abs().toPlainString()
             note = extractForgivenessBaseNote(existing.note)
             date = existing.date
+            return@LaunchedEffect
         }
+
+        val groupId = existing.transferGroupId ?: return@LaunchedEffect
+        val classification = repository.classifyTransferGroup(groupId)
+        if (classification?.semantic != TransferGroupSemantic.Debt) {
+            validationMessage = "這筆紀錄不是可編輯的債務轉帳。"
+            return@LaunchedEffect
+        }
+        val group = repository.getTransferGroup(groupId)
+        val debtLeg = group.singleOrNull { it.account?.type == org.duckdns.lhfser.aiaccounting.core.model.AccountType.Debt }
+        val ownLeg = group.singleOrNull { it.account?.type != org.duckdns.lhfser.aiaccounting.core.model.AccountType.Debt }
+        if (debtLeg == null || ownLeg == null || group.size != 2) {
+            validationMessage = "這筆債務轉帳的分錄結構不完整。"
+            return@LaunchedEffect
+        }
+
+        editingDebtGroupId = groupId
+        mode = if (
+            debtLeg.transaction.transferSide == TransferSide.Outgoing ||
+            (debtLeg.transaction.transferSide == null && debtLeg.transaction.amount < BigDecimal.ZERO)
+        ) {
+            DebtMode.Borrow
+        } else {
+            DebtMode.Repay
+        }
+        entryMode = DebtEntryMode.Normal
+        selectedDebtAccount = debtLeg.account
+        selectedMyAccount = ownLeg.account
+        selectedCurrency = ownLeg.transaction.currencyCode
+        amountInput = ownLeg.transaction.amount.abs().toPlainString()
+        note = extractDebtBaseNote(
+            group.firstOrNull { it.transaction.note.isNotBlank() }?.transaction?.note.orEmpty()
+        )
+        date = ownLeg.transaction.date
     }
 
     Column(
@@ -206,7 +245,9 @@ fun DebtEntryScreen(
                 options = DebtMode.values().toList(),
                 selected = mode,
                 label = { debtModeTitle(it, selectedDebtBalance) },
-                onSelect = { mode = it }
+                onSelect = { selected ->
+                    if (editingDebtGroupId == null) mode = selected
+                }
             )
             if (mode == DebtMode.Forgive) {
                 ParitySegmentedControl(
@@ -225,8 +266,17 @@ fun DebtEntryScreen(
                     options = DebtEntryMode.values().toList(),
                     selected = entryMode,
                     label = { it.label },
-                    onSelect = { entryMode = it }
+                    onSelect = { selected ->
+                        if (editingDebtGroupId == null) entryMode = selected
+                    }
                 )
+                if (editingDebtGroupId != null) {
+                    Text(
+                        "編輯既有債務時會保留借入／還款方向與原本的關聯。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
 
@@ -391,6 +441,10 @@ fun DebtEntryScreen(
                             return@launch
                         }
                         val id = transactionId?.let(UUID::fromString) ?: UUID.randomUUID()
+                        val createdAt = transactionId
+                            ?.let(UUID::fromString)
+                            ?.let { repository.getTransaction(it)?.transaction?.createdAt }
+                            ?: Instant.now()
                         val transaction = TransactionEntity(
                             id = id,
                             amount = amount.multiply(forgivenessDirection.amountSign),
@@ -402,7 +456,7 @@ fun DebtEntryScreen(
                             linkedTransactionId = null,
                             transferGroupId = null,
                             transferSide = null,
-                            createdAt = Instant.now(),
+                            createdAt = createdAt,
                             updatedAt = Instant.now(),
                             accountId = debtAccount.id,
                             categoryId = null
@@ -410,6 +464,62 @@ fun DebtEntryScreen(
                         repository.upsertTransaction(transaction, emptyList())
                         onDone()
                     } else {
+                        val existingGroupId = editingDebtGroupId
+                        if (existingGroupId != null) {
+                            val ownAccount = selectedMyAccount
+                            val amount = amountInput.toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO }
+                            if (ownAccount == null || amount == null) {
+                                validationMessage = "請輸入完整金額並選擇自己的帳戶。"
+                                return@launch
+                            }
+                            val legs = if (mode == DebtMode.Borrow) {
+                                listOf(
+                                    TransferReplacementLeg(
+                                        accountId = debtAccount.id,
+                                        currencyCode = selectedCurrency,
+                                        amount = amount,
+                                        side = TransferSide.Outgoing
+                                    ),
+                                    TransferReplacementLeg(
+                                        accountId = ownAccount.id,
+                                        currencyCode = selectedCurrency,
+                                        amount = amount,
+                                        side = TransferSide.Incoming
+                                    )
+                                )
+                            } else {
+                                listOf(
+                                    TransferReplacementLeg(
+                                        accountId = ownAccount.id,
+                                        currencyCode = selectedCurrency,
+                                        amount = amount,
+                                        side = TransferSide.Outgoing
+                                    ),
+                                    TransferReplacementLeg(
+                                        accountId = debtAccount.id,
+                                        currencyCode = selectedCurrency,
+                                        amount = amount,
+                                        side = TransferSide.Incoming
+                                    )
+                                )
+                            }
+                            runCatching {
+                                repository.replaceTransferGroup(
+                                    TransferGroupReplacementDraft(
+                                        groupId = existingGroupId,
+                                        date = date,
+                                        note = note,
+                                        legs = legs
+                                    )
+                                )
+                            }.onSuccess {
+                                onDone()
+                            }.onFailure {
+                                validationMessage = it.localizedMessage ?: "無法儲存債務紀錄。"
+                            }
+                            return@launch
+                        }
+
                         val debtTransactions = buildDebtTransactions(
                             mode = mode,
                             entryMode = entryMode,
@@ -745,4 +855,13 @@ private fun extractForgivenessBaseNote(note: String): String {
         .replace(Regex("\\(對方免除：.*\\)$"), "")
         .replace(Regex("\\(我方免除：.*\\)$"), "")
         .trim()
+}
+
+private fun extractDebtBaseNote(note: String): String {
+    val separators = listOf(" (借入至", " (來自", " (還款給", " (轉至")
+    val separatorIndex = separators
+        .map { note.indexOf(it) }
+        .filter { it >= 0 }
+        .minOrNull()
+    return if (separatorIndex == null) note.trim() else note.substring(0, separatorIndex).trim()
 }

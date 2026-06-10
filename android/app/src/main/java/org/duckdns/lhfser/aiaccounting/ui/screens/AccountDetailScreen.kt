@@ -34,6 +34,8 @@ import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.data.repository.LedgerDeletionResult
 import org.duckdns.lhfser.aiaccounting.data.settlement.DebtSettlementBalanceCalculator
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
+import org.duckdns.lhfser.aiaccounting.ui.routing.TransactionEditDestination
+import org.duckdns.lhfser.aiaccounting.ui.routing.resolveTransactionEditDestination
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityEmptyState
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityStatusPill
@@ -53,7 +55,8 @@ fun AccountDetailScreen(
     onEditAccount: (String) -> Unit,
     onEditTransaction: (String) -> Unit,
     onEditTransfer: (String) -> Unit,
-    onEditDebt: (String) -> Unit
+    onEditDebt: (String) -> Unit,
+    onOpenAdvanceCase: (String) -> Unit
 ) {
     val repository = LocalRepository.current
     val scope = rememberCoroutineScope()
@@ -162,11 +165,19 @@ fun AccountDetailScreen(
                 AccountTransactionRow(
                     item = item,
                     onClick = {
-                        val groupId = item.transaction.transferGroupId?.toString()
-                        when {
-                            item.transaction.type == TransactionType.Transfer && TransactionSemantics.isDebtForgiveness(item.transaction.note) -> onEditDebt(item.transaction.id.toString())
-                            item.transaction.type == TransactionType.Transfer && groupId != null -> onEditTransfer(groupId)
-                            else -> onEditTransaction(item.transaction.id.toString())
+                        scope.launch {
+                            runCatching {
+                                resolveTransactionEditDestination(repository, item)
+                            }.onSuccess { destination ->
+                                when (destination) {
+                                    is TransactionEditDestination.Ordinary -> onEditTransaction(destination.transactionId)
+                                    is TransactionEditDestination.Transfer -> onEditTransfer(destination.groupId)
+                                    is TransactionEditDestination.Debt -> onEditDebt(destination.transactionId)
+                                    is TransactionEditDestination.Advance -> onOpenAdvanceCase(destination.caseId)
+                                }
+                            }.onFailure {
+                                errorMessage = it.localizedMessage ?: "無法開啟編輯頁。"
+                            }
                         }
                     },
                     onLongClick = { transactionToDelete = item }

@@ -87,6 +87,34 @@ enum class LedgerDeletionResult {
     AdvanceInitialRequiresCase
 }
 
+enum class TransferGroupSemantic {
+    Ordinary,
+    Debt,
+    AdvanceInitial,
+    AdvanceRepayment
+}
+
+data class TransferGroupClassification(
+    val semantic: TransferGroupSemantic,
+    val advanceCaseId: UUID? = null,
+    val advanceParticipantId: UUID? = null,
+    val advanceRepaymentId: UUID? = null
+)
+
+data class TransferReplacementLeg(
+    val accountId: UUID,
+    val currencyCode: String,
+    val amount: BigDecimal,
+    val side: TransferSide
+)
+
+data class TransferGroupReplacementDraft(
+    val groupId: UUID,
+    val date: Instant,
+    val note: String,
+    val legs: List<TransferReplacementLeg>
+)
+
 data class LegacyBorrowedAdvanceRepairResult(
     val repairedParticipantCount: Int,
     val removedInflatedAccountTransactionCount: Int
@@ -167,12 +195,127 @@ class AccountingRepository(
         val remaining: BigDecimal
     )
 
+    private data class ResolvedTransferReplacementLeg(
+        val account: AccountEntity,
+        val currencyCode: String,
+        val amount: BigDecimal,
+        val side: TransferSide
+    )
+
     suspend fun getTransaction(transactionId: UUID): TransactionWithDetails? {
         return transactionDao.getTransaction(transactionId)
     }
 
     suspend fun getTransferGroup(groupId: UUID): List<TransactionWithDetails> {
         return transactionDao.getTransferGroup(groupId)
+    }
+
+    suspend fun classifyTransferGroup(groupId: UUID): TransferGroupClassification? {
+        return database.withTransaction {
+            classifyTransferGroupLocked(groupId)
+        }
+    }
+
+    suspend fun replaceTransferGroup(draft: TransferGroupReplacementDraft): TransferGroupClassification {
+        validateTransferReplacementDraft(draft)
+
+        return database.withTransaction {
+            val existing = transactionDao.getTransferGroup(draft.groupId)
+            require(existing.isNotEmpty()) { "找不到要編輯的轉帳。" }
+
+            val classification = requireNotNull(classifyTransferGroupLocked(draft.groupId)) {
+                "無法判斷轉帳類型。"
+            }
+            require(
+                classification.semantic == TransferGroupSemantic.Ordinary ||
+                    classification.semantic == TransferGroupSemantic.Debt
+            ) {
+                "代墊建立或還款分錄必須從代墊詳情編輯。"
+            }
+
+            val accountById = accountDao.getAll().associateBy { it.id }
+            val resolvedLegs = draft.legs.map { leg ->
+                val account = requireNotNull(accountById[leg.accountId]) { "找不到所選帳戶。" }
+                ResolvedTransferReplacementLeg(
+                    account = account,
+                    currencyCode = leg.currencyCode.trim().uppercase(),
+                    amount = leg.amount.abs(),
+                    side = leg.side
+                )
+            }
+
+            validateTransferSemantic(classification.semantic, existing, resolvedLegs)
+
+            val existingBySide = existing.groupBy { effectiveTransferSide(it.transaction) }
+            val outgoingCounterpart = counterpartSummary(
+                resolvedLegs.filter { it.side == TransferSide.Incoming }.map { it.account }
+            )
+            val incomingCounterpart = counterpartSummary(
+                resolvedLegs.filter { it.side == TransferSide.Outgoing }.map { it.account }
+            )
+            val memo = draft.note.trim().ifBlank {
+                if (classification.semantic == TransferGroupSemantic.Debt) "借貸" else "轉帳"
+            }
+            val now = Instant.now()
+            val prepared = mutableListOf<TransactionEntity>()
+            val removed = mutableListOf<TransactionEntity>()
+
+            TransferSide.values().forEach { side ->
+                val desiredForSide = resolvedLegs.filter { it.side == side }
+                val existingForSide = existingBySide[side]
+                    .orEmpty()
+                    .sortedWith(compareBy({ it.transaction.createdAt }, { it.transaction.id.toString() }))
+
+                desiredForSide.forEachIndexed { index, leg ->
+                    val current = existingForSide.getOrNull(index)?.transaction
+                    prepared += TransactionEntity(
+                        id = current?.id ?: UUID.randomUUID(),
+                        amount = if (side == TransferSide.Outgoing) leg.amount.negate() else leg.amount,
+                        currencyCode = leg.currencyCode,
+                        date = draft.date,
+                        note = transferReplacementNote(
+                            semantic = classification.semantic,
+                            side = side,
+                            legAccount = leg.account,
+                            allLegs = resolvedLegs,
+                            memo = memo,
+                            ordinaryCounterpart = if (side == TransferSide.Outgoing) {
+                                outgoingCounterpart
+                            } else {
+                                incomingCounterpart
+                            }
+                        ),
+                        photoPath = current?.photoPath,
+                        type = TransactionType.Transfer,
+                        linkedTransactionId = null,
+                        transferGroupId = draft.groupId,
+                        transferSide = side,
+                        createdAt = current?.createdAt ?: now,
+                        updatedAt = now,
+                        accountId = leg.account.id,
+                        categoryId = null
+                    )
+                }
+                removed += existingForSide.drop(desiredForSide.size).map { it.transaction }
+            }
+
+            if (prepared.size == 2) {
+                val outgoing = prepared.single { it.transferSide == TransferSide.Outgoing }
+                val incoming = prepared.single { it.transferSide == TransferSide.Incoming }
+                val outgoingIndex = prepared.indexOfFirst { it.id == outgoing.id }
+                val incomingIndex = prepared.indexOfFirst { it.id == incoming.id }
+                prepared[outgoingIndex] = outgoing.copy(linkedTransactionId = incoming.id)
+                prepared[incomingIndex] = incoming.copy(linkedTransactionId = outgoing.id)
+            }
+
+            removed.forEach { transaction ->
+                transactionDao.clearTransactionTags(transaction.id)
+                transactionDao.delete(transaction)
+            }
+            transactionDao.upsertAll(prepared)
+            syncAllBudgetHistory()
+            classification
+        }
     }
 
     suspend fun getAccount(accountId: UUID): AccountEntity? {
@@ -2046,6 +2189,133 @@ class AccountingRepository(
         }
         syncAllBudgetHistory()
         return LedgerDeletionResult.Deleted
+    }
+
+    private suspend fun classifyTransferGroupLocked(groupId: UUID): TransferGroupClassification? {
+        advanceDao.getAllRepayments()
+            .firstOrNull { it.linkedTransferGroupId == groupId }
+            ?.let { repayment ->
+                return TransferGroupClassification(
+                    semantic = TransferGroupSemantic.AdvanceRepayment,
+                    advanceCaseId = repayment.advanceCaseId,
+                    advanceParticipantId = repayment.participantId,
+                    advanceRepaymentId = repayment.id
+                )
+            }
+
+        advanceDao.getAllParticipants()
+            .firstOrNull { it.initialTransferGroupId == groupId }
+            ?.let { participant ->
+                return TransferGroupClassification(
+                    semantic = TransferGroupSemantic.AdvanceInitial,
+                    advanceCaseId = participant.advanceCaseId,
+                    advanceParticipantId = participant.id
+                )
+            }
+
+        val group = transactionDao.getTransferGroup(groupId)
+        if (group.isEmpty()) return null
+        if (group.any { TransactionSemantics.isDebtForgiveness(it.transaction.note) }) {
+            return TransferGroupClassification(TransferGroupSemantic.Debt)
+        }
+        return if (group.any { it.account?.type == AccountType.Debt }) {
+            TransferGroupClassification(TransferGroupSemantic.Debt)
+        } else {
+            TransferGroupClassification(TransferGroupSemantic.Ordinary)
+        }
+    }
+
+    private fun validateTransferReplacementDraft(draft: TransferGroupReplacementDraft) {
+        require(draft.legs.any { it.side == TransferSide.Outgoing }) { "至少需要一筆轉出分錄。" }
+        require(draft.legs.any { it.side == TransferSide.Incoming }) { "至少需要一筆轉入分錄。" }
+        require(draft.legs.all { it.amount > BigDecimal.ZERO }) { "所有轉帳金額都必須大於 0。" }
+        require(draft.legs.all { it.currencyCode.isNotBlank() }) { "所有轉帳分錄都必須有幣種。" }
+
+        TransferSide.values().forEach { side ->
+            val sideLegs = draft.legs.filter { it.side == side }
+            val uniqueIdentities = sideLegs
+                .map { it.accountId to it.currencyCode.trim().uppercase() }
+                .toSet()
+            require(uniqueIdentities.size == sideLegs.size) {
+                "同一方向不可重複使用相同帳戶及幣種。"
+            }
+        }
+    }
+
+    private fun validateTransferSemantic(
+        semantic: TransferGroupSemantic,
+        existing: List<TransactionWithDetails>,
+        desired: List<ResolvedTransferReplacementLeg>
+    ) {
+        when (semantic) {
+            TransferGroupSemantic.Ordinary -> {
+                require(desired.none { it.account.type == AccountType.Debt }) {
+                    "一般轉帳不可直接改成債務紀錄，請使用債務管理。"
+                }
+            }
+            TransferGroupSemantic.Debt -> {
+                require(desired.size == 2) { "債務轉帳必須保持一進一出。" }
+                require(desired.count { it.account.type == AccountType.Debt } == 1) {
+                    "債務轉帳必須包含一個借貸對象與一個自己的帳戶。"
+                }
+                val existingDebtSide = existing
+                    .singleOrNull { it.account?.type == AccountType.Debt }
+                    ?.transaction
+                    ?.let(::effectiveTransferSide)
+                val desiredDebtSide = desired.single { it.account.type == AccountType.Debt }.side
+                require(existingDebtSide != null && desiredDebtSide == existingDebtSide) {
+                    "不可在編輯時翻轉借入／還款方向；請建立新的債務紀錄。"
+                }
+            }
+            TransferGroupSemantic.AdvanceInitial,
+            TransferGroupSemantic.AdvanceRepayment -> {
+                error("代墊關聯轉帳不可使用一般替換。")
+            }
+        }
+    }
+
+    private fun counterpartSummary(accounts: List<AccountEntity>): String {
+        val distinct = accounts.distinctBy { it.id }
+        return when (distinct.size) {
+            0 -> "帳戶"
+            1 -> distinct.single().name
+            else -> "${distinct.size} 個帳戶"
+        }
+    }
+
+    private fun effectiveTransferSide(transaction: TransactionEntity): TransferSide {
+        return transaction.transferSide
+            ?: if (transaction.amount < BigDecimal.ZERO) TransferSide.Outgoing else TransferSide.Incoming
+    }
+
+    private fun transferReplacementNote(
+        semantic: TransferGroupSemantic,
+        side: TransferSide,
+        legAccount: AccountEntity,
+        allLegs: List<ResolvedTransferReplacementLeg>,
+        memo: String,
+        ordinaryCounterpart: String
+    ): String {
+        if (semantic == TransferGroupSemantic.Ordinary) {
+            return if (side == TransferSide.Outgoing) {
+                "$memo (轉至 $ordinaryCounterpart)"
+            } else {
+                "$memo (來自 $ordinaryCounterpart)"
+            }
+        }
+
+        val debtLeg = allLegs.single { it.account.type == AccountType.Debt }
+        val ownLeg = allLegs.single { it.account.type != AccountType.Debt }
+        return when {
+            debtLeg.side == TransferSide.Outgoing && legAccount.type == AccountType.Debt ->
+                "$memo (借入至 ${ownLeg.account.name})"
+            debtLeg.side == TransferSide.Outgoing ->
+                "$memo (來自 ${debtLeg.account.name})"
+            side == TransferSide.Outgoing ->
+                "$memo (還款給 ${debtLeg.account.name})"
+            else ->
+                "$memo (來自 ${ownLeg.account.name})"
+        }
     }
 
     private suspend fun rollbackRepayments(repayments: List<AdvanceRepaymentEntity>) {

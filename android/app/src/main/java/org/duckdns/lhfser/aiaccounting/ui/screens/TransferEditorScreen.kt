@@ -31,8 +31,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.TransferSide
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
-import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
-import org.duckdns.lhfser.aiaccounting.data.repository.TransferLeg
+import org.duckdns.lhfser.aiaccounting.data.repository.TransferGroupReplacementDraft
+import org.duckdns.lhfser.aiaccounting.data.repository.TransferGroupSemantic
+import org.duckdns.lhfser.aiaccounting.data.repository.TransferReplacementLeg
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
@@ -96,6 +97,9 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
     var note by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(Instant.now()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isLoaded by remember { mutableStateOf(false) }
+    var isEditable by remember { mutableStateOf(false) }
     val selectableAccountIds = buildSet {
         fromAccount?.id?.let(::add)
         toAccount?.id?.let(::add)
@@ -110,13 +114,36 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
         currencyService.fetchRates()
     }
 
-    LaunchedEffect(groupId, accounts) {
+    LaunchedEffect(groupId) {
         val id = groupId?.let(UUID::fromString) ?: return@LaunchedEffect
+        val classification = repository.classifyTransferGroup(id)
+        if (classification?.semantic != TransferGroupSemantic.Ordinary) {
+            errorMessage = when (classification?.semantic) {
+                TransferGroupSemantic.Debt -> "這是債務管理分錄，請從債務管理編輯。"
+                TransferGroupSemantic.AdvanceInitial,
+                TransferGroupSemantic.AdvanceRepayment -> "這是代墊關聯分錄，請從代墊詳情編輯。"
+                else -> "找不到可編輯的轉帳。"
+            }
+            isLoaded = true
+            return@LaunchedEffect
+        }
         val group = repository.getTransferGroup(id)
-        if (group.isEmpty()) return@LaunchedEffect
+        if (group.isEmpty()) {
+            errorMessage = "找不到可編輯的轉帳。"
+            isLoaded = true
+            return@LaunchedEffect
+        }
 
-        val outgoing = group.filter { it.transaction.transferSide == TransferSide.Outgoing }
-        val incoming = group.filter { it.transaction.transferSide == TransferSide.Incoming }
+        val outgoing = group.filter {
+            it.transaction.transferSide == TransferSide.Outgoing || (
+                it.transaction.transferSide == null && it.transaction.amount < BigDecimal.ZERO
+            )
+        }
+        val incoming = group.filter {
+            it.transaction.transferSide == TransferSide.Incoming || (
+                it.transaction.transferSide == null && it.transaction.amount >= BigDecimal.ZERO
+            )
+        }
         val firstNote = group.firstOrNull { it.transaction.note.isNotBlank() }?.transaction?.note ?: ""
         note = firstNote
         date = (outgoing.firstOrNull() ?: incoming.first()).transaction.date
@@ -125,8 +152,8 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
                 mode = TransferEditMode.OneToOne
                 val outTx = outgoing.first()
                 val inTx = incoming.first()
-                fromAccount = accounts.firstOrNull { it.id == outTx.transaction.accountId }
-                toAccount = accounts.firstOrNull { it.id == inTx.transaction.accountId }
+                fromAccount = outTx.account
+                toAccount = inTx.account
                 currencyOut = outTx.transaction.currencyCode
                 currencyIn = inTx.transaction.currencyCode
                 amountOut = outTx.transaction.amount.abs().toPlainString()
@@ -135,12 +162,12 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
             outgoing.size == 1 && incoming.size > 1 -> {
                 mode = TransferEditMode.OneToMany
                 val outTx = outgoing.first()
-                sourceAccount = accounts.firstOrNull { it.id == outTx.transaction.accountId }
+                sourceAccount = outTx.account
                 sourceCurrency = outTx.transaction.currencyCode
                 sourceAmount = outTx.transaction.amount.abs().toPlainString()
                 destinationLegs = incoming.map { tx ->
                     TransferEditLegInput(
-                        account = accounts.firstOrNull { it.id == tx.transaction.accountId },
+                        account = tx.account,
                         currency = tx.transaction.currencyCode,
                         amount = tx.transaction.amount.abs().toPlainString()
                     )
@@ -149,18 +176,21 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
             outgoing.size > 1 && incoming.size == 1 -> {
                 mode = TransferEditMode.ManyToOne
                 val inTx = incoming.first()
-                destinationAccount = accounts.firstOrNull { it.id == inTx.transaction.accountId }
+                destinationAccount = inTx.account
                 destinationCurrency = inTx.transaction.currencyCode
                 destinationAmount = inTx.transaction.amount.abs().toPlainString()
                 sourceLegs = outgoing.map { tx ->
                     TransferEditLegInput(
-                        account = accounts.firstOrNull { it.id == tx.transaction.accountId },
+                        account = tx.account,
                         currency = tx.transaction.currencyCode,
                         amount = tx.transaction.amount.abs().toPlainString()
                     )
                 }
             }
+            else -> errorMessage = "這組轉帳的分錄結構不完整，無法安全編輯。"
         }
+        isEditable = errorMessage == null
+        isLoaded = true
     }
 
     Column(
@@ -328,72 +358,84 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
         Button(
             onClick = {
                 scope.launch {
-                    val id = groupId?.let(UUID::fromString) ?: return@launch
-                    repository.deleteTransferGroup(id)
-                    when (mode) {
-                        TransferEditMode.OneToOne -> {
-                            val from = fromAccount ?: return@launch
-                            val to = toAccount ?: return@launch
-                            val amountOutValue = parsePositive(amountOut) ?: return@launch
-                            val amountInValue = if (currencyOut == currencyIn) amountOutValue else parsePositive(amountIn)
-                                ?: return@launch
-                            repository.createTransferOneToOne(
-                                from = from,
-                                to = to,
-                                amountOut = amountOutValue,
-                                currencyOut = currencyOut,
-                                amountIn = amountInValue,
-                                currencyIn = currencyIn,
-                                date = date,
-                                note = note
+                    runCatching {
+                        val id = requireNotNull(groupId?.let(UUID::fromString)) { "缺少轉帳識別資料。" }
+                        val legs = when (mode) {
+                            TransferEditMode.OneToOne -> listOf(
+                                TransferReplacementLeg(
+                                    accountId = requireNotNull(fromAccount?.id) { "請選擇轉出帳戶。" },
+                                    currencyCode = currencyOut,
+                                    amount = requireNotNull(parsePositive(amountOut)) { "請輸入有效轉出金額。" },
+                                    side = TransferSide.Outgoing
+                                ),
+                                TransferReplacementLeg(
+                                    accountId = requireNotNull(toAccount?.id) { "請選擇轉入帳戶。" },
+                                    currencyCode = currencyIn,
+                                    amount = requireNotNull(parsePositive(amountIn)) { "請輸入有效轉入金額。" },
+                                    side = TransferSide.Incoming
+                                )
                             )
-                        }
-                        TransferEditMode.OneToMany -> {
-                            val source = sourceAccount ?: return@launch
-                            val sourceValue = parsePositive(sourceAmount) ?: return@launch
-                            val legs = destinationLegs.mapNotNull { leg ->
-                                val account = leg.account ?: return@mapNotNull null
-                                val amount = parsePositive(leg.amount) ?: return@mapNotNull null
-                                TransferLeg(account, leg.currency, amount)
+                            TransferEditMode.OneToMany -> {
+                                val source = requireNotNull(sourceAccount) { "請選擇轉出帳戶。" }
+                                val sourceValue = requireNotNull(parsePositive(sourceAmount)) { "請輸入有效轉出總額。" }
+                                listOf(
+                                    TransferReplacementLeg(
+                                        accountId = source.id,
+                                        currencyCode = sourceCurrency,
+                                        amount = sourceValue,
+                                        side = TransferSide.Outgoing
+                                    )
+                                ) + destinationLegs.mapIndexed { index, leg ->
+                                    TransferReplacementLeg(
+                                        accountId = requireNotNull(leg.account?.id) { "請選擇轉入帳戶 ${index + 1}。" },
+                                        currencyCode = leg.currency,
+                                        amount = requireNotNull(parsePositive(leg.amount)) { "請輸入轉入帳戶 ${index + 1} 的有效金額。" },
+                                        side = TransferSide.Incoming
+                                    )
+                                }
                             }
-                            if (legs.isEmpty()) return@launch
-                            repository.createTransferOneToMany(
-                                source = source,
-                                sourceAmount = sourceValue,
-                                sourceCurrency = sourceCurrency,
-                                destinations = legs,
-                                date = date,
-                                note = note
-                            )
-                        }
-                        TransferEditMode.ManyToOne -> {
-                            val destination = destinationAccount ?: return@launch
-                            val destinationValue = parsePositive(destinationAmount) ?: return@launch
-                            val legs = sourceLegs.mapNotNull { leg ->
-                                val account = leg.account ?: return@mapNotNull null
-                                val amount = parsePositive(leg.amount) ?: return@mapNotNull null
-                                TransferLeg(account, leg.currency, amount)
+                            TransferEditMode.ManyToOne -> {
+                                val destination = requireNotNull(destinationAccount) { "請選擇轉入帳戶。" }
+                                val destinationValue = requireNotNull(parsePositive(destinationAmount)) { "請輸入有效轉入總額。" }
+                                sourceLegs.mapIndexed { index, leg ->
+                                    TransferReplacementLeg(
+                                        accountId = requireNotNull(leg.account?.id) { "請選擇轉出帳戶 ${index + 1}。" },
+                                        currencyCode = leg.currency,
+                                        amount = requireNotNull(parsePositive(leg.amount)) { "請輸入轉出帳戶 ${index + 1} 的有效金額。" },
+                                        side = TransferSide.Outgoing
+                                    )
+                                } + TransferReplacementLeg(
+                                    accountId = destination.id,
+                                    currencyCode = destinationCurrency,
+                                    amount = destinationValue,
+                                    side = TransferSide.Incoming
+                                )
                             }
-                            if (legs.isEmpty()) return@launch
-                            repository.createTransferManyToOne(
-                                destination = destination,
-                                destinationAmount = destinationValue,
-                                destinationCurrency = destinationCurrency,
-                                sources = legs,
-                                date = date,
-                                note = note
-                            )
                         }
+                        repository.replaceTransferGroup(
+                            TransferGroupReplacementDraft(
+                                groupId = id,
+                                date = date,
+                                note = note,
+                                legs = legs
+                            )
+                        )
+                    }.onSuccess {
+                        onDone()
+                    }.onFailure {
+                        errorMessage = it.localizedMessage ?: "無法儲存轉帳。"
                     }
-                    onDone()
                 }
-            }
+            },
+            enabled = isLoaded && isEditable
         ) {
             Text("儲存")
         }
 
-        TextButton(onClick = { showDeleteConfirm = true }) {
-            Text("刪除轉帳", color = MaterialTheme.colorScheme.error)
+        if (isEditable) {
+            TextButton(onClick = { showDeleteConfirm = true }) {
+                Text("刪除轉帳", color = MaterialTheme.colorScheme.error)
+            }
         }
     }
 
@@ -413,6 +455,17 @@ fun TransferEditorScreen(groupId: String?, onDone: () -> Unit) {
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+            }
+        )
+    }
+
+    if (errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { errorMessage = null },
+            title = { Text("無法編輯轉帳") },
+            text = { Text(errorMessage.orEmpty()) },
+            confirmButton = {
+                TextButton(onClick = { errorMessage = null }) { Text("了解") }
             }
         )
     }

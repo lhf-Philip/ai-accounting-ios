@@ -260,7 +260,8 @@ fun AIAccountingRoot(
                 ReportsScreen(
                     onEdit = { id -> navController.navigate("transaction/edit/$id") },
                     onEditTransfer = { groupId -> navController.navigate("transfer/edit/$groupId") },
-                    onEditDebt = { id -> navController.navigate("debt/edit/$id") }
+                    onEditDebt = { id -> navController.navigate("debt/edit/$id") },
+                    onOpenAdvanceCase = { caseId -> navController.navigate("advance/$caseId") }
                 )
             }
             composable(AppDestination.Accounts.route) {
@@ -432,7 +433,8 @@ fun AIAccountingRoot(
                     onEditAccount = { id -> navController.navigate("accounts/edit/$id") },
                     onEditTransaction = { id -> navController.navigate("transaction/edit/$id") },
                     onEditTransfer = { groupId -> navController.navigate("transfer/edit/$groupId") },
-                    onEditDebt = { id -> navController.navigate("debt/edit/$id") }
+                    onEditDebt = { id -> navController.navigate("debt/edit/$id") },
+                    onOpenAdvanceCase = { caseId -> navController.navigate("advance/$caseId") }
                 )
             }
             composable(
