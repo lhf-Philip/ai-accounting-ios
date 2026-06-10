@@ -627,6 +627,64 @@ class AccountingRepository(
         }
     }
 
+    suspend fun replaceOrdinaryTransactions(
+        originalTransactionId: UUID?,
+        replacements: List<TransactionEntity>,
+        tagIds: List<UUID> = emptyList()
+    ): List<UUID> {
+        require(replacements.isNotEmpty()) { "至少需要一筆交易。" }
+        replacements.forEach(::validateOrdinaryReplacement)
+
+        return database.withTransaction {
+            val original = originalTransactionId?.let { transactionId ->
+                requireNotNull(transactionDao.getTransaction(transactionId)?.transaction) {
+                    "找不到要編輯的交易。"
+                }
+            }
+            if (original != null) {
+                validateOrdinaryReplacement(original)
+            }
+
+            val now = Instant.now()
+            val prepared = replacements.mapIndexed { index, replacement ->
+                when {
+                    original == null -> replacement
+                    replacements.size == 1 -> replacement.copy(
+                        id = original.id,
+                        photoPath = replacement.photoPath ?: original.photoPath,
+                        createdAt = original.createdAt,
+                        updatedAt = now
+                    )
+                    index == 0 -> replacement.copy(
+                        photoPath = replacement.photoPath ?: original.photoPath,
+                        createdAt = original.createdAt,
+                        updatedAt = now
+                    )
+                    else -> replacement.copy(updatedAt = now)
+                }
+            }
+
+            original?.let {
+                transactionDao.clearTransactionTags(it.id)
+                if (prepared.none { replacement -> replacement.id == it.id }) {
+                    transactionDao.delete(it)
+                }
+            }
+
+            prepared.forEach { transactionDao.clearTransactionTags(it.id) }
+            transactionDao.upsertAll(prepared)
+            if (tagIds.isNotEmpty()) {
+                transactionDao.insertTransactionTags(
+                    prepared.flatMap { transaction ->
+                        tagIds.map { tagId -> TransactionTagCrossRef(transaction.id, tagId) }
+                    }
+                )
+            }
+            syncAllBudgetHistory()
+            prepared.map { it.id }
+        }
+    }
+
     suspend fun deleteTransaction(transaction: TransactionEntity) {
         database.withTransaction {
             transactionDao.delete(transaction)
@@ -2009,6 +2067,28 @@ class AccountingRepository(
         transactions.forEach { transaction ->
             transactionDao.delete(transaction)
             transactionDao.clearTransactionTags(transaction.id)
+        }
+    }
+
+    private fun validateOrdinaryReplacement(transaction: TransactionEntity) {
+        require(transaction.amount.compareTo(BigDecimal.ZERO) != 0) {
+            "交易金額不可為零。"
+        }
+        require(transaction.currencyCode.isNotBlank()) {
+            "交易幣種不可留空。"
+        }
+        require(transaction.accountId != null) {
+            "請選擇帳戶。"
+        }
+        require(transaction.type != TransactionType.Transfer) {
+            "轉帳必須使用轉帳編輯流程。"
+        }
+        require(
+            transaction.transferGroupId == null &&
+                transaction.linkedTransactionId == null &&
+                transaction.transferSide == null
+        ) {
+            "這筆交易包含轉帳或代墊關聯，必須使用對應的編輯流程。"
         }
     }
 

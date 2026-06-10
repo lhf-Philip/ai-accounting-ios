@@ -127,36 +127,46 @@ fun TransactionEditorScreen(
         (allowed + preserved).distinctBy { it.id }
     }
 
-    LaunchedEffect(transactionId, accounts, categories, tags) {
+    LaunchedEffect(transactionId) {
         if (transactionId == null) return@LaunchedEffect
         val tx = repository.getTransaction(UUID.fromString(transactionId))
-        tx?.let {
+        if (tx == null) {
+            errorMessage = "找不到要編輯的交易。"
+        } else {
             entryMode = EntryMode.Normal
-            transactionType = it.transaction.type
-            amountInput = it.transaction.amount.abs().toPlainString()
-            note = it.transaction.note
-            selectedAccount = accounts.firstOrNull { acc -> acc.id == it.transaction.accountId }
-            selectedCategory = categories.firstOrNull { cat -> cat.id == it.transaction.categoryId }
-            selectedTags = tags.filter { tag -> it.tags.any { t -> t.id == tag.id } }
-            selectedCurrency = it.transaction.currencyCode
-            date = it.transaction.date
+            transactionType = tx.transaction.type
+            amountInput = tx.transaction.amount.abs().toPlainString()
+            note = tx.transaction.note
+            selectedAccount = tx.account
+            selectedCategory = tx.category
+            selectedTags = tx.tags
+            selectedCurrency = tx.transaction.currencyCode
+            date = tx.transaction.date
         }
     }
 
     val filteredCategories = categories.filter { it.kind.supports(transactionType) }
 
     LaunchedEffect(transactionType, filteredCategories, selectableAccounts) {
-        if (selectedCategory != null && filteredCategories.none { it.id == selectedCategory?.id }) {
+        if (
+            categories.isNotEmpty() &&
+            selectedCategory != null &&
+            filteredCategories.none { it.id == selectedCategory?.id }
+        ) {
             selectedCategory = null
         }
         if (!newCategoryKind.supports(transactionType)) {
             newCategoryKind = defaultCategoryKindFor(transactionType)
         }
-        if (selectedAccount != null && selectableAccounts.none { it.id == selectedAccount?.id }) {
+        if (
+            accounts.isNotEmpty() &&
+            selectedAccount != null &&
+            selectableAccounts.none { it.id == selectedAccount?.id }
+        ) {
             selectedAccount = selectableAccounts.firstOrNull()
             selectedAccount?.let { selectedCurrency = it.currency }
         }
-        if (entryMode == EntryMode.Split) {
+        if (accounts.isNotEmpty() && entryMode == EntryMode.Split) {
             splitLegs = splitLegs.map { leg ->
                 if (leg.account != null && selectableAccounts.none { it.id == leg.account?.id }) {
                     leg.copy(account = null)
@@ -334,22 +344,26 @@ fun TransactionEditorScreen(
         Button(
             onClick = {
                 scope.launch {
-                    saveTransaction(
-                        repository = repository,
-                        entryMode = entryMode,
-                        transactionId = transactionId,
-                        type = transactionType,
-                        amountInput = amountInput,
-                        selectedAccount = selectedAccount,
-                        selectedCategory = selectedCategory,
-                        selectedTags = selectedTags,
-                        selectedCurrency = selectedCurrency,
-                        date = date,
-                        note = note,
-                        splitLegs = splitLegs,
-                        mergeLegs = mergeLegs
-                    )
-                    onDone()
+                    try {
+                        saveTransaction(
+                            repository = repository,
+                            entryMode = entryMode,
+                            transactionId = transactionId,
+                            type = transactionType,
+                            amountInput = amountInput,
+                            selectedAccount = selectedAccount,
+                            selectedCategory = selectedCategory,
+                            selectedTags = selectedTags,
+                            selectedCurrency = selectedCurrency,
+                            date = date,
+                            note = note,
+                            splitLegs = splitLegs,
+                            mergeLegs = mergeLegs
+                        )
+                        onDone()
+                    } catch (error: Exception) {
+                        errorMessage = error.message ?: "無法儲存交易。"
+                    }
                 }
             },
             enabled = canSubmit(
@@ -817,12 +831,15 @@ private suspend fun saveTransaction(
     splitLegs: List<SplitLeg>,
     mergeLegs: List<MergeLeg>
 ) {
+    val originalTransactionId = transactionId?.let(UUID::fromString)
+    val now = Instant.now()
+
     when (entryMode) {
         EntryMode.Normal -> {
-            val account = selectedAccount ?: return
-            val amount = parsePositive(amountInput) ?: return
+            val account = requireNotNull(selectedAccount) { "請選擇帳戶。" }
+            val amount = requireNotNull(parsePositive(amountInput)) { "請輸入有效金額。" }
             val finalAmount = if (type == TransactionType.Expense) amount.abs().negate() else amount.abs()
-            val txId = transactionId?.let(UUID::fromString) ?: UUID.randomUUID()
+            val txId = originalTransactionId ?: UUID.randomUUID()
             val transaction = TransactionEntity(
                 id = txId,
                 amount = finalAmount,
@@ -834,20 +851,21 @@ private suspend fun saveTransaction(
                 linkedTransactionId = null,
                 transferGroupId = null,
                 transferSide = null,
-                createdAt = Instant.now(),
-                updatedAt = Instant.now(),
+                createdAt = now,
+                updatedAt = now,
                 accountId = account.id,
                 categoryId = selectedCategory?.id
             )
-            repository.upsertTransaction(transaction, selectedTags.map { it.id })
+            repository.replaceOrdinaryTransactions(
+                originalTransactionId = originalTransactionId,
+                replacements = listOf(transaction),
+                tagIds = selectedTags.map { it.id }
+            )
         }
         EntryMode.Split -> {
-            if (transactionId != null) {
-                repository.deleteTransactionById(UUID.fromString(transactionId))
-            }
-            val legs = splitLegs.mapNotNull { leg ->
-                val account = leg.account ?: return@mapNotNull null
-                val amount = parsePositive(leg.amount) ?: return@mapNotNull null
+            val legs = splitLegs.map { leg ->
+                val account = requireNotNull(leg.account) { "請為每個分拆項目選擇帳戶。" }
+                val amount = requireNotNull(parsePositive(leg.amount)) { "請輸入有效的分拆金額。" }
                 Triple(account, amount, leg.currency)
             }
             val transactions = legs.mapIndexed { index, (account, amount, currency) ->
@@ -863,21 +881,22 @@ private suspend fun saveTransaction(
                     linkedTransactionId = null,
                     transferGroupId = null,
                     transferSide = null,
-                    createdAt = Instant.now(),
-                    updatedAt = Instant.now(),
+                    createdAt = now,
+                    updatedAt = now,
                     accountId = account.id,
                     categoryId = selectedCategory?.id
                 )
             }
-            repository.upsertTransactions(transactions, selectedTags.map { it.id })
+            repository.replaceOrdinaryTransactions(
+                originalTransactionId = originalTransactionId,
+                replacements = transactions,
+                tagIds = selectedTags.map { it.id }
+            )
         }
         EntryMode.Merge -> {
-            if (transactionId != null) {
-                repository.deleteTransactionById(UUID.fromString(transactionId))
-            }
-            val account = selectedAccount ?: return
-            val legs = mergeLegs.mapNotNull { leg ->
-                val amount = parsePositive(leg.amount) ?: return@mapNotNull null
+            val account = requireNotNull(selectedAccount) { "請選擇合併入帳戶。" }
+            val legs = mergeLegs.map { leg ->
+                val amount = requireNotNull(parsePositive(leg.amount)) { "請輸入有效的合併金額。" }
                 Pair(amount, leg.currency)
             }
             val transactions = legs.mapIndexed { index, (amount, currency) ->
@@ -893,13 +912,17 @@ private suspend fun saveTransaction(
                     linkedTransactionId = null,
                     transferGroupId = null,
                     transferSide = null,
-                    createdAt = Instant.now(),
-                    updatedAt = Instant.now(),
+                    createdAt = now,
+                    updatedAt = now,
                     accountId = account.id,
                     categoryId = selectedCategory?.id
                 )
             }
-            repository.upsertTransactions(transactions, selectedTags.map { it.id })
+            repository.replaceOrdinaryTransactions(
+                originalTransactionId = originalTransactionId,
+                replacements = transactions,
+                tagIds = selectedTags.map { it.id }
+            )
         }
     }
 }
