@@ -19,7 +19,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,8 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountDeletionImpact
+import org.duckdns.lhfser.aiaccounting.data.repository.AccountEditDraft
 import org.duckdns.lhfser.aiaccounting.core.model.AccountType
-import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.SectionCard
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyPicker
@@ -43,7 +42,6 @@ import java.util.UUID
 fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
     val repository = LocalRepository.current
     val scope = rememberCoroutineScope()
-    val accounts by repository.accounts.collectAsState(initial = emptyList())
     val scrollState = rememberScrollState()
 
     var name by remember { mutableStateOf("") }
@@ -57,9 +55,9 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
     var isEditing by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(accountId, accounts) {
+    LaunchedEffect(accountId) {
         val id = accountId?.let(UUID::fromString)
-        val existing = accounts.firstOrNull { it.id == id }
+        val existing = id?.let { repository.getAccount(it) }
         if (existing != null) {
             isEditing = true
             name = existing.name
@@ -88,16 +86,35 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
             ,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                 keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
-            CurrencyPicker(selected = currency, onSelect = { currency = it })
+            if (isEditing) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("主幣種", style = MaterialTheme.typography.titleSmall)
+                    Text(currency, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "主幣種建立後不可修改；其他幣種請透過交易或餘額調整記錄。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                CurrencyPicker(selected = currency, onSelect = { currency = it })
+            }
             AccountTypePicker(type = type, onChange = { type = it })
-            OutlinedTextField(
-                value = baseBalance,
-                onValueChange = { baseBalance = sanitizeAmount(it) },
-                label = { Text("初始餘額") },
-                modifier = Modifier.fillMaxWidth()
-            ,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
-                keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = baseBalance,
+                    onValueChange = { baseBalance = sanitizeSignedAmount(it) },
+                    label = { Text("初始餘額") },
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                    ),
+                    keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions()
+                )
+                TextButton(onClick = { baseBalance = toggleAmountSign(baseBalance) }) {
+                    Text("+/-")
+                }
+            }
         }
 
         Text("其他設定", style = MaterialTheme.typography.titleMedium)
@@ -111,23 +128,25 @@ fun AccountEditorScreen(accountId: String?, onDone: () -> Unit) {
         Button(
             onClick = {
                 scope.launch {
-                    val id = accountId?.let(UUID::fromString) ?: UUID.randomUUID()
-                    val balanceValue = baseBalance.toBigDecimalOrNull() ?: BigDecimal.ZERO
-                    val sortOrder = accounts.size
-                    val account = AccountEntity(
-                        id = id,
-                        name = name.ifBlank { "帳戶" },
-                        currency = currency,
-                        type = type,
-                        baseBalance = balanceValue,
-                        sortOrder = sortOrder,
-                        isArchived = isArchived
-                    )
-                    repository.upsertAccount(account)
-                    onDone()
+                    runCatching {
+                        repository.saveAccountEdit(
+                            AccountEditDraft(
+                                accountId = accountId?.let(UUID::fromString),
+                                name = name,
+                                requestedCurrency = currency,
+                                type = type,
+                                baseBalance = baseBalance.ifBlank { "0" }.toBigDecimal(),
+                                isArchived = isArchived
+                            )
+                        )
+                    }.onSuccess {
+                        onDone()
+                    }.onFailure {
+                        errorMessage = it.localizedMessage ?: "無法儲存帳戶"
+                    }
                 }
             },
-            enabled = name.isNotBlank()
+            enabled = name.isNotBlank() && baseBalance.ifBlank { "0" }.toBigDecimalOrNull() != null
         ) {
             Text("儲存")
         }
@@ -307,7 +326,8 @@ private fun AccountTypePicker(type: AccountType, onChange: (AccountType) -> Unit
     }
 }
 
-private fun sanitizeAmount(input: String): String {
+internal fun sanitizeSignedAmount(input: String): String {
+    val isNegative = input.trimStart().startsWith("-")
     val allowed = input.filter { it.isDigit() || it == '.' }
     var hasDot = false
     val result = StringBuilder()
@@ -318,5 +338,14 @@ private fun sanitizeAmount(input: String): String {
         }
         result.append(char)
     }
-    return result.toString()
+    val normalized = result.toString()
+    return if (isNegative && normalized.isNotEmpty()) "-$normalized" else normalized
+}
+
+private fun toggleAmountSign(input: String): String {
+    return when {
+        input.startsWith("-") -> input.removePrefix("-")
+        input.isBlank() -> "-"
+        else -> "-$input"
+    }
 }
