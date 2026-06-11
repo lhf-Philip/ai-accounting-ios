@@ -19,6 +19,7 @@ import org.duckdns.lhfser.aiaccounting.core.model.TransferSide
 import org.duckdns.lhfser.aiaccounting.core.transactions.TransactionSemantics
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseEntity
+import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseTagCrossRef
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceParticipantEntity
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceRepaymentEntity
 import org.duckdns.lhfser.aiaccounting.data.db.AIAccountingDatabase
@@ -118,6 +119,14 @@ data class TransferGroupReplacementDraft(
 enum class AdvanceSettlementDirection {
     IAdvancedOthers,
     OthersAdvancedMe
+}
+
+enum class AdvanceEntryRole {
+    SelfExpense,
+    InitialAsset,
+    InitialDebt,
+    RepaymentAsset,
+    RepaymentDebt
 }
 
 data class AdvanceRepaymentEditDraft(
@@ -1369,7 +1378,9 @@ class AccountingRepository(
                     createdAt = now,
                     updatedAt = now,
                     accountId = payerAccount.id,
-                    categoryId = expenseCategory?.id
+                    categoryId = expenseCategory?.id,
+                    advanceCaseId = caseId,
+                    advanceEntryRole = AdvanceEntryRole.SelfExpense.name
                 )
                 transactionDao.upsert(expenseTx)
                 if (tagIds.isNotEmpty()) {
@@ -1391,9 +1402,19 @@ class AccountingRepository(
                 createdAt = now,
                 updatedAt = now,
                 payerAccountId = payerAccount?.id,
-                expenseCategoryId = expenseCategory?.id
+                expenseCategoryId = expenseCategory?.id,
+                direction = if (isBorrowedByMe) {
+                    AdvanceSettlementDirection.OthersAdvancedMe.name
+                } else {
+                    AdvanceSettlementDirection.IAdvancedOthers.name
+                }
             )
             advanceDao.upsertCase(advanceCase)
+            if (tagIds.isNotEmpty()) {
+                advanceDao.insertCaseTags(
+                    tagIds.distinct().map { tagId -> AdvanceCaseTagCrossRef(caseId, tagId) }
+                )
+            }
 
             val transferMemo = if (finalNote.isBlank()) finalTitle else finalNote
             val participantEntities = mutableListOf<AdvanceParticipantEntity>()
@@ -1404,10 +1425,11 @@ class AccountingRepository(
                 val transferGroupId = UUID.randomUUID()
                 val outId = UUID.randomUUID()
                 val inId = UUID.randomUUID()
+                val participantId = UUID.randomUUID()
 
                 participantEntities.add(
                     AdvanceParticipantEntity(
-                        id = UUID.randomUUID(),
+                        id = participantId,
                         name = input.debtAccount.name,
                         owedAmount = input.owedAmount.abs(),
                         repaidAmount = BigDecimal.ZERO,
@@ -1434,7 +1456,10 @@ class AccountingRepository(
                         createdAt = now,
                         updatedAt = now,
                         accountId = input.debtAccount.id,
-                        categoryId = expenseCategory?.id
+                        categoryId = expenseCategory?.id,
+                        advanceCaseId = caseId,
+                        advanceParticipantId = participantId,
+                        advanceEntryRole = AdvanceEntryRole.InitialDebt.name
                     )
                     transferEntities.add(expenseTx)
                     if (tagIds.isNotEmpty()) {
@@ -1456,7 +1481,10 @@ class AccountingRepository(
                         createdAt = now,
                         updatedAt = now,
                         accountId = payer.id,
-                        categoryId = null
+                        categoryId = null,
+                        advanceCaseId = caseId,
+                        advanceParticipantId = participantId,
+                        advanceEntryRole = AdvanceEntryRole.InitialAsset.name
                     )
                     val inTx = TransactionEntity(
                         id = inId,
@@ -1472,7 +1500,10 @@ class AccountingRepository(
                         createdAt = now,
                         updatedAt = now,
                         accountId = input.debtAccount.id,
-                        categoryId = null
+                        categoryId = null,
+                        advanceCaseId = caseId,
+                        advanceParticipantId = participantId,
+                        advanceEntryRole = AdvanceEntryRole.InitialDebt.name
                     )
                     transferEntities.add(outTx)
                     transferEntities.add(inTx)
@@ -1581,6 +1612,7 @@ class AccountingRepository(
         val transferGroupId = UUID.randomUUID()
         val outId = UUID.randomUUID()
         val inId = UUID.randomUUID()
+        val repaymentId = UUID.randomUUID()
         val amount = draft.amount.abs()
         val currency = draft.currencyCode.trim().uppercase()
         val transferMemo = draft.note.trim().ifBlank { currentCase.title }
@@ -1603,7 +1635,11 @@ class AccountingRepository(
                 createdAt = now,
                 updatedAt = now,
                 accountId = currentReceiveAccount.id,
-                categoryId = currentCategory?.id
+                categoryId = currentCategory?.id,
+                advanceCaseId = currentCase.id,
+                advanceParticipantId = currentParticipant.id,
+                advanceRepaymentId = repaymentId,
+                advanceEntryRole = AdvanceEntryRole.RepaymentAsset.name
             )
             inTx = TransactionEntity(
                 id = inId,
@@ -1619,7 +1655,11 @@ class AccountingRepository(
                 createdAt = now,
                 updatedAt = now,
                 accountId = currentParticipant.debtAccountId,
-                categoryId = null
+                categoryId = null,
+                advanceCaseId = currentCase.id,
+                advanceParticipantId = currentParticipant.id,
+                advanceRepaymentId = repaymentId,
+                advanceEntryRole = AdvanceEntryRole.RepaymentDebt.name
             )
             taggedTxId = outId
         } else {
@@ -1637,7 +1677,11 @@ class AccountingRepository(
                 createdAt = now,
                 updatedAt = now,
                 accountId = currentParticipant.debtAccountId,
-                categoryId = null
+                categoryId = null,
+                advanceCaseId = currentCase.id,
+                advanceParticipantId = currentParticipant.id,
+                advanceRepaymentId = repaymentId,
+                advanceEntryRole = AdvanceEntryRole.RepaymentDebt.name
             )
             inTx = TransactionEntity(
                 id = inId,
@@ -1653,7 +1697,11 @@ class AccountingRepository(
                 createdAt = now,
                 updatedAt = now,
                 accountId = currentReceiveAccount.id,
-                categoryId = currentCategory?.id
+                categoryId = currentCategory?.id,
+                advanceCaseId = currentCase.id,
+                advanceParticipantId = currentParticipant.id,
+                advanceRepaymentId = repaymentId,
+                advanceEntryRole = AdvanceEntryRole.RepaymentAsset.name
             )
             taggedTxId = inId
         }
@@ -1676,7 +1724,7 @@ class AccountingRepository(
         advanceDao.upsertCase(currentCase.copy(updatedAt = now))
         advanceDao.upsertRepayment(
             AdvanceRepaymentEntity(
-                id = UUID.randomUUID(),
+                id = repaymentId,
                 amount = amount,
                 currencyCode = currency,
                 normalizedAmount = normalized,
@@ -1927,7 +1975,12 @@ class AccountingRepository(
         }
     }
 
-    suspend fun updateAdvanceParticipantOwedAmount(participantId: UUID, newOwedAmount: BigDecimal) {
+    suspend fun updateAdvanceParticipantOwedAmount(
+        participantId: UUID,
+        newOwedAmount: BigDecimal,
+        paymentAmount: BigDecimal? = null,
+        paymentCurrencyCode: String? = null
+    ) {
         require(newOwedAmount > BigDecimal.ZERO) { "欠款金額必須大於 0。" }
 
         database.withTransaction {
@@ -1971,12 +2024,31 @@ class AccountingRepository(
                     require(group.size == 2) { "我代墊他人的初始轉帳結構不完整。" }
                     group.map { item ->
                         val side = effectiveTransferSide(item.transaction)
+                        val isAssetLeg = side == TransferSide.Outgoing
+                        val actualAmount = if (isAssetLeg) {
+                            paymentAmount?.abs() ?: item.transaction.amount.abs()
+                        } else {
+                            amount
+                        }
                         item.transaction.copy(
-                            amount = if (side == TransferSide.Outgoing) amount.negate() else amount,
-                            currencyCode = advanceCase.currencyCode,
+                            amount = if (isAssetLeg) actualAmount.negate() else actualAmount,
+                            currencyCode = if (isAssetLeg) {
+                                paymentCurrencyCode?.trim()?.uppercase()
+                                    ?.takeIf(String::isNotBlank)
+                                    ?: item.transaction.currencyCode
+                            } else {
+                                advanceCase.currencyCode
+                            },
                             date = advanceCase.date,
                             transferSide = side,
-                            updatedAt = now
+                            updatedAt = now,
+                            advanceCaseId = advanceCase.id,
+                            advanceParticipantId = participant.id,
+                            advanceEntryRole = if (isAssetLeg) {
+                                AdvanceEntryRole.InitialAsset.name
+                            } else {
+                                AdvanceEntryRole.InitialDebt.name
+                            }
                         )
                     }
                 }
@@ -2073,7 +2145,10 @@ class AccountingRepository(
                                     transferSide = TransferSide.Outgoing,
                                     updatedAt = now,
                                     accountId = requireNotNull(payerAccount).id,
-                                    categoryId = null
+                                    categoryId = null,
+                                    advanceCaseId = advanceCase.id,
+                                    advanceParticipantId = participant.id,
+                                    advanceEntryRole = AdvanceEntryRole.InitialAsset.name
                                 ),
                                 incoming.copy(
                                     amount = amount,
@@ -2084,7 +2159,10 @@ class AccountingRepository(
                                     transferSide = TransferSide.Incoming,
                                     updatedAt = now,
                                     accountId = participant.debtAccountId,
-                                    categoryId = null
+                                    categoryId = null,
+                                    advanceCaseId = advanceCase.id,
+                                    advanceParticipantId = participant.id,
+                                    advanceEntryRole = AdvanceEntryRole.InitialDebt.name
                                 )
                             )
                         )
@@ -2103,7 +2181,10 @@ class AccountingRepository(
                                 transferSide = TransferSide.Outgoing,
                                 updatedAt = now,
                                 accountId = participant.debtAccountId,
-                                categoryId = category?.id
+                                categoryId = category?.id,
+                                advanceCaseId = advanceCase.id,
+                                advanceParticipantId = participant.id,
+                                advanceEntryRole = AdvanceEntryRole.InitialDebt.name
                             )
                         )
                         transactionDao.clearTransactionTags(expense.id)
@@ -2126,9 +2207,18 @@ class AccountingRepository(
                         if (direction == AdvanceSettlementDirection.IAdvancedOthers) payerAccount?.id else null,
                     expenseCategoryId =
                         if (direction == AdvanceSettlementDirection.OthersAdvancedMe) category?.id
-                        else advanceCase.expenseCategoryId
+                        else advanceCase.expenseCategoryId,
+                    direction = direction.name
                 )
             )
+            advanceDao.clearCaseTags(advanceCase.id)
+            if (draft.tagIds.isNotEmpty()) {
+                advanceDao.insertCaseTags(
+                    draft.tagIds.distinct().map { tagId ->
+                        AdvanceCaseTagCrossRef(advanceCase.id, tagId)
+                    }
+                )
+            }
             syncAllBudgetHistory()
         }
     }
@@ -2148,15 +2238,17 @@ class AccountingRepository(
         val budgetHistories = budgetDao.getAllHistory()
         val budgetSettings = budgetDao.getSettings()
         val advanceCases = advanceDao.getAllCases()
+        val advanceCaseTags = advanceDao.getCaseTags()
         val advanceParticipants = advanceDao.getAllParticipants()
         val advanceRepayments = advanceDao.getAllRepayments()
 
         val transactionTagMap = transactionTags.groupBy { it.transactionId }
         val shortcutTagMap = shortcutTags.groupBy { it.shortcutId }
         val recurringRuleTagMap = recurringRuleTags.groupBy { it.ruleId }
+        val advanceCaseTagMap = advanceCaseTags.groupBy { it.advanceCaseId }
 
         return FullBackupData(
-            version = "1.8",
+            version = "1.9",
             timestamp = Instant.now(),
             accounts = accounts.map {
                 FullBackupData.AccountCodable(
@@ -2195,7 +2287,11 @@ class AccountingRepository(
                     updatedAt = tx.updatedAt,
                     accountID = tx.accountId,
                     categoryID = tx.categoryId,
-                    tagIDs = transactionTagMap[tx.id]?.map { it.tagId } ?: emptyList()
+                    tagIDs = transactionTagMap[tx.id]?.map { it.tagId } ?: emptyList(),
+                    advanceCaseID = tx.advanceCaseId,
+                    advanceParticipantID = tx.advanceParticipantId,
+                    advanceRepaymentID = tx.advanceRepaymentId,
+                    advanceEntryRole = tx.advanceEntryRole
                 )
             },
             shortcuts = shortcuts.map { shortcut ->
@@ -2291,7 +2387,9 @@ class AccountingRepository(
                     payerAccountID = case.payerAccountId,
                     expenseCategoryID = case.expenseCategoryId,
                     createdAt = case.createdAt,
-                    updatedAt = case.updatedAt
+                    updatedAt = case.updatedAt,
+                    direction = case.direction,
+                    tagIDs = advanceCaseTagMap[case.id]?.map { it.tagId } ?: emptyList()
                 )
             },
             advanceParticipants = advanceParticipants.map { participant ->
@@ -2378,7 +2476,11 @@ class AccountingRepository(
                 createdAt = tx.createdAt ?: Instant.now(),
                 updatedAt = tx.updatedAt ?: Instant.now(),
                 accountId = tx.accountID,
-                categoryId = tx.categoryID
+                categoryId = tx.categoryID,
+                advanceCaseId = tx.advanceCaseID,
+                advanceParticipantId = tx.advanceParticipantID,
+                advanceRepaymentId = tx.advanceRepaymentID,
+                advanceEntryRole = tx.advanceEntryRole
             )
         }
         val transactionTags = data.transactions.flatMap { tx ->
@@ -2495,8 +2597,12 @@ class AccountingRepository(
                 createdAt = case.createdAt ?: Instant.now(),
                 updatedAt = case.updatedAt ?: Instant.now(),
                 payerAccountId = case.payerAccountID,
-                expenseCategoryId = case.expenseCategoryID
+                expenseCategoryId = case.expenseCategoryID,
+                direction = case.direction
             )
+        }.orEmpty()
+        val caseTags = data.advanceCases?.flatMap { case ->
+            case.tagIDs.orEmpty().map { tagId -> AdvanceCaseTagCrossRef(case.id, tagId) }
         }.orEmpty()
 
         val participantEntities = data.advanceParticipants?.map { participant ->
@@ -2564,11 +2670,94 @@ class AccountingRepository(
             }
             settingsEntities.forEach { budgetDao.upsertSettings(it) }
             caseEntities.forEach { advanceDao.upsertCase(it) }
+            if (caseTags.isNotEmpty()) {
+                advanceDao.insertCaseTags(caseTags)
+            }
             if (participantEntities.isNotEmpty()) {
                 advanceDao.upsertParticipants(participantEntities)
             }
             repaymentEntities.forEach { advanceDao.upsertRepayment(it) }
+            backfillAdvanceLinksLocked()
             syncAllBudgetHistory()
+        }
+    }
+
+    suspend fun backfillAdvanceLinks() {
+        database.withTransaction {
+            backfillAdvanceLinksLocked()
+        }
+    }
+
+    private suspend fun backfillAdvanceLinksLocked() {
+        val cases = advanceDao.getAllCases()
+        val participants = advanceDao.getAllParticipants()
+        val repayments = advanceDao.getAllRepayments()
+        val participantsByCase = participants.groupBy { it.advanceCaseId }
+        val repaymentsByCase = repayments.groupBy { it.advanceCaseId }
+
+        cases.forEach { advanceCase ->
+            val caseParticipants = participantsByCase[advanceCase.id].orEmpty()
+            if (advanceCase.direction == null && caseParticipants.isNotEmpty()) {
+                val direction = advanceSettlementDirectionLocked(caseParticipants.first())
+                advanceDao.upsertCase(advanceCase.copy(direction = direction.name))
+            }
+
+            advanceCase.selfExpenseTransactionId?.let { transactionId ->
+                transactionDao.getTransaction(transactionId)?.transaction?.let { transaction ->
+                    if (transaction.advanceCaseId == null) {
+                        transactionDao.upsert(
+                            transaction.copy(
+                                advanceCaseId = advanceCase.id,
+                                advanceEntryRole = AdvanceEntryRole.SelfExpense.name
+                            )
+                        )
+                    }
+                }
+            }
+
+            caseParticipants.forEach { participant ->
+                participant.initialTransferGroupId?.let { groupId ->
+                    transactionDao.getTransferGroup(groupId).forEach { details ->
+                        val transaction = details.transaction
+                        if (transaction.advanceCaseId == null) {
+                            transactionDao.upsert(
+                                transaction.copy(
+                                    advanceCaseId = advanceCase.id,
+                                    advanceParticipantId = participant.id,
+                                    advanceEntryRole = if (transaction.accountId == participant.debtAccountId) {
+                                        AdvanceEntryRole.InitialDebt.name
+                                    } else {
+                                        AdvanceEntryRole.InitialAsset.name
+                                    }
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            repaymentsByCase[advanceCase.id].orEmpty().forEach { repayment ->
+                repayment.linkedTransferGroupId?.let { groupId ->
+                    val participant = participants.firstOrNull { it.id == repayment.participantId }
+                    transactionDao.getTransferGroup(groupId).forEach { details ->
+                        val transaction = details.transaction
+                        if (transaction.advanceCaseId == null) {
+                            transactionDao.upsert(
+                                transaction.copy(
+                                    advanceCaseId = advanceCase.id,
+                                    advanceParticipantId = participant?.id,
+                                    advanceRepaymentId = repayment.id,
+                                    advanceEntryRole = if (transaction.accountId == participant?.debtAccountId) {
+                                        AdvanceEntryRole.RepaymentDebt.name
+                                    } else {
+                                        AdvanceEntryRole.RepaymentAsset.name
+                                    }
+                                )
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -2649,6 +2838,7 @@ class AccountingRepository(
         shortcutDao.deleteAllShortcutTags()
         advanceDao.deleteAllRepayments()
         advanceDao.deleteAllParticipants()
+        advanceDao.deleteAllCaseTags()
         advanceDao.deleteAllCases()
         budgetDao.deleteAllSettings()
         budgetDao.deleteAllHistory()

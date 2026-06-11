@@ -186,6 +186,19 @@ final class Tag {
     }
 }
 
+enum AdvanceDirection: String, Codable, CaseIterable {
+    case iAdvancedOthers = "IAdvancedOthers"
+    case othersAdvancedMe = "OthersAdvancedMe"
+}
+
+enum AdvanceEntryRole: String, Codable, CaseIterable {
+    case selfExpense = "SelfExpense"
+    case initialAsset = "InitialAsset"
+    case initialDebt = "InitialDebt"
+    case repaymentAsset = "RepaymentAsset"
+    case repaymentDebt = "RepaymentDebt"
+}
+
 @Model
 final class FinancialTransaction {
     @Attribute(.unique) var id: UUID
@@ -199,6 +212,10 @@ final class FinancialTransaction {
     var linkedTransactionID: UUID?
     var transferGroupID: UUID?
     var transferSide: TransferSide?
+    var advanceCaseID: UUID?
+    var advanceParticipantID: UUID?
+    var advanceRepaymentID: UUID?
+    var advanceEntryRoleRaw: String?
     var createdAt: Date = Date()
     var updatedAt: Date = Date()
     
@@ -216,6 +233,10 @@ final class FinancialTransaction {
          linkedTransactionID: UUID? = nil,
          transferGroupID: UUID? = nil,
          transferSide: TransferSide? = nil,
+         advanceCaseID: UUID? = nil,
+         advanceParticipantID: UUID? = nil,
+         advanceRepaymentID: UUID? = nil,
+         advanceEntryRole: AdvanceEntryRole? = nil,
          account: Account? = nil,
          category: Category? = nil,
          tags: [Tag] = [],
@@ -231,11 +252,20 @@ final class FinancialTransaction {
         self.linkedTransactionID = linkedTransactionID
         self.transferGroupID = transferGroupID
         self.transferSide = transferSide
+        self.advanceCaseID = advanceCaseID
+        self.advanceParticipantID = advanceParticipantID
+        self.advanceRepaymentID = advanceRepaymentID
+        self.advanceEntryRoleRaw = advanceEntryRole?.rawValue
         self.account = account
         self.category = category
         self.tags = tags
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    var advanceEntryRole: AdvanceEntryRole? {
+        get { advanceEntryRoleRaw.flatMap(AdvanceEntryRole.init(rawValue:)) }
+        set { advanceEntryRoleRaw = newValue?.rawValue }
     }
 }
 
@@ -494,6 +524,8 @@ final class AdvanceCase {
     var myShareAmount: Decimal
     var note: String
     var selfExpenseTransactionID: UUID?
+    var directionRaw: String?
+    var tagIDs: [UUID]
     var createdAt: Date
     var updatedAt: Date
     
@@ -514,6 +546,8 @@ final class AdvanceCase {
         myShareAmount: Decimal = 0,
         note: String = "",
         selfExpenseTransactionID: UUID? = nil,
+        direction: AdvanceDirection? = nil,
+        tagIDs: [UUID] = [],
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         payerAccount: Account? = nil,
@@ -526,10 +560,17 @@ final class AdvanceCase {
         self.myShareAmount = myShareAmount
         self.note = note
         self.selfExpenseTransactionID = selfExpenseTransactionID
+        self.directionRaw = direction?.rawValue
+        self.tagIDs = tagIDs
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.payerAccount = payerAccount
         self.expenseCategory = expenseCategory
+    }
+
+    var direction: AdvanceDirection? {
+        get { directionRaw.flatMap(AdvanceDirection.init(rawValue:)) }
+        set { directionRaw = newValue?.rawValue }
     }
 }
 

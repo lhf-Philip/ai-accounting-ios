@@ -59,7 +59,11 @@ data class FullBackupData(
         val updatedAt: Instant?,
         val accountID: UUID?,
         val categoryID: UUID?,
-        val tagIDs: List<UUID>
+        val tagIDs: List<UUID>,
+        val advanceCaseID: UUID? = null,
+        val advanceParticipantID: UUID? = null,
+        val advanceRepaymentID: UUID? = null,
+        val advanceEntryRole: String? = null
     )
 
     data class ShortcutCodable(
@@ -148,7 +152,9 @@ data class FullBackupData(
         val payerAccountID: UUID?,
         val expenseCategoryID: UUID?,
         val createdAt: Instant?,
-        val updatedAt: Instant?
+        val updatedAt: Instant?,
+        val direction: String? = null,
+        val tagIDs: List<UUID>? = null
     )
 
     data class AdvanceParticipantCodable(

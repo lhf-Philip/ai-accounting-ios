@@ -43,6 +43,10 @@ struct FullBackupData: Codable {
         let createdAt: Date?
         let updatedAt: Date?
         let accountID: UUID?; let categoryID: UUID?; let tagIDs: [UUID]
+        let advanceCaseID: UUID?
+        let advanceParticipantID: UUID?
+        let advanceRepaymentID: UUID?
+        let advanceEntryRole: String?
     }
     struct ShortcutCodable: Codable {
         let id: UUID; let name: String; let icon: String; let amount: Decimal; let type: String; let note: String
@@ -119,6 +123,8 @@ struct FullBackupData: Codable {
         let expenseCategoryID: UUID?
         let createdAt: Date?
         let updatedAt: Date?
+        let direction: String?
+        let tagIDs: [UUID]?
     }
     struct AdvanceParticipantCodable: Codable {
         let id: UUID
@@ -217,7 +223,7 @@ class BackupManager: NSObject, ObservableObject {
         let advanceParticipants = (try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []
         let advanceRepayments = (try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []
         
-        return FullBackupData(version: "1.8", timestamp: Date(),
+        return FullBackupData(version: "1.9", timestamp: Date(),
             accounts: accounts.map { FullBackupData.AccountCodable(id: $0.id, name: $0.name, currency: $0.currency, type: $0.type.rawValue, baseBalance: $0.baseBalance, sortOrder: $0.sortOrder, isArchived: $0.isArchived) },
             categories: categories.map { FullBackupData.CategoryCodable(id: $0.id, name: $0.name, icon: $0.icon, colorHex: $0.colorHex, kind: $0.kind.rawValue) },
             tags: tags.map { FullBackupData.TagCodable(id: $0.id, name: $0.name) },
@@ -237,7 +243,11 @@ class BackupManager: NSObject, ObservableObject {
                     updatedAt: $0.updatedAt,
                     accountID: $0.account?.id,
                     categoryID: $0.category?.id,
-                    tagIDs: $0.tags.map { $0.id }
+                    tagIDs: $0.tags.map { $0.id },
+                    advanceCaseID: $0.advanceCaseID,
+                    advanceParticipantID: $0.advanceParticipantID,
+                    advanceRepaymentID: $0.advanceRepaymentID,
+                    advanceEntryRole: $0.advanceEntryRoleRaw
                 )
             },
             shortcuts: shortcuts.map { FullBackupData.ShortcutCodable(id: $0.id, name: $0.name, icon: $0.icon, amount: $0.amount, type: $0.type.rawValue, note: $0.note, currencyCode: $0.currencyCode, accountID: $0.account?.id, categoryID: $0.category?.id, tagIDs: $0.tags.map { $0.id }) },
@@ -320,7 +330,9 @@ class BackupManager: NSObject, ObservableObject {
                     payerAccountID: $0.payerAccount?.id,
                     expenseCategoryID: $0.expenseCategory?.id,
                     createdAt: $0.createdAt,
-                    updatedAt: $0.updatedAt
+                    updatedAt: $0.updatedAt,
+                    direction: $0.directionRaw,
+                    tagIDs: $0.tagIDs
                 )
             },
             advanceParticipants: advanceParticipants.map {
@@ -455,6 +467,10 @@ class BackupManager: NSObject, ObservableObject {
                 linkedTransactionID: txDTO.linkedTransactionID,
                 transferGroupID: txDTO.transferGroupID,
                 transferSide: TransferSide(rawValue: txDTO.transferSide ?? ""),
+                advanceCaseID: txDTO.advanceCaseID,
+                advanceParticipantID: txDTO.advanceParticipantID,
+                advanceRepaymentID: txDTO.advanceRepaymentID,
+                advanceEntryRole: txDTO.advanceEntryRole.flatMap(AdvanceEntryRole.init(rawValue:)),
                 account: txDTO.accountID.flatMap { accountByID[$0] },
                 category: txDTO.categoryID.flatMap { categoryByID[$0] },
                 tags: tagByID.values.filter { tagIDs.contains($0.id) },
@@ -635,6 +651,8 @@ class BackupManager: NSObject, ObservableObject {
                     myShareAmount: caseDTO.myShareAmount ?? 0,
                     note: caseDTO.note ?? "",
                     selfExpenseTransactionID: caseDTO.selfExpenseTransactionID,
+                    direction: caseDTO.direction.flatMap(AdvanceDirection.init(rawValue:)),
+                    tagIDs: caseDTO.tagIDs ?? [],
                     createdAt: caseDTO.createdAt ?? caseDTO.date,
                     updatedAt: caseDTO.updatedAt ?? (caseDTO.createdAt ?? caseDTO.date),
                     payerAccount: caseDTO.payerAccountID.flatMap { accountByID[$0] },
@@ -684,6 +702,7 @@ class BackupManager: NSObject, ObservableObject {
         }
 
         try modelContext.save()
+        _ = try AdvanceService.backfillExplicitLinks(modelContext: modelContext)
         _ = try AdvanceService.reconcileUnderstatedRepaymentTotals(modelContext: modelContext)
         try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: CurrencyService.shared)
         try modelContext.save()

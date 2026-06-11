@@ -4,6 +4,54 @@ import SwiftData
 
 @MainActor
 final class AdvanceEditingTests: XCTestCase {
+    func testInitialEntrySupportsActualPaymentCurrencySeparateFromDebtCurrency() throws {
+        let context = try makeContext()
+        let bank = Account(name: "HSBC HKD", currency: "HKD", type: .bank, baseBalance: 0)
+        let friend = Account(name: "TKL", currency: "JPY", type: .debt, baseBalance: 0)
+        [bank, friend].forEach(context.insert)
+
+        let advanceCase = try AdvanceService.createAdvanceCase(
+            title: "LUUP",
+            date: Date(timeIntervalSince1970: 10),
+            currencyCode: "JPY",
+            myShareAmount: 0,
+            note: "",
+            payerAccount: bank,
+            category: nil,
+            tags: [],
+            participants: [.init(debtAccount: friend, owedAmount: 710)],
+            modelContext: context
+        )
+        let participant = try XCTUnwrap(advanceCase.participants.first)
+
+        try AdvanceService.updateInitialEntry(
+            advanceCase: advanceCase,
+            participant: participant,
+            draft: .init(
+                payerAccount: bank,
+                owedAmount: 710,
+                paymentAmount: Decimal(string: "34.86"),
+                paymentCurrencyCode: "HKD",
+                date: Date(timeIntervalSince1970: 20),
+                note: "LUUP",
+                category: nil,
+                tags: []
+            ),
+            modelContext: context
+        )
+
+        let groupID = try XCTUnwrap(participant.initialTransferGroupID)
+        let group = try fetchGroup(groupID, context: context)
+        let asset = try XCTUnwrap(group.first { $0.advanceEntryRole == .initialAsset })
+        let debt = try XCTUnwrap(group.first { $0.advanceEntryRole == .initialDebt })
+        XCTAssertEqual(Decimal(string: "-34.86"), asset.amount)
+        XCTAssertEqual("HKD", asset.currencyCode)
+        XCTAssertEqual(Decimal(710), debt.amount)
+        XCTAssertEqual("JPY", debt.currencyCode)
+        XCTAssertEqual(advanceCase.id, asset.advanceCaseID)
+        XCTAssertEqual(participant.id, debt.advanceParticipantID)
+    }
+
     func testCrossCurrencyRepaymentEditPreservesExplicitNormalizedAmountAndIncomingMetadata() throws {
         let context = try makeContext()
         let wallet = Account(name: "Wallet", currency: "HKD", type: .cash, baseBalance: 0)
@@ -261,6 +309,8 @@ final class AdvanceEditingTests: XCTestCase {
             draft: .init(
                 payerAccount: bank,
                 owedAmount: 120,
+                paymentAmount: 120,
+                paymentCurrencyCode: "HKD",
                 date: editedDate,
                 note: "Edited",
                 category: nil,
@@ -442,6 +492,102 @@ final class AdvanceEditingTests: XCTestCase {
         }
         XCTAssertEqual(Decimal(40), repayment.amount)
         XCTAssertEqual(Decimal(40), participant.repaidAmount)
+    }
+
+    func testExplicitLinkBackfillUsesExistingCaseAndGroupIdentifiers() throws {
+        let context = try makeContext()
+        let wallet = Account(name: "Wallet", currency: "HKD", type: .cash, baseBalance: 0)
+        let friend = Account(name: "Friend", currency: "JPY", type: .debt, baseBalance: 0)
+        [wallet, friend].forEach(context.insert)
+
+        let advanceCase = try AdvanceService.createAdvanceCase(
+            title: "LUUP",
+            date: Date(timeIntervalSince1970: 10),
+            currencyCode: "JPY",
+            myShareAmount: 0,
+            note: "",
+            payerAccount: wallet,
+            category: nil,
+            tags: [],
+            participants: [.init(debtAccount: friend, owedAmount: 710)],
+            modelContext: context
+        )
+        let participant = try XCTUnwrap(advanceCase.participants.first)
+        let entries = try fetchGroup(
+            try XCTUnwrap(participant.initialTransferGroupID),
+            context: context
+        )
+        for entry in entries {
+            entry.advanceCaseID = nil
+            entry.advanceParticipantID = nil
+            entry.advanceEntryRole = nil
+        }
+        advanceCase.direction = nil
+        try context.save()
+
+        let result = try AdvanceService.backfillExplicitLinks(modelContext: context)
+
+        XCTAssertEqual(2, result.linkedTransactionCount)
+        XCTAssertEqual(.iAdvancedOthers, advanceCase.direction)
+        XCTAssertTrue(entries.allSatisfy { $0.advanceCaseID == advanceCase.id })
+        XCTAssertTrue(entries.allSatisfy { $0.advanceParticipantID == participant.id })
+        XCTAssertEqual(
+            Set([AdvanceEntryRole.initialAsset, AdvanceEntryRole.initialDebt]),
+            Set(entries.compactMap(\.advanceEntryRole))
+        )
+    }
+
+    func testCaseEditingRejectsDirectionChangeBeforeMutatingCase() throws {
+        let context = try makeContext()
+        let wallet = Account(name: "Wallet", currency: "HKD", type: .cash, baseBalance: 0)
+        let friend = Account(name: "Friend", currency: "HKD", type: .debt, baseBalance: 0)
+        [wallet, friend].forEach(context.insert)
+
+        let advanceCase = try AdvanceService.createAdvanceCase(
+            title: "Dinner",
+            date: Date(timeIntervalSince1970: 10),
+            currencyCode: "HKD",
+            myShareAmount: 0,
+            note: "",
+            payerAccount: wallet,
+            category: nil,
+            tags: [],
+            participants: [.init(debtAccount: friend, owedAmount: 100)],
+            modelContext: context
+        )
+        let participant = try XCTUnwrap(advanceCase.participants.first)
+        let draft = AdvanceCaseEditDraft(
+            advanceCase: advanceCase,
+            title: "Changed",
+            date: advanceCase.date,
+            direction: .othersAdvancedMe,
+            currencyCode: advanceCase.currencyCode,
+            note: advanceCase.note,
+            category: nil,
+            tags: [],
+            share: nil,
+            participants: [
+                AdvanceParticipantDraft(
+                    participant: participant,
+                    name: participant.name,
+                    debtAccount: friend,
+                    owedAmount: participant.owedAmount,
+                    paymentLegs: []
+                )
+            ],
+            repayments: []
+        )
+
+        XCTAssertThrowsError(
+            try AdvanceCaseEditingService.apply(draft, modelContext: context)
+        ) { error in
+            XCTAssertEqual(
+                AdvanceCaseEditingError.unsupportedDirectionChange.localizedDescription,
+                error.localizedDescription
+            )
+        }
+        XCTAssertEqual("Dinner", advanceCase.title)
+        XCTAssertEqual(.iAdvancedOthers, advanceCase.direction)
     }
 
     private func makeContext() throws -> ModelContext {

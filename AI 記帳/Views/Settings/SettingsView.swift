@@ -396,6 +396,7 @@ struct SettingsView: View {
     private func repairLegacyAdvanceLinksAfterImport() {
         do {
             let result = try AdvanceService.repairLegacyLinks(modelContext: modelContext)
+            _ = try AdvanceService.backfillExplicitLinks(modelContext: modelContext)
             alertMessage = """
             匯入成功並完成修復。
             已更新 \(result.totalUpdated) 筆連結。

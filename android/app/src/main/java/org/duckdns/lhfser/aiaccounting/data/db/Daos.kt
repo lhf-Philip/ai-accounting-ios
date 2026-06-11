@@ -301,6 +301,15 @@ interface AdvanceDao {
     suspend fun upsertCase(advanceCase: AdvanceCaseEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCaseTags(tags: List<AdvanceCaseTagCrossRef>)
+
+    @Query("SELECT * FROM advance_case_tag_cross_ref")
+    suspend fun getCaseTags(): List<AdvanceCaseTagCrossRef>
+
+    @Query("DELETE FROM advance_case_tag_cross_ref WHERE advanceCaseId = :caseId")
+    suspend fun clearCaseTags(caseId: UUID)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertParticipants(participants: List<AdvanceParticipantEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -323,4 +332,7 @@ interface AdvanceDao {
 
     @Query("DELETE FROM advance_cases")
     suspend fun deleteAllCases()
+
+    @Query("DELETE FROM advance_case_tag_cross_ref")
+    suspend fun deleteAllCaseTags()
 }

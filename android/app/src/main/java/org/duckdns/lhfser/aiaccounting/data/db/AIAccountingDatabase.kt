@@ -22,10 +22,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         BudgetMonthlyHistoryEntity::class,
         BudgetSettingsEntity::class,
         AdvanceCaseEntity::class,
+        AdvanceCaseTagCrossRef::class,
         AdvanceParticipantEntity::class,
         AdvanceRepaymentEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -142,6 +143,29 @@ abstract class AIAccountingDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_rule_tag_cross_ref_tagId` ON `recurring_rule_tag_cross_ref` (`tagId`)")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `advanceCaseId` TEXT")
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `advanceParticipantId` TEXT")
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `advanceRepaymentId` TEXT")
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `advanceEntryRole` TEXT")
+                db.execSQL("ALTER TABLE `advance_cases` ADD COLUMN `direction` TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_advanceCaseId` ON `transactions` (`advanceCaseId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_advanceParticipantId` ON `transactions` (`advanceParticipantId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_advanceRepaymentId` ON `transactions` (`advanceRepaymentId`)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `advance_case_tag_cross_ref` (
+                        `advanceCaseId` TEXT NOT NULL,
+                        `tagId` TEXT NOT NULL,
+                        PRIMARY KEY(`advanceCaseId`, `tagId`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_advance_case_tag_cross_ref_tagId` ON `advance_case_tag_cross_ref` (`tagId`)")
             }
         }
     }
