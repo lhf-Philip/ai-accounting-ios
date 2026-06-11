@@ -303,6 +303,7 @@ struct SettingsView: View {
                 }
             }
             .prominentInlineTitle("設定")
+            .standardKeyboardBehavior()
             .alert("提示", isPresented: $showingAlert) {
                 Button("好") {}
             } message: {

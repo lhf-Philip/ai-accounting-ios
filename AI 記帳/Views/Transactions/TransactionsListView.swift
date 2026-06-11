@@ -62,6 +62,7 @@ struct TransactionsListView: View {
         NavigationStack {
             ledgerContent(renderState: renderState)
         }
+        .standardKeyboardBehavior()
         .sheet(isPresented: $showingFilterSheet) {
             DateFilterView(
                 filterType: filterTypeBinding,

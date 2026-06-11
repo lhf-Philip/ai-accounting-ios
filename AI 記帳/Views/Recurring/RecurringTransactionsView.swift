@@ -263,7 +263,7 @@ struct AddRecurringRuleView: View {
                     TextField("備註（可選）", text: $note, axis: .vertical)
                 }
             }
-            .interactiveKeyboardDismiss()
+            .standardKeyboardBehavior()
             .navigationTitle(rule == nil ? "新增定期記帳" : "編輯定期記帳")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -273,7 +273,6 @@ struct AddRecurringRuleView: View {
                     Button("儲存") { save() }
                 }
             }
-            .keyboardDoneToolbar()
             .alert("無法儲存", isPresented: Binding(
                 get: { validationMessage != nil },
                 set: { if !$0 { validationMessage = nil } }

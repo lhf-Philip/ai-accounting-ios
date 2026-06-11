@@ -141,7 +141,7 @@ struct AddCategoryView: View {
                     }
                 }
             }
-            .interactiveKeyboardDismiss()
+            .standardKeyboardBehavior()
             .navigationTitle("新增分類")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -158,7 +158,6 @@ struct AddCategoryView: View {
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
-            .keyboardDoneToolbar()
         }
     }
     

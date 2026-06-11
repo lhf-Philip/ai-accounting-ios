@@ -14,7 +14,7 @@ struct EditTagView: View {
                     TextField("例如: 旅行、報銷", text: $name)
                 }
             }
-            .interactiveKeyboardDismiss()
+            .standardKeyboardBehavior()
             .navigationTitle("編輯標籤")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -29,7 +29,6 @@ struct EditTagView: View {
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
-            .keyboardDoneToolbar()
             .onAppear {
                 name = tag.name
             }

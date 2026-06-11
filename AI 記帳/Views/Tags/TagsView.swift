@@ -35,6 +35,7 @@ struct TagsView: View {
             }
         }
         .navigationTitle("標籤管理")
+        .standardKeyboardBehavior()
         .overlay {
             if tags.isEmpty {
                 ContentUnavailableView("尚無標籤", systemImage: "tag", description: Text("標籤可幫助您更靈活地標記交易"))
@@ -48,8 +49,12 @@ struct TagsView: View {
         // 新增標籤 Alert
         .alert("新增標籤", isPresented: $showingAddTag) {
             TextField("標籤名稱", text: $newTagName)
-            Button("取消", role: .cancel) { newTagName = "" }
+            Button("取消", role: .cancel) {
+                hideKeyboard()
+                newTagName = ""
+            }
             Button("儲存") {
+                hideKeyboard()
                 if !newTagName.isEmpty {
                     let tag = Tag(name: newTagName)
                     modelContext.insert(tag)

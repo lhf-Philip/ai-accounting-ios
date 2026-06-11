@@ -411,7 +411,7 @@ struct BudgetEditorView: View {
                     Toggle("啟用", isOn: $isEnabled)
                 }
             }
-            .interactiveKeyboardDismiss()
+            .standardKeyboardBehavior()
             .navigationTitle(existingBudget == nil ? "新增預算" : "編輯預算")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -421,7 +421,6 @@ struct BudgetEditorView: View {
                     Button("儲存") { save() }
                 }
             }
-            .keyboardDoneToolbar()
             .alert("無法儲存", isPresented: $showingError) {
                 Button("好", role: .cancel) {}
             } message: {

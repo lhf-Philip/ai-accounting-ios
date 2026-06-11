@@ -67,7 +67,7 @@ struct ScannedResultView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-        .interactiveKeyboardDismiss()
+        .standardKeyboardBehavior()
         .navigationTitle("確認資料")
         .toolbar {
             Button("儲存") {
@@ -75,7 +75,6 @@ struct ScannedResultView: View {
             }
             .disabled(selectedAccount == nil || amountString.isEmpty)
         }
-        .keyboardDoneToolbar()
         .onAppear {
             // 填充 AI 資料
             amountString = "\(info.amount)"
