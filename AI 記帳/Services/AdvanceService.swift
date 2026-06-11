@@ -109,6 +109,8 @@ enum AdvanceService {
     struct InitialEntryEditDraft {
         let payerAccount: Account?
         let owedAmount: Decimal
+        let paymentAmount: Decimal?
+        let paymentCurrencyCode: String?
         let date: Date
         let note: String
         let category: Category?
@@ -133,6 +135,12 @@ enum AdvanceService {
         var totalUnresolved: Int {
             unresolvedCaseLinkCount + unresolvedParticipantLinkCount
         }
+    }
+
+    struct ExplicitLinkBackfillResult {
+        let linkedTransactionCount: Int
+        let updatedCaseCount: Int
+        let unresolvedRecordCount: Int
     }
 
     struct LegacyBorrowedAdvanceRepairResult {
@@ -480,6 +488,8 @@ enum AdvanceService {
             currencyCode: currencyCode,
             myShareAmount: myShareAmount,
             note: finalNote,
+            direction: isBorrowedByMe ? .othersAdvancedMe : .iAdvancedOthers,
+            tagIDs: tags.map(\.id),
             createdAt: now,
             updatedAt: now,
             payerAccount: payerAccount,
@@ -499,6 +509,8 @@ enum AdvanceService {
                 date: date,
                 note: expenseNote,
                 type: .expense,
+                advanceCaseID: advanceCase.id,
+                advanceEntryRole: .selfExpense,
                 account: payerAccount,
                 category: category,
                 tags: tags
@@ -541,6 +553,9 @@ enum AdvanceService {
                     linkedTransactionID: nil,
                     transferGroupID: transferGroupID,
                     transferSide: .outgoing,
+                    advanceCaseID: advanceCase.id,
+                    advanceParticipantID: participant.id,
+                    advanceEntryRole: .initialDebt,
                     account: input.debtAccount,
                     category: category,
                     tags: tags
@@ -562,6 +577,9 @@ enum AdvanceService {
                     linkedTransactionID: inID,
                     transferGroupID: transferGroupID,
                     transferSide: .outgoing,
+                    advanceCaseID: advanceCase.id,
+                    advanceParticipantID: participant.id,
+                    advanceEntryRole: .initialAsset,
                     account: payerAccount
                 )
 
@@ -575,6 +593,9 @@ enum AdvanceService {
                     linkedTransactionID: outID,
                     transferGroupID: transferGroupID,
                     transferSide: .incoming,
+                    advanceCaseID: advanceCase.id,
+                    advanceParticipantID: participant.id,
+                    advanceEntryRole: .initialDebt,
                     account: input.debtAccount
                 )
             }
@@ -789,6 +810,21 @@ enum AdvanceService {
             receivedAccount: receiveAccount
         )
         modelContext.insert(repayment)
+
+        outTx.advanceCaseID = advanceCase.id
+        outTx.advanceParticipantID = participant.id
+        outTx.advanceRepaymentID = repayment.id
+        inTx.advanceCaseID = advanceCase.id
+        inTx.advanceParticipantID = participant.id
+        inTx.advanceRepaymentID = repayment.id
+        switch settlementDirection {
+        case .iAdvancedOthers:
+            outTx.advanceEntryRole = .repaymentDebt
+            inTx.advanceEntryRole = .repaymentAsset
+        case .othersAdvancedMe:
+            outTx.advanceEntryRole = .repaymentAsset
+            inTx.advanceEntryRole = .repaymentDebt
+        }
         
         let updatedRepaid = participant.repaidAmount + normalizedAmount
         if participant.owedAmount - updatedRepaid < roundingTolerance {
@@ -1070,9 +1106,15 @@ enum AdvanceService {
                 else {
                     throw AdvanceServiceError.invalidRepaymentStructure
                 }
+                let paymentAmount = caseParticipant.id == participant.id
+                    ? abs(draft.paymentAmount ?? draft.owedAmount)
+                    : abs(outgoing.amount)
+                let paymentCurrency = caseParticipant.id == participant.id
+                    ? (draft.paymentCurrencyCode ?? advanceCase.currencyCode)
+                    : outgoing.currencyCode
                 outgoing.type = .transfer
-                outgoing.amount = -amount
-                outgoing.currencyCode = advanceCase.currencyCode
+                outgoing.amount = -paymentAmount
+                outgoing.currencyCode = paymentCurrency
                 outgoing.date = draft.date
                 outgoing.note = "\(baseMemo) (代墊給 \(caseParticipant.name))"
                 outgoing.account = payerAccount
@@ -1080,6 +1122,9 @@ enum AdvanceService {
                 outgoing.tags = []
                 outgoing.transferSide = .outgoing
                 outgoing.linkedTransactionID = incoming.id
+                outgoing.advanceCaseID = advanceCase.id
+                outgoing.advanceParticipantID = caseParticipant.id
+                outgoing.advanceEntryRole = .initialAsset
                 outgoing.updatedAt = now
 
                 incoming.type = .transfer
@@ -1092,6 +1137,9 @@ enum AdvanceService {
                 incoming.tags = []
                 incoming.transferSide = .incoming
                 incoming.linkedTransactionID = outgoing.id
+                incoming.advanceCaseID = advanceCase.id
+                incoming.advanceParticipantID = caseParticipant.id
+                incoming.advanceEntryRole = .initialDebt
                 incoming.updatedAt = now
             case .othersAdvancedMe:
                 guard let expense = transactions.first,
@@ -1109,6 +1157,9 @@ enum AdvanceService {
                 expense.tags = draft.tags
                 expense.linkedTransactionID = nil
                 expense.transferSide = .outgoing
+                expense.advanceCaseID = advanceCase.id
+                expense.advanceParticipantID = caseParticipant.id
+                expense.advanceEntryRole = .initialDebt
                 expense.updatedAt = now
             }
         }
@@ -1117,6 +1168,8 @@ enum AdvanceService {
         participant.repaidAmount = min(participant.repaidAmount, participant.owedAmount)
         participant.updatedAt = now
         advanceCase.payerAccount = direction == .iAdvancedOthers ? draft.payerAccount : nil
+        advanceCase.direction = direction == .iAdvancedOthers ? .iAdvancedOthers : .othersAdvancedMe
+        advanceCase.tagIDs = draft.tags.map(\.id)
         if direction == .othersAdvancedMe {
             advanceCase.expenseCategory = draft.category
         }
@@ -1652,6 +1705,101 @@ enum AdvanceService {
             unresolvedCaseLinkCount: unresolvedCaseLinkCount,
             updatedParticipantLinkCount: updatedParticipantLinkCount,
             unresolvedParticipantLinkCount: unresolvedParticipantLinkCount
+        )
+    }
+
+    @MainActor
+    static func backfillExplicitLinks(modelContext: ModelContext) throws -> ExplicitLinkBackfillResult {
+        let advanceCases = try modelContext.fetch(FetchDescriptor<AdvanceCase>())
+        let transactions = try modelContext.fetch(FetchDescriptor<FinancialTransaction>())
+        let transactionByID = Dictionary(uniqueKeysWithValues: transactions.map { ($0.id, $0) })
+        let transactionsByGroup = Dictionary(
+            grouping: transactions.compactMap { transaction -> (UUID, FinancialTransaction)? in
+                transaction.transferGroupID.map { ($0, transaction) }
+            },
+            by: \.0
+        ).mapValues { $0.map(\.1) }
+
+        var linkedTransactionCount = 0
+        var updatedCaseCount = 0
+        var unresolvedRecordCount = 0
+
+        for advanceCase in advanceCases {
+            if advanceCase.direction == nil {
+                if let participant = advanceCase.participants.first {
+                    advanceCase.direction = inferSettlementDirection(
+                        for: participant,
+                        modelContext: modelContext
+                    ) == .iAdvancedOthers ? .iAdvancedOthers : .othersAdvancedMe
+                    updatedCaseCount += 1
+                } else {
+                    unresolvedRecordCount += 1
+                }
+            }
+
+            if advanceCase.tagIDs.isEmpty,
+               let expenseID = advanceCase.selfExpenseTransactionID,
+               let expense = transactionByID[expenseID] {
+                advanceCase.tagIDs = expense.tags.map(\.id)
+                updatedCaseCount += 1
+            }
+
+            if let expenseID = advanceCase.selfExpenseTransactionID,
+               let expense = transactionByID[expenseID] {
+                if expense.advanceCaseID == nil {
+                    expense.advanceCaseID = advanceCase.id
+                    expense.advanceEntryRole = .selfExpense
+                    linkedTransactionCount += 1
+                }
+            } else if advanceCase.myShareAmount > 0, advanceCase.direction == .iAdvancedOthers {
+                unresolvedRecordCount += 1
+            }
+
+            for participant in advanceCase.participants {
+                guard let groupID = participant.initialTransferGroupID,
+                      let entries = transactionsByGroup[groupID],
+                      !entries.isEmpty
+                else {
+                    unresolvedRecordCount += 1
+                    continue
+                }
+                for entry in entries {
+                    guard entry.advanceCaseID == nil else { continue }
+                    entry.advanceCaseID = advanceCase.id
+                    entry.advanceParticipantID = participant.id
+                    entry.advanceEntryRole = entry.account?.type == .debt ? .initialDebt : .initialAsset
+                    linkedTransactionCount += 1
+                }
+            }
+
+            for repayment in advanceCase.repayments {
+                guard let groupID = repayment.linkedTransferGroupID,
+                      let entries = transactionsByGroup[groupID],
+                      !entries.isEmpty
+                else {
+                    if repaymentRecordKind(note: repayment.note) == .ordinary {
+                        unresolvedRecordCount += 1
+                    }
+                    continue
+                }
+                for entry in entries {
+                    guard entry.advanceCaseID == nil else { continue }
+                    entry.advanceCaseID = advanceCase.id
+                    entry.advanceParticipantID = repayment.participant?.id
+                    entry.advanceRepaymentID = repayment.id
+                    entry.advanceEntryRole = entry.account?.type == .debt ? .repaymentDebt : .repaymentAsset
+                    linkedTransactionCount += 1
+                }
+            }
+        }
+
+        if linkedTransactionCount > 0 || updatedCaseCount > 0 {
+            try modelContext.save()
+        }
+        return ExplicitLinkBackfillResult(
+            linkedTransactionCount: linkedTransactionCount,
+            updatedCaseCount: updatedCaseCount,
+            unresolvedRecordCount: unresolvedRecordCount
         )
     }
     

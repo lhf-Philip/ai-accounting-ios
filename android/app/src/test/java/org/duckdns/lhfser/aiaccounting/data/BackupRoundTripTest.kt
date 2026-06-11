@@ -84,6 +84,13 @@ class BackupRoundTripTest {
                 ?.myShareAmount
                 ?.toPlainString()
         )
+        assertTrue(exported.advanceCases.orEmpty().all { !it.direction.isNullOrBlank() })
+        assertTrue(exported.transactions.any { it.advanceCaseID != null })
+        assertTrue(
+            exported.transactions
+                .filter { it.advanceCaseID != null }
+                .all { !it.advanceEntryRole.isNullOrBlank() }
+        )
 
         val secondDatabase = buildDatabase()
         try {
@@ -844,7 +851,7 @@ class BackupRoundTripTest {
 
         val exportedJson = repository.exportBackupJson()
         val exported = BackupJsonAdapter.gson.fromJson(exportedJson, FullBackupData::class.java)
-        assertEquals("1.8", exported.version)
+        assertEquals("1.9", exported.version)
         assertEquals(1, exported.recurringRules?.size)
         assertEquals(1, exported.recurringOccurrences?.size)
 

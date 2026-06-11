@@ -42,7 +42,10 @@ data class TagEntity(
     indices = [
         Index("accountId"),
         Index("categoryId"),
-        Index("transferGroupId")
+        Index("transferGroupId"),
+        Index("advanceCaseId"),
+        Index("advanceParticipantId"),
+        Index("advanceRepaymentId")
     ]
 )
 data class TransactionEntity(
@@ -59,7 +62,11 @@ data class TransactionEntity(
     val createdAt: Instant,
     val updatedAt: Instant,
     val accountId: UUID?,
-    val categoryId: UUID?
+    val categoryId: UUID?,
+    val advanceCaseId: UUID? = null,
+    val advanceParticipantId: UUID? = null,
+    val advanceRepaymentId: UUID? = null,
+    val advanceEntryRole: String? = null
 )
 
 @Entity(
@@ -209,7 +216,18 @@ data class AdvanceCaseEntity(
     val createdAt: Instant,
     val updatedAt: Instant,
     val payerAccountId: UUID?,
-    val expenseCategoryId: UUID?
+    val expenseCategoryId: UUID?,
+    val direction: String? = null
+)
+
+@Entity(
+    tableName = "advance_case_tag_cross_ref",
+    primaryKeys = ["advanceCaseId", "tagId"],
+    indices = [Index("tagId")]
+)
+data class AdvanceCaseTagCrossRef(
+    val advanceCaseId: UUID,
+    val tagId: UUID
 )
 
 @Entity(

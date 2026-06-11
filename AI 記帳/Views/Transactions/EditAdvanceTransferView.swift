@@ -551,6 +551,8 @@ struct EditAdvanceTransferView: View {
                     draft: .init(
                         payerAccount: selectedAccount,
                         owedAmount: amount,
+                        paymentAmount: amount,
+                        paymentCurrencyCode: currencyCode,
                         date: date,
                         note: note,
                         category: selectedCategory,

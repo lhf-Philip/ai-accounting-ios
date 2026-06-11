@@ -78,6 +78,41 @@ class AdvanceEditingTest {
     }
 
     @Test
+    fun initialEntry_supportsActualPaymentCurrencySeparateFromDebtCurrency() = runBlocking {
+        val caseId = repository.createAdvanceCase(
+            title = "LUUP",
+            date = Instant.parse("2026-06-10T10:00:00Z"),
+            currencyCode = "JPY",
+            myShareAmount = BigDecimal.ZERO,
+            note = "",
+            payerAccount = bank,
+            expenseCategory = null,
+            tagIds = emptyList(),
+            participants = listOf(AdvanceParticipantInput(friend, BigDecimal("710")))
+        )
+        val participant = requireNotNull(repository.getAdvanceCase(caseId)).participants.single()
+
+        repository.updateAdvanceParticipantOwedAmount(
+            participantId = participant.id,
+            newOwedAmount = BigDecimal("710"),
+            paymentAmount = BigDecimal("34.86"),
+            paymentCurrencyCode = "HKD"
+        )
+
+        val group = database.transactionDao().getTransferGroup(
+            requireNotNull(participant.initialTransferGroupId)
+        ).map { it.transaction }
+        val asset = group.single { it.advanceEntryRole == "InitialAsset" }
+        val debt = group.single { it.advanceEntryRole == "InitialDebt" }
+        assertEquals("-34.86", asset.amount.toPlainString())
+        assertEquals("HKD", asset.currencyCode)
+        assertEquals("710", debt.amount.toPlainString())
+        assertEquals("JPY", debt.currencyCode)
+        assertEquals(caseId, asset.advanceCaseId)
+        assertEquals(participant.id, debt.advanceParticipantId)
+    }
+
+    @Test
     fun crossCurrencyRepaymentEdit_preservesExplicitSettlementAndMovesMetadataToIncomingOwnLeg() = runBlocking {
         val caseId = repository.createAdvanceCase(
             title = "Japan trip",

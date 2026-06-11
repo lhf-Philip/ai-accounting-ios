@@ -182,6 +182,10 @@ struct ContentView: View {
             guard !isRunningXCTest, !didReconcileAdvanceRepayments else { return }
             didReconcileAdvanceRepayments = true
             do {
+                let links = try AdvanceService.backfillExplicitLinks(modelContext: modelContext)
+                if links.linkedTransactionCount > 0 {
+                    print("✅ 已回填代墊明確連結 \(links.linkedTransactionCount) 筆")
+                }
                 let result = try AdvanceService.reconcileUnderstatedRepaymentTotals(modelContext: modelContext)
                 if result.updatedParticipantCount > 0 {
                     print("✅ 已修復代墊還款累計 \(result.updatedParticipantCount) 筆")

@@ -351,6 +351,16 @@ private struct FixedReportCurrencyConverter: ReportCurrencyConverting {
     let ratesToMain: [String: Decimal]
     let source: ReportEstimateStatus
 
+    init(
+        mainCurrency: String,
+        ratesToMain: [String: Decimal] = [:],
+        source: ReportEstimateStatus = .exact
+    ) {
+        self.mainCurrency = mainCurrency
+        self.ratesToMain = ratesToMain
+        self.source = source
+    }
+
     func estimateInMainCurrency(amount: Decimal, from currencyCode: String) -> ReportConversion? {
         if currencyCode.uppercased() == mainCurrency.uppercased() {
             return ReportConversion(amount: amount, status: .exact)
