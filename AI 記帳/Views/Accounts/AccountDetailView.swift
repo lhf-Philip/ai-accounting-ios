@@ -134,7 +134,13 @@ struct AccountDetailView: View {
             advanceRepaymentGroupIDs: renderState.repaymentAdvanceGroupIDs
         ) {
         case .advanceSelfExpense, .advanceInitial, .advanceRepayment:
-            EditAdvanceTransferView(originalTransaction: tx)
+            if let advanceCase = advanceCase(for: tx) {
+                NavigationStack {
+                    AdvanceCaseDetailView(advanceCase: advanceCase)
+                }
+            } else {
+                EditAdvanceTransferView(originalTransaction: tx)
+            }
         case .debtForgiveness:
             AddDebtView(existingForgivenessTransaction: tx)
         case .debt:
@@ -146,6 +152,26 @@ struct AccountDetailView: View {
                 EditTransactionView(transaction: tx)
             }
         }
+    }
+
+    private func advanceCase(for transaction: FinancialTransaction) -> AdvanceCase? {
+        if let caseID = transaction.advanceCaseID,
+           let match = advanceCases.first(where: { $0.id == caseID }) {
+            return match
+        }
+        if let participantID = transaction.advanceParticipantID,
+           let match = advanceCases.first(where: {
+               $0.participants.contains { $0.id == participantID }
+           }) {
+            return match
+        }
+        guard let groupID = transaction.transferGroupID else {
+            return advanceCases.first(where: { $0.selfExpenseTransactionID == transaction.id })
+        }
+        return advanceCases.first(where: { advanceCase in
+            advanceCase.participants.contains { $0.initialTransferGroupID == groupID }
+                || advanceCase.repayments.contains { $0.linkedTransferGroupID == groupID }
+        })
     }
 
     private func deleteTransaction(_ transaction: FinancialTransaction) {

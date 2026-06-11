@@ -22,6 +22,10 @@ suspend fun resolveTransactionEditDestination(
         return TransactionEditDestination.Debt(transaction.id.toString())
     }
 
+    transaction.advanceCaseId?.let { caseId ->
+        return TransactionEditDestination.Advance(caseId.toString())
+    }
+
     repository.findAdvanceCaseIdBySelfExpense(transaction.id)?.let { caseId ->
         return TransactionEditDestination.Advance(caseId.toString())
     }

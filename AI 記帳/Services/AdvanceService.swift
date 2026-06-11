@@ -107,6 +107,9 @@ enum AdvanceService {
     }
 
     struct InitialEntryEditDraft {
+        let caseTitle: String?
+        let participantName: String?
+        let debtAccount: Account?
         let payerAccount: Account?
         let owedAmount: Decimal
         let paymentAmount: Decimal?
@@ -115,6 +118,32 @@ enum AdvanceService {
         let note: String
         let category: Category?
         let tags: [Tag]
+
+        init(
+            caseTitle: String? = nil,
+            participantName: String? = nil,
+            debtAccount: Account? = nil,
+            payerAccount: Account?,
+            owedAmount: Decimal,
+            paymentAmount: Decimal?,
+            paymentCurrencyCode: String?,
+            date: Date,
+            note: String,
+            category: Category?,
+            tags: [Tag]
+        ) {
+            self.caseTitle = caseTitle
+            self.participantName = participantName
+            self.debtAccount = debtAccount
+            self.payerAccount = payerAccount
+            self.owedAmount = owedAmount
+            self.paymentAmount = paymentAmount
+            self.paymentCurrencyCode = paymentCurrencyCode
+            self.date = date
+            self.note = note
+            self.category = category
+            self.tags = tags
+        }
     }
     
     struct DeleteAdvanceResult {
@@ -1035,6 +1064,15 @@ enum AdvanceService {
         guard draft.owedAmount + roundingTolerance >= participant.repaidAmount else {
             throw AdvanceServiceError.adjustedOwedLowerThanRepaid
         }
+        let trimmedParticipantName = draft.participantName?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let targetName = (trimmedParticipantName?.isEmpty == false)
+            ? trimmedParticipantName!
+            : participant.name
+        let targetDebtAccount = draft.debtAccount ?? participant.debtAccount
+        guard let targetDebtAccount, targetDebtAccount.type == .debt, !targetDebtAccount.isArchived else {
+            throw AdvanceServiceError.invalidPayerAccount
+        }
 
         let direction = inferSettlementDirection(for: participant, modelContext: modelContext)
         if direction == .iAdvancedOthers {
@@ -1085,26 +1123,40 @@ enum AdvanceService {
         let originalBudgetKeys = entries
             .flatMap(\.1)
             .compactMap(BudgetHistoryService.affectedKey(for:))
+        let targetTitle = draft.caseTitle?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalTitle = (targetTitle?.isEmpty == false) ? targetTitle! : advanceCase.title
         let memo = draft.note.trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseMemo = memo.isEmpty ? advanceCase.title : memo
+        let baseMemo = memo.isEmpty ? finalTitle : memo
         let now = Date()
 
         for (caseParticipant, transactions) in entries {
             let amount = caseParticipant.id == participant.id
                 ? abs(draft.owedAmount)
                 : abs(caseParticipant.owedAmount)
+            let participantName = caseParticipant.id == participant.id
+                ? targetName
+                : caseParticipant.name
+            let debtAccount = caseParticipant.id == participant.id
+                ? targetDebtAccount
+                : caseParticipant.debtAccount
             switch direction {
             case .iAdvancedOthers:
-                guard let payerAccount = draft.payerAccount,
-                      let debtAccount = caseParticipant.debtAccount,
+                guard let debtAccount,
                       let outgoing = transactions.first(where: {
                           $0.transferSide == .outgoing || $0.amount < 0
                       }),
                       let incoming = transactions.first(where: {
                           $0.transferSide == .incoming || $0.amount > 0
-                      })
+                      }),
+                      let payerAccount = caseParticipant.id == participant.id
+                        ? draft.payerAccount
+                        : outgoing.account
                 else {
                     throw AdvanceServiceError.invalidRepaymentStructure
+                }
+                guard payerAccount.type != .debt, !payerAccount.isArchived else {
+                    throw AdvanceServiceError.invalidPayerAccount
                 }
                 let paymentAmount = caseParticipant.id == participant.id
                     ? abs(draft.paymentAmount ?? draft.owedAmount)
@@ -1116,7 +1168,7 @@ enum AdvanceService {
                 outgoing.amount = -paymentAmount
                 outgoing.currencyCode = paymentCurrency
                 outgoing.date = draft.date
-                outgoing.note = "\(baseMemo) (代墊給 \(caseParticipant.name))"
+                outgoing.note = "\(baseMemo) (代墊給 \(participantName))"
                 outgoing.account = payerAccount
                 outgoing.category = nil
                 outgoing.tags = []
@@ -1143,7 +1195,7 @@ enum AdvanceService {
                 incoming.updatedAt = now
             case .othersAdvancedMe:
                 guard let expense = transactions.first,
-                      let debtAccount = caseParticipant.debtAccount
+                      let debtAccount
                 else {
                     throw AdvanceServiceError.invalidRepaymentStructure
                 }
@@ -1151,7 +1203,7 @@ enum AdvanceService {
                 expense.amount = -amount
                 expense.currencyCode = advanceCase.currencyCode
                 expense.date = draft.date
-                expense.note = "\(baseMemo) (他人代墊我：\(caseParticipant.name))"
+                expense.note = "\(baseMemo) (他人代墊我：\(participantName))"
                 expense.account = debtAccount
                 expense.category = draft.category
                 expense.tags = draft.tags
@@ -1166,8 +1218,21 @@ enum AdvanceService {
 
         participant.owedAmount = abs(draft.owedAmount)
         participant.repaidAmount = min(participant.repaidAmount, participant.owedAmount)
+        participant.name = targetName
+        participant.debtAccount = targetDebtAccount
         participant.updatedAt = now
-        advanceCase.payerAccount = direction == .iAdvancedOthers ? draft.payerAccount : nil
+        advanceCase.title = finalTitle
+        if direction == .iAdvancedOthers {
+            let paymentAccounts = entries.compactMap { _, transactions in
+                transactions.first(where: {
+                    $0.transferSide == .outgoing || $0.amount < 0
+                })?.account
+            }
+            let uniqueAccountIDs = Set(paymentAccounts.map(\.id))
+            advanceCase.payerAccount = uniqueAccountIDs.count == 1 ? paymentAccounts.first : nil
+        } else {
+            advanceCase.payerAccount = nil
+        }
         advanceCase.direction = direction == .iAdvancedOthers ? .iAdvancedOthers : .othersAdvancedMe
         advanceCase.tagIDs = draft.tags.map(\.id)
         if direction == .othersAdvancedMe {

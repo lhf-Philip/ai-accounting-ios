@@ -97,6 +97,7 @@ fun AdvanceDetailScreen(caseId: String?) {
     }
 
     val receiveAccounts = accounts.filter { it.type != AccountType.Debt && !it.isArchived }
+    val debtAccounts = accounts.filter { it.type == AccountType.Debt && !it.isArchived }
 
     var selectedParticipant by remember { mutableStateOf<AdvanceParticipantEntity?>(null) }
     var selectedReceiveAccount by remember { mutableStateOf<AccountEntity?>(null) }
@@ -116,7 +117,12 @@ fun AdvanceDetailScreen(caseId: String?) {
     var editingRepayment by remember { mutableStateOf<AdvanceRepaymentEntity?>(null) }
     var repaymentToRollback by remember { mutableStateOf<AdvanceRepaymentEntity?>(null) }
     var participantToEdit by remember { mutableStateOf<AdvanceParticipantEntity?>(null) }
+    var editedParticipantName by remember { mutableStateOf("") }
+    var editedParticipantDebtAccount by remember { mutableStateOf<AccountEntity?>(null) }
     var editedParticipantAmount by remember { mutableStateOf("") }
+    var editedParticipantPaymentAccount by remember { mutableStateOf<AccountEntity?>(null) }
+    var editedParticipantPaymentAmount by remember { mutableStateOf("") }
+    var editedParticipantPaymentCurrency by remember { mutableStateOf("HKD") }
     var selfExpense by remember { mutableStateOf<TransactionWithDetails?>(null) }
     var isEditingSelfExpense by remember { mutableStateOf(false) }
     var selfExpenseAccount by remember { mutableStateOf<AccountEntity?>(null) }
@@ -128,6 +134,7 @@ fun AdvanceDetailScreen(caseId: String?) {
     var selfExpenseDate by remember { mutableStateOf(Instant.now()) }
     var selfExpenseNote by remember { mutableStateOf("") }
     var isEditingInitialMetadata by remember { mutableStateOf(false) }
+    var initialTitle by remember { mutableStateOf("") }
     var initialPayerAccount by remember { mutableStateOf<AccountEntity?>(null) }
     var initialCategory by remember { mutableStateOf<CategoryEntity?>(null) }
     var initialTags by remember { mutableStateOf<List<TagEntity>>(emptyList()) }
@@ -153,6 +160,7 @@ fun AdvanceDetailScreen(caseId: String?) {
 
     LaunchedEffect(caseData.advanceCase.id, receiveAccounts, categories) {
         if (!isEditingInitialMetadata) {
+            initialTitle = caseData.advanceCase.title
             initialPayerAccount = receiveAccounts.firstOrNull {
                 it.id == caseData.advanceCase.payerAccountId
             }
@@ -287,6 +295,7 @@ fun AdvanceDetailScreen(caseId: String?) {
                     Text("備註：${caseData.advanceCase.note.ifBlank { "-" }}")
                     if (!isEditingInitialMetadata) {
                         TextButton(onClick = {
+                            initialTitle = caseData.advanceCase.title
                             initialPayerAccount = receiveAccounts.firstOrNull {
                                 it.id == caseData.advanceCase.payerAccountId
                             }
@@ -309,6 +318,17 @@ fun AdvanceDetailScreen(caseId: String?) {
                             Text("編輯案件記帳資料")
                         }
                     } else {
+                        OutlinedTextField(
+                            value = initialTitle,
+                            onValueChange = { initialTitle = it },
+                            label = { Text("案件名稱") },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                            ),
+                            keyboardActions =
+                                org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions()
+                        )
                         if (isBorrowedByMe) {
                             CategoryPicker(
                                 categories = selfExpenseCategories,
@@ -326,11 +346,10 @@ fun AdvanceDetailScreen(caseId: String?) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         } else {
-                            AccountPicker(
-                                label = "付款帳戶",
-                                accounts = receiveAccounts,
-                                selected = initialPayerAccount,
-                                onSelect = { initialPayerAccount = it }
+                            Text(
+                                "每位對象的實際付款帳戶、金額與幣種請在下方「代墊對象」逐筆編輯。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         TextButton(onClick = {
@@ -359,6 +378,7 @@ fun AdvanceDetailScreen(caseId: String?) {
                                             repository.updateAdvanceInitialMetadata(
                                                 AdvanceInitialMetadataEditDraft(
                                                     caseId = caseData.advanceCase.id,
+                                                    title = initialTitle,
                                                     payerAccountId =
                                                         if (isBorrowedByMe) null else initialPayerAccount?.id,
                                                     date = initialDate,
@@ -379,7 +399,7 @@ fun AdvanceDetailScreen(caseId: String?) {
                                         }
                                     }
                                 },
-                                enabled = isBorrowedByMe || initialPayerAccount != null
+                                enabled = initialTitle.isNotBlank()
                             ) {
                                 Text("儲存")
                             }
@@ -540,7 +560,31 @@ fun AdvanceDetailScreen(caseId: String?) {
                         currency = caseCurrency,
                         onEdit = {
                             participantToEdit = participant
+                            editedParticipantName = participant.name
+                            editedParticipantDebtAccount = debtAccounts.firstOrNull {
+                                it.id == participant.debtAccountId
+                            }
                             editedParticipantAmount = participant.owedAmount.stripTrailingZeros().toPlainString()
+                            editedParticipantPaymentAccount = null
+                            editedParticipantPaymentAmount = ""
+                            editedParticipantPaymentCurrency = caseCurrency
+                            scope.launch {
+                                val group = participant.initialTransferGroupId
+                                    ?.let { repository.getTransferGroup(it) }
+                                    .orEmpty()
+                                val assetLeg = group.firstOrNull {
+                                    it.transaction.advanceEntryRole == "InitialAsset" ||
+                                        it.transaction.transferSide ==
+                                        org.duckdns.lhfser.aiaccounting.core.model.TransferSide.Outgoing
+                                }
+                                if (!isBorrowedByMe && assetLeg != null) {
+                                    editedParticipantPaymentAccount = assetLeg.account
+                                    editedParticipantPaymentAmount =
+                                        assetLeg.transaction.amount.abs().stripTrailingZeros().toPlainString()
+                                    editedParticipantPaymentCurrency =
+                                        assetLeg.transaction.currencyCode
+                                }
+                            }
                         }
                     )
                 }
@@ -966,23 +1010,97 @@ fun AdvanceDetailScreen(caseId: String?) {
     participantToEdit?.let { participant ->
         AlertDialog(
             onDismissRequest = { participantToEdit = null },
-            title = { Text("更正欠款") },
+            title = { Text("編輯代墊對象") },
             text = {
-                OutlinedTextField(
-                    value = editedParticipantAmount,
-                    onValueChange = { editedParticipantAmount = sanitizeAmount(it) },
-                    label = { Text("欠款金額 ($caseCurrency)") }
-                )
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        OutlinedTextField(
+                            value = editedParticipantName,
+                            onValueChange = { editedParticipantName = it },
+                            label = { Text("姓名") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    item {
+                        AccountPicker(
+                            label = "債務帳戶",
+                            accounts = debtAccounts,
+                            selected = editedParticipantDebtAccount,
+                            onSelect = { editedParticipantDebtAccount = it }
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = editedParticipantAmount,
+                            onValueChange = { editedParticipantAmount = sanitizeAmount(it) },
+                            label = { Text("欠款金額 ($caseCurrency)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    if (!isBorrowedByMe) {
+                        item {
+                            AccountPicker(
+                                label = "實際付款帳戶",
+                                accounts = receiveAccounts,
+                                selected = editedParticipantPaymentAccount,
+                                onSelect = { editedParticipantPaymentAccount = it }
+                            )
+                        }
+                        item {
+                            AmountRow(
+                                label = "實際付款",
+                                amount = editedParticipantPaymentAmount,
+                                onAmountChange = {
+                                    editedParticipantPaymentAmount = sanitizeAmount(it)
+                                },
+                                currency = editedParticipantPaymentCurrency,
+                                onCurrencyChange = {
+                                    editedParticipantPaymentCurrency = it
+                                }
+                            )
+                        }
+                        item {
+                            Text(
+                                "實際付款可與欠款使用不同幣種，例如實付 34.86 HKD、對方欠 710 JPY。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
                     val amount = parsePositive(editedParticipantAmount)
-                    if (amount == null) {
+                    val paymentAmount = if (!isBorrowedByMe) {
+                        parsePositive(editedParticipantPaymentAmount)
+                    } else {
+                        null
+                    }
+                    if (editedParticipantName.isBlank()) {
+                        errorMessage = "請輸入對象名稱。"
+                    } else if (editedParticipantDebtAccount == null) {
+                        errorMessage = "請選擇債務帳戶。"
+                    } else if (amount == null) {
                         errorMessage = "請輸入大於 0 的欠款金額。"
+                    } else if (!isBorrowedByMe &&
+                        (editedParticipantPaymentAccount == null || paymentAmount == null)
+                    ) {
+                        errorMessage = "請選擇付款帳戶並輸入實際付款金額。"
                     } else {
                         scope.launch {
                             runCatching {
-                                repository.updateAdvanceParticipantOwedAmount(participant.id, amount)
+                                repository.updateAdvanceParticipantOwedAmount(
+                                    participantId = participant.id,
+                                    newOwedAmount = amount,
+                                    participantName = editedParticipantName,
+                                    debtAccountId = editedParticipantDebtAccount?.id,
+                                    paymentAccountId =
+                                        if (!isBorrowedByMe) editedParticipantPaymentAccount?.id else null,
+                                    paymentAmount = paymentAmount,
+                                    paymentCurrencyCode =
+                                        if (!isBorrowedByMe) editedParticipantPaymentCurrency else null
+                                )
                             }.onSuccess {
                                 advanceCase = repository.getAdvanceCase(caseData.advanceCase.id)
                             }.onFailure {
