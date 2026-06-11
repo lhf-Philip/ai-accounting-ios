@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
@@ -282,7 +283,9 @@ fun AdvanceDetailScreen(caseId: String?) {
     }
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
+        modifier = Modifier
+            .imePadding()
+            .padding(horizontal = AppSpacing.screenHorizontal, vertical = AppSpacing.screenVertical),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
@@ -1012,13 +1015,21 @@ fun AdvanceDetailScreen(caseId: String?) {
             onDismissRequest = { participantToEdit = null },
             title = { Text("編輯代墊對象") },
             text = {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(
+                    modifier = Modifier.imePadding(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     item {
                         OutlinedTextField(
                             value = editedParticipantName,
                             onValueChange = { editedParticipantName = it },
                             label = { Text("姓名") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                            ),
+                            keyboardActions =
+                                org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions()
                         )
                     }
                     item {
@@ -1034,7 +1045,13 @@ fun AdvanceDetailScreen(caseId: String?) {
                             value = editedParticipantAmount,
                             onValueChange = { editedParticipantAmount = sanitizeAmount(it) },
                             label = { Text("欠款金額 ($caseCurrency)") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal,
+                                imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                            ),
+                            keyboardActions =
+                                org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions()
                         )
                     }
                     if (!isBorrowedByMe) {

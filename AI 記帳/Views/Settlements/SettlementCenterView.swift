@@ -785,6 +785,7 @@ private struct ManualDebtSettlementSheet: View {
             }
             .navigationTitle("跨幣種平賬")
             .navigationBarTitleDisplayMode(.inline)
+            .standardKeyboardBehavior()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }

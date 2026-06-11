@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,7 +30,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
@@ -149,7 +152,9 @@ fun SettlementCenterScreen(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .imePadding(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             start = AppSpacing.screenHorizontal,
             end = AppSpacing.screenHorizontal,
@@ -380,6 +385,7 @@ private fun ManualDebtSettlementDialog(
     onDismiss: () -> Unit,
     onConfirm: (BigDecimal, String) -> Unit
 ) {
+    val focusManager = LocalFocusManager.current
     var amountText by remember(draft.id) { mutableStateOf(draft.suggestedAmount.stripTrailingZeros().toPlainString()) }
     var note by remember(draft.id) { mutableStateOf("") }
     var errorText by remember(draft.id) { mutableStateOf<String?>(null) }
@@ -388,7 +394,10 @@ private fun ManualDebtSettlementDialog(
         onDismissRequest = onDismiss,
         title = { Text("跨幣種平賬") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.imePadding(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text("對象：${draft.account.name}", style = MaterialTheme.typography.bodyMedium)
                 Text("方向：${manualSettlementLabel(draft.direction, draft.currencyCode)}", style = MaterialTheme.typography.bodyMedium)
                 Text(
@@ -410,7 +419,12 @@ private fun ManualDebtSettlementDialog(
                     value = amountText,
                     onValueChange = { amountText = it },
                     label = { Text("平賬金額") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Decimal,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions =
+                        org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions(),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -420,6 +434,9 @@ private fun ManualDebtSettlementDialog(
                     label = { Text("備註（可選）") },
                     modifier = Modifier.fillMaxWidth()
                 )
+                TextButton(onClick = { focusManager.clearFocus() }) {
+                    Text("完成輸入")
+                }
                 errorText?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
@@ -427,6 +444,7 @@ private fun ManualDebtSettlementDialog(
         },
         confirmButton = {
             TextButton(onClick = {
+                focusManager.clearFocus()
                 val amount = runCatching { BigDecimal(amountText.trim()) }.getOrNull()
                 when {
                     amount == null || amount <= BigDecimal.ZERO -> errorText = "請輸入有效金額。"
@@ -438,7 +456,10 @@ private fun ManualDebtSettlementDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = {
+                focusManager.clearFocus()
+                onDismiss()
+            }) { Text("取消") }
         }
     )
 }

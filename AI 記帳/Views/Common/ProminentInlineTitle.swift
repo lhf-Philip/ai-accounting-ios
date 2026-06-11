@@ -44,4 +44,11 @@ extension View {
     func interactiveKeyboardDismiss() -> some View {
         scrollDismissesKeyboard(.interactively)
     }
+
+    /// Applies the app-wide keyboard contract: scroll to dismiss and an
+    /// explicit Done action for keyboards that do not provide one.
+    func standardKeyboardBehavior(doneTitle: String = "完成") -> some View {
+        scrollDismissesKeyboard(.interactively)
+            .keyboardDoneToolbar(title: doneTitle)
+    }
 }

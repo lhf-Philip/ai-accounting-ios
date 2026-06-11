@@ -93,6 +93,7 @@ struct ScanReceiptView: View {
                     .foregroundStyle(.secondary)
             }
             .navigationTitle("掃描單據")
+            .standardKeyboardBehavior()
             .onChange(of: selectedItem) { _, newItem in
                 Task {
                     if let data = try? await newItem?.loadTransferable(type: Data.self),
