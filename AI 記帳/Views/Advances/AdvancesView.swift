@@ -467,7 +467,7 @@ struct AdvanceCaseDetailView: View {
     
     private func repaymentRow(_ repayment: AdvanceRepayment) -> some View {
         let recordKind = AdvanceService.repaymentRecordKind(note: repayment.note)
-        VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(repayment.participant?.name ?? "未指定對象")
