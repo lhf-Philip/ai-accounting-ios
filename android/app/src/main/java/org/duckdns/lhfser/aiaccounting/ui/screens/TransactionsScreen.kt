@@ -83,11 +83,22 @@ private sealed interface LedgerItem {
         override val date: Instant = item.transaction.date
     }
 
-    data class AdvanceSummary(val item: AdvanceCaseWithDetails) : LedgerItem {
-        override val stableId: String = "advance-${item.advanceCase.id}"
-        override val date: Instant = item.advanceCase.date
+    data class AdvanceSummary(val summary: AdvanceLedgerSummary) : LedgerItem {
+        override val stableId: String = "advance-${summary.item.advanceCase.id}"
+        override val date: Instant = summary.activityDate
     }
 }
+
+private data class AdvanceCurrencyTotal(
+    val currencyCode: String,
+    val amount: BigDecimal
+)
+
+private data class AdvanceLedgerSummary(
+    val item: AdvanceCaseWithDetails,
+    val activityDate: Instant,
+    val paymentTotals: List<AdvanceCurrencyTotal>
+)
 
 private data class DailySection(val date: LocalDate, val items: List<LedgerItem>)
 
@@ -131,11 +142,32 @@ fun TransactionsScreen(
     val initialAdvanceGroupIds = remember(advanceCases) {
         advanceCases.flatMap { it.participants.mapNotNull { participant -> participant.initialTransferGroupId } }.toSet()
     }
-    val filteredTransactions = remember(transactions, rangeStart, rangeEnd, searchText, initialAdvanceGroupIds) {
-        filterTransactions(transactions, rangeStart, rangeEnd, searchText, initialAdvanceGroupIds)
+    val repaymentAdvanceGroupIds = remember(advanceCases) {
+        advanceCases.flatMap { it.repayments.mapNotNull { repayment -> repayment.linkedTransferGroupId } }.toSet()
     }
-    val filteredAdvanceCases = remember(advanceCases, rangeStart, rangeEnd, searchText) {
-        filterAdvanceCases(advanceCases, rangeStart, rangeEnd, searchText)
+    val advanceSelfExpenseIds = remember(advanceCases) {
+        advanceCases.mapNotNull { it.advanceCase.selfExpenseTransactionId }.toSet()
+    }
+    val filteredTransactions = remember(
+        transactions,
+        rangeStart,
+        rangeEnd,
+        searchText,
+        initialAdvanceGroupIds,
+        repaymentAdvanceGroupIds,
+        advanceSelfExpenseIds
+    ) {
+        filterTransactions(
+            transactions = transactions,
+            rangeStart = rangeStart,
+            rangeEnd = rangeEnd,
+            query = searchText,
+            excludedAdvanceGroupIds = initialAdvanceGroupIds + repaymentAdvanceGroupIds,
+            advanceSelfExpenseIds = advanceSelfExpenseIds
+        )
+    }
+    val filteredAdvanceCases = remember(advanceCases, transactions, rangeStart, rangeEnd, searchText) {
+        filterAdvanceCases(advanceCases, transactions, rangeStart, rangeEnd, searchText)
     }
     val ledgerItems = remember(filteredTransactions, filteredAdvanceCases) {
         buildLedgerItems(filteredTransactions, filteredAdvanceCases)
@@ -276,8 +308,10 @@ fun TransactionsScreen(
                             }
                             is LedgerItem.AdvanceSummary -> {
                                 AdvanceSummaryRow(
-                                    item = item.item,
-                                    onClick = { onOpenAdvanceCase(item.item.advanceCase.id.toString()) }
+                                    summary = item.summary,
+                                    onClick = {
+                                        onOpenAdvanceCase(item.summary.item.advanceCase.id.toString())
+                                    }
                                 )
                             }
                         }
@@ -528,9 +562,10 @@ private fun TransactionRow(
 
 @Composable
 private fun AdvanceSummaryRow(
-    item: AdvanceCaseWithDetails,
+    summary: AdvanceLedgerSummary,
     onClick: () -> Unit
 ) {
+    val item = summary.item
     val totalAdvanced = item.advanceCase.myShareAmount + item.participants.fold(BigDecimal.ZERO) { acc, participant ->
         acc + participant.owedAmount
     }
@@ -538,6 +573,23 @@ private fun AdvanceSummaryRow(
         acc + (participant.owedAmount - participant.repaidAmount).max(BigDecimal.ZERO)
     }
     val payerText = item.payerAccount?.name ?: "他人代付（不影響自己帳戶）"
+    val isSettled = outstanding <= BigDecimal("0.0001")
+    val directionLabel = if (item.advanceCase.direction == "OthersAdvancedMe") {
+        "他人代墊我"
+    } else {
+        "我代墊他人"
+    }
+    val paymentText = if (summary.paymentTotals.isEmpty()) {
+        if (item.advanceCase.direction == "OthersAdvancedMe") {
+            "${totalAdvanced.asCurrencyText(item.advanceCase.currencyCode)}（他人代付）"
+        } else {
+            totalAdvanced.asCurrencyText(item.advanceCase.currencyCode)
+        }
+    } else {
+        summary.paymentTotals.joinToString(" + ") {
+            it.amount.asCurrencyText(it.currencyCode)
+        }
+    }
 
     PressableCard(
         modifier = Modifier.fillMaxWidth(),
@@ -559,7 +611,7 @@ private fun AdvanceSummaryRow(
                         fontWeight = FontWeight.SemiBold
                     )
                     ParityStatusPill(
-                        text = "代墊",
+                        text = directionLabel,
                         tint = Color(0xFFEF6C00)
                     )
                 }
@@ -569,22 +621,27 @@ private fun AdvanceSummaryRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    item.advanceCase.date.toDateText(),
+                    "最近活動 ${summary.activityDate.toDateText()}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    totalAdvanced.asCurrencyText(item.advanceCase.currencyCode),
+                    paymentText,
                     color = Color(0xFFEF6C00),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "未清 ${outstanding.asCurrencyText(item.advanceCase.currencyCode)}",
+                    if (isSettled) {
+                        "已結清"
+                    } else {
+                        val label = if (item.advanceCase.direction == "OthersAdvancedMe") "待還" else "待收"
+                        "$label ${outstanding.asCurrencyText(item.advanceCase.currencyCode)}"
+                    },
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (isSettled) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -731,7 +788,8 @@ private fun filterTransactions(
     rangeStart: Instant?,
     rangeEnd: Instant?,
     query: String,
-    excludedAdvanceGroupIds: Set<UUID>
+    excludedAdvanceGroupIds: Set<UUID>,
+    advanceSelfExpenseIds: Set<UUID>
 ): List<TransactionWithDetails> {
     val normalized = query.trim().lowercase()
     return transactions.filter { tx ->
@@ -739,6 +797,9 @@ private fun filterTransactions(
             tx.transaction.date >= rangeStart && tx.transaction.date < rangeEnd
         } else true
         if (!dateOk) return@filter false
+        if (tx.transaction.advanceCaseId != null || tx.transaction.id in advanceSelfExpenseIds) {
+            return@filter false
+        }
         if (tx.transaction.transferGroupId in excludedAdvanceGroupIds) return@filter false
         if (normalized.isBlank()) return@filter true
         val note = tx.transaction.note.lowercase()
@@ -753,31 +814,109 @@ private fun filterTransactions(
 
 private fun filterAdvanceCases(
     advanceCases: List<AdvanceCaseWithDetails>,
+    transactions: List<TransactionWithDetails>,
     rangeStart: Instant?,
     rangeEnd: Instant?,
     query: String
-): List<AdvanceCaseWithDetails> {
+): List<AdvanceLedgerSummary> {
     val normalized = query.trim().lowercase()
-    return advanceCases.filter { advanceCase ->
-        val dateOk = if (rangeStart != null && rangeEnd != null) {
-            advanceCase.advanceCase.date >= rangeStart && advanceCase.advanceCase.date < rangeEnd
-        } else true
-        if (!dateOk) return@filter false
-        if (normalized.isBlank()) return@filter true
+    val transactionsByCaseId = transactions
+        .mapNotNull { transaction ->
+            transaction.transaction.advanceCaseId?.let { it to transaction }
+        }
+        .groupBy({ it.first }, { it.second })
+    val transactionsByGroupId = transactions
+        .mapNotNull { transaction ->
+            transaction.transaction.transferGroupId?.let { it to transaction }
+        }
+        .groupBy({ it.first }, { it.second })
+    val transactionById = transactions.associateBy { it.transaction.id }
 
-        val title = advanceCase.advanceCase.title.lowercase()
-        val note = advanceCase.advanceCase.note.lowercase()
-        val payer = advanceCase.payerAccount?.name?.lowercase().orEmpty()
-        val participants = advanceCase.participants.joinToString(" ") { it.name.lowercase() }
-        listOf(title, note, payer, participants).any { it.contains(normalized) }
+    return advanceCases.mapNotNull { advanceCase ->
+        var caseTransactions = transactionsByCaseId[advanceCase.advanceCase.id].orEmpty()
+        val groupIds = advanceCase.participants.mapNotNull { it.initialTransferGroupId } +
+            advanceCase.repayments.mapNotNull { it.linkedTransferGroupId }
+        caseTransactions = (
+            caseTransactions +
+                groupIds.distinct().flatMap { transactionsByGroupId[it].orEmpty() } +
+                listOfNotNull(
+                    advanceCase.advanceCase.selfExpenseTransactionId?.let(transactionById::get)
+                )
+            ).distinctBy { it.transaction.id }
+
+        val activityDates = listOf(advanceCase.advanceCase.date) +
+            advanceCase.repayments.map { it.date } +
+            caseTransactions.map { it.transaction.date }
+        val matchingDates = activityDates.filter {
+            rangeStart == null || rangeEnd == null || (it >= rangeStart && it < rangeEnd)
+        }
+        val activityDate = matchingDates.maxOrNull() ?: return@mapNotNull null
+
+        if (normalized.isNotBlank()) {
+            val searchable = listOf(
+                advanceCase.advanceCase.title,
+                advanceCase.advanceCase.note,
+                advanceCase.payerAccount?.name.orEmpty(),
+                advanceCase.expenseCategory?.name.orEmpty(),
+                advanceCase.participants.joinToString(" ") { it.name },
+                advanceCase.repayments.joinToString(" ") { it.note },
+                caseTransactions.joinToString(" ") {
+                    listOfNotNull(it.account?.name, it.category?.name)
+                        .plus(it.tags.map { tag -> tag.name })
+                        .joinToString(" ")
+                }
+            )
+            if (searchable.none { it.lowercase().contains(normalized) }) {
+                return@mapNotNull null
+            }
+        }
+
+        val initialGroupIds = advanceCase.participants
+            .mapNotNull { it.initialTransferGroupId }
+            .toSet()
+        val paymentTotals = caseTransactions
+            .filter {
+                (
+                    it.transaction.advanceEntryRole == "InitialAsset" ||
+                        (
+                            it.transaction.advanceEntryRole == null &&
+                                it.transaction.transferGroupId in initialGroupIds &&
+                                (
+                                    it.transaction.transferSide ==
+                                        org.duckdns.lhfser.aiaccounting.core.model.TransferSide.Outgoing ||
+                                        it.transaction.amount < BigDecimal.ZERO
+                                    )
+                            )
+                    ) &&
+                    it.transaction.amount < BigDecimal.ZERO
+            }
+            .groupBy { it.transaction.currencyCode }
+            .map { (currency, entries) ->
+                AdvanceCurrencyTotal(
+                    currencyCode = currency,
+                    amount = entries.fold(BigDecimal.ZERO) { acc, entry ->
+                        acc + entry.transaction.amount.abs()
+                    }
+                )
+            }
+            .sortedBy { it.currencyCode }
+
+        AdvanceLedgerSummary(
+            item = advanceCase,
+            activityDate = activityDate,
+            paymentTotals = paymentTotals
+        )
     }
 }
 
 private fun buildLedgerItems(
     transactions: List<TransactionWithDetails>,
-    advanceCases: List<AdvanceCaseWithDetails>
+    advanceCases: List<AdvanceLedgerSummary>
 ): List<LedgerItem> {
-    return (transactions.map { LedgerItem.TransactionEntry(it) } + advanceCases.map { LedgerItem.AdvanceSummary(it) })
+    return (
+        transactions.map { LedgerItem.TransactionEntry(it) } +
+            advanceCases.map { LedgerItem.AdvanceSummary(it) }
+        )
         .sortedByDescending { it.date }
 }
 

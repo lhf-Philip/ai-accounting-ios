@@ -166,6 +166,7 @@ data class AdvanceSelfExpenseEditDraft(
 
 data class AdvanceInitialMetadataEditDraft(
     val caseId: UUID,
+    val title: String,
     val payerAccountId: UUID?,
     val date: Instant,
     val note: String,
@@ -1978,6 +1979,9 @@ class AccountingRepository(
     suspend fun updateAdvanceParticipantOwedAmount(
         participantId: UUID,
         newOwedAmount: BigDecimal,
+        participantName: String? = null,
+        debtAccountId: UUID? = null,
+        paymentAccountId: UUID? = null,
         paymentAmount: BigDecimal? = null,
         paymentCurrencyCode: String? = null
     ) {
@@ -1995,6 +1999,16 @@ class AccountingRepository(
                     advanceDao.getAllCases().firstOrNull { it.id == caseId }
                 }
             ) { "找不到代墊案件。" }
+            val finalName = participantName?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?: participant.name
+            val finalDebtAccountId = debtAccountId ?: participant.debtAccountId
+            val debtAccount = requireNotNull(
+                finalDebtAccountId?.let { accountDao.getAccount(it) }
+            ) { "請選擇債務帳戶。" }
+            require(debtAccount.type == AccountType.Debt && !debtAccount.isArchived) {
+                "請選擇未歸檔的借貸帳戶。"
+            }
             val groupId = requireNotNull(participant.initialTransferGroupId) { "找不到初始代墊分錄。" }
             val group = transactionDao.getTransferGroup(groupId)
             require(group.isNotEmpty()) { "找不到初始代墊分錄。" }
@@ -2015,13 +2029,25 @@ class AccountingRepository(
                             transferGroupId = groupId,
                             transferSide = TransferSide.Outgoing,
                             updatedAt = now,
-                            accountId = participant.debtAccountId,
+                            accountId = debtAccount.id,
                             categoryId = advanceCase.expenseCategoryId
                         )
                     )
                 }
                 AdvanceSettlementDirection.IAdvancedOthers -> {
                     require(group.size == 2) { "我代墊他人的初始轉帳結構不完整。" }
+                    val existingAssetLeg = requireNotNull(
+                        group.firstOrNull {
+                            effectiveTransferSide(it.transaction) == TransferSide.Outgoing
+                        }
+                    ) { "找不到實際付款分錄。" }
+                    val paymentAccount = paymentAccountId?.let { accountDao.getAccount(it) }
+                        ?: existingAssetLeg.account
+                    require(
+                        paymentAccount != null &&
+                            paymentAccount.type != AccountType.Debt &&
+                            !paymentAccount.isArchived
+                    ) { "請選擇未歸檔的非借貸付款帳戶。" }
                     group.map { item ->
                         val side = effectiveTransferSide(item.transaction)
                         val isAssetLeg = side == TransferSide.Outgoing
@@ -2042,6 +2068,12 @@ class AccountingRepository(
                             date = advanceCase.date,
                             transferSide = side,
                             updatedAt = now,
+                            accountId = if (isAssetLeg) paymentAccount.id else debtAccount.id,
+                            note = if (isAssetLeg) {
+                                "${advanceCase.note.ifBlank { advanceCase.title }} (代墊給 $finalName)"
+                            } else {
+                                "${advanceCase.note.ifBlank { advanceCase.title }} (來自 ${paymentAccount.name})"
+                            },
                             advanceCaseId = advanceCase.id,
                             advanceParticipantId = participant.id,
                             advanceEntryRole = if (isAssetLeg) {
@@ -2058,13 +2090,37 @@ class AccountingRepository(
             advanceDao.upsertParticipants(
                 listOf(
                     participant.copy(
+                        name = finalName,
+                        debtAccountId = debtAccount.id,
                         owedAmount = amount,
                         repaidAmount = participant.repaidAmount.min(amount),
                         updatedAt = now
                     )
                 )
             )
-            advanceDao.upsertCase(advanceCase.copy(updatedAt = now))
+            val payerAccountId = if (direction == AdvanceSettlementDirection.IAdvancedOthers) {
+                val paymentAccountIds = advanceDao.getAllParticipants()
+                    .filter { it.advanceCaseId == advanceCase.id }
+                    .mapNotNull { caseParticipant ->
+                        caseParticipant.initialTransferGroupId
+                            ?.let { transactionDao.getTransferGroup(it) }
+                            ?.firstOrNull {
+                                effectiveTransferSide(it.transaction) == TransferSide.Outgoing
+                            }
+                            ?.transaction
+                            ?.accountId
+                    }
+                    .distinct()
+                paymentAccountIds.singleOrNull()
+            } else {
+                null
+            }
+            advanceDao.upsertCase(
+                advanceCase.copy(
+                    updatedAt = now,
+                    payerAccountId = payerAccountId
+                )
+            )
             syncAllBudgetHistory()
         }
     }
@@ -2077,16 +2133,11 @@ class AccountingRepository(
             val participants = advanceDao.getAllParticipants()
                 .filter { it.advanceCaseId == advanceCase.id }
             require(participants.isNotEmpty()) { "代墊案件沒有可更新的對象。" }
+            val title = draft.title.trim()
+            require(title.isNotEmpty()) { "請輸入案件名稱。" }
 
             val direction = advanceSettlementDirectionLocked(participants.first())
-            val payerAccount = draft.payerAccountId?.let { accountId ->
-                requireNotNull(accountDao.getAccount(accountId)) { "找不到所選付款帳戶。" }
-            }
-            if (direction == AdvanceSettlementDirection.IAdvancedOthers) {
-                require(payerAccount != null && payerAccount.type != AccountType.Debt && !payerAccount.isArchived) {
-                    "請選擇未歸檔的非借貸付款帳戶。"
-                }
-            }
+            val payerAccount = advanceCase.payerAccountId?.let { accountDao.getAccount(it) }
             val category = draft.categoryId?.let { categoryId ->
                 requireNotNull(categoryDao.getCategory(categoryId)) { "找不到所選分類。" }
             }
@@ -2118,17 +2169,18 @@ class AccountingRepository(
             }
 
             val memo = draft.note.trim()
-            val baseMemo = memo.ifBlank { advanceCase.title }
+            val baseMemo = memo.ifBlank { title }
             val now = Instant.now()
             entries.forEach { (participant, group) ->
                 val amount = participant.owedAmount.abs()
                 when (direction) {
                     AdvanceSettlementDirection.IAdvancedOthers -> {
-                        val outgoing = requireNotNull(
+                        val outgoingItem = requireNotNull(
                             group.firstOrNull {
                                 effectiveTransferSide(it.transaction) == TransferSide.Outgoing
-                            }?.transaction
+                            }
                         )
+                        val outgoing = outgoingItem.transaction
                         val incoming = requireNotNull(
                             group.firstOrNull {
                                 effectiveTransferSide(it.transaction) == TransferSide.Incoming
@@ -2137,14 +2189,11 @@ class AccountingRepository(
                         transactionDao.upsertAll(
                             listOf(
                                 outgoing.copy(
-                                    amount = amount.negate(),
-                                    currencyCode = advanceCase.currencyCode,
                                     date = draft.date,
                                     note = "$baseMemo (代墊給 ${participant.name})",
                                     linkedTransactionId = incoming.id,
                                     transferSide = TransferSide.Outgoing,
                                     updatedAt = now,
-                                    accountId = requireNotNull(payerAccount).id,
                                     categoryId = null,
                                     advanceCaseId = advanceCase.id,
                                     advanceParticipantId = participant.id,
@@ -2154,7 +2203,7 @@ class AccountingRepository(
                                     amount = amount,
                                     currencyCode = advanceCase.currencyCode,
                                     date = draft.date,
-                                    note = "$baseMemo (來自 ${payerAccount.name})",
+                                    note = "$baseMemo (來自 ${outgoingItem.account?.name ?: payerAccount?.name.orEmpty()})",
                                     linkedTransactionId = outgoing.id,
                                     transferSide = TransferSide.Incoming,
                                     updatedAt = now,
@@ -2200,11 +2249,13 @@ class AccountingRepository(
             }
             advanceDao.upsertCase(
                 advanceCase.copy(
+                    title = title,
                     date = draft.date,
                     note = memo,
                     updatedAt = now,
                     payerAccountId =
-                        if (direction == AdvanceSettlementDirection.IAdvancedOthers) payerAccount?.id else null,
+                        if (direction == AdvanceSettlementDirection.IAdvancedOthers) advanceCase.payerAccountId
+                        else null,
                     expenseCategoryId =
                         if (direction == AdvanceSettlementDirection.OthersAdvancedMe) category?.id
                         else advanceCase.expenseCategoryId,

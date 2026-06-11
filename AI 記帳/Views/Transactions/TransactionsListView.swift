@@ -8,6 +8,7 @@ struct TransactionsListView: View {
     @Query(sort: \AdvanceCase.date, order: .reverse) private var advanceCases: [AdvanceCase]
     @Query private var advanceParticipants: [AdvanceParticipant]
     @Query private var advanceRepayments: [AdvanceRepayment]
+    @Query(sort: \Tag.name) private var tags: [Tag]
     
     @AppStorage(DateFilterPreferenceKeys.filterType) private var filterTypeRaw: String = FilterType.month.rawValue
     @AppStorage(DateFilterPreferenceKeys.selectedDate) private var selectedDateTimeInterval: Double = Date().timeIntervalSince1970
@@ -29,14 +30,14 @@ struct TransactionsListView: View {
 
     enum LedgerItem: Identifiable {
         case transaction(FinancialTransaction)
-        case advanceCaseSummary(AdvanceCase)
+        case advanceCaseSummary(AdvanceCaseLedgerSummary)
 
         var id: String {
             switch self {
             case .transaction(let transaction):
                 return "transaction-\(transaction.id.uuidString)"
-            case .advanceCaseSummary(let advanceCase):
-                return "advance-\(advanceCase.id.uuidString)"
+            case .advanceCaseSummary(let summary):
+                return "advance-\(summary.advanceCase.id.uuidString)"
             }
         }
 
@@ -44,8 +45,8 @@ struct TransactionsListView: View {
             switch self {
             case .transaction(let transaction):
                 return transaction.date
-            case .advanceCaseSummary(let advanceCase):
-                return advanceCase.date
+            case .advanceCaseSummary(let summary):
+                return summary.activityDate
             }
         }
     }
@@ -210,9 +211,9 @@ struct TransactionsListView: View {
                                     transactionToEdit = transaction
                                 } label: { Label("編輯", systemImage: "pencil") }.tint(.blue)
                             }
-                        case .advanceCaseSummary(let advanceCase):
-                            NavigationLink(destination: AdvanceCaseDetailView(advanceCase: advanceCase)) {
-                                AdvanceCaseSummaryRow(advanceCase: advanceCase)
+                        case .advanceCaseSummary(let summary):
+                            NavigationLink(destination: AdvanceCaseDetailView(advanceCase: summary.advanceCase)) {
+                                AdvanceCaseSummaryRow(summary: summary)
                             }
                         }
                     }
@@ -329,6 +330,7 @@ struct TransactionsListView: View {
             advanceCases: advanceCases,
             advanceParticipants: advanceParticipants,
             advanceRepayments: advanceRepayments,
+            tags: tags,
             filterType: filterType,
             selectedDate: selectedDate,
             customStartDate: customStartDate,
@@ -447,7 +449,7 @@ struct TransactionsListView: View {
 private struct TransactionsRenderState {
     let allTransactions: [FinancialTransaction]
     let filteredTransactions: [FinancialTransaction]
-    let filteredAdvanceCases: [AdvanceCase]
+    let filteredAdvanceCases: [AdvanceCaseLedgerSummary]
     let ledgerItems: [TransactionsListView.LedgerItem]
     let groupedTransactions: [TransactionsListView.TransactionGroup]
     let transferCounterpartByID: [UUID: TransferCounterpartInfo]
@@ -459,6 +461,7 @@ private struct TransactionsRenderState {
         advanceCases: [AdvanceCase],
         advanceParticipants: [AdvanceParticipant],
         advanceRepayments: [AdvanceRepayment],
+        tags: [Tag],
         filterType: FilterType,
         selectedDate: Date,
         customStartDate: Date,
@@ -467,10 +470,13 @@ private struct TransactionsRenderState {
     ) {
         let initialAdvanceGroupIDs = Set(advanceParticipants.compactMap(\.initialTransferGroupID))
         let repaymentAdvanceGroupIDs = Set(advanceRepayments.compactMap(\.linkedTransferGroupID))
+        let advanceSelfExpenseTransactionIDs = Set(advanceCases.compactMap(\.selfExpenseTransactionID))
 
         let filteredTransactions = Self.filteredTransactions(
             from: transactions,
             initialAdvanceGroupIDs: initialAdvanceGroupIDs,
+            repaymentAdvanceGroupIDs: repaymentAdvanceGroupIDs,
+            advanceSelfExpenseTransactionIDs: advanceSelfExpenseTransactionIDs,
             filterType: filterType,
             selectedDate: selectedDate,
             customStartDate: customStartDate,
@@ -479,6 +485,8 @@ private struct TransactionsRenderState {
         )
         let filteredAdvanceCases = Self.filteredAdvanceCases(
             from: advanceCases,
+            transactions: transactions,
+            tags: tags,
             filterType: filterType,
             selectedDate: selectedDate,
             customStartDate: customStartDate,
@@ -503,6 +511,8 @@ private struct TransactionsRenderState {
     private static func filteredTransactions(
         from transactions: [FinancialTransaction],
         initialAdvanceGroupIDs: Set<UUID>,
+        repaymentAdvanceGroupIDs: Set<UUID>,
+        advanceSelfExpenseTransactionIDs: Set<UUID>,
         filterType: FilterType,
         selectedDate: Date,
         customStartDate: Date,
@@ -510,6 +520,9 @@ private struct TransactionsRenderState {
         searchText: String
     ) -> [FinancialTransaction] {
         let timeFiltered = transactions.filter { tx in
+            if tx.advanceCaseID != nil || advanceSelfExpenseTransactionIDs.contains(tx.id) {
+                return false
+            }
             if tx.type == .transfer && tx.amount > 0 && !TransactionSemantics.isDebtForgiveness(note: tx.note) { return false }
             if tx.type == .transfer,
                tx.transferGroupID == nil,
@@ -517,7 +530,8 @@ private struct TransactionsRenderState {
                isAssetAdjustment(note: tx.note) {
                 return false
             }
-            if let groupID = tx.transferGroupID, initialAdvanceGroupIDs.contains(groupID) {
+            if let groupID = tx.transferGroupID,
+               initialAdvanceGroupIDs.contains(groupID) || repaymentAdvanceGroupIDs.contains(groupID) {
                 return false
             }
             return filterType.matches(
@@ -538,38 +552,92 @@ private struct TransactionsRenderState {
 
     private static func filteredAdvanceCases(
         from advanceCases: [AdvanceCase],
+        transactions: [FinancialTransaction],
+        tags: [Tag],
         filterType: FilterType,
         selectedDate: Date,
         customStartDate: Date,
         customEndDate: Date,
         searchText: String
-    ) -> [AdvanceCase] {
-        let timeFiltered = advanceCases.filter { advanceCase in
-            filterType.matches(
-                date: advanceCase.date,
-                selectedDate: selectedDate,
-                customStartDate: customStartDate,
-                customEndDate: customEndDate
+    ) -> [AdvanceCaseLedgerSummary] {
+        let transactionsByCaseID = Dictionary(
+            grouping: transactions.compactMap { transaction in
+                transaction.advanceCaseID.map { ($0, transaction) }
+            },
+            by: \.0
+        ).mapValues { $0.map(\.1) }
+        let transactionsByGroupID = Dictionary(
+            grouping: transactions.compactMap { transaction in
+                transaction.transferGroupID.map { ($0, transaction) }
+            },
+            by: \.0
+        ).mapValues { $0.map(\.1) }
+        let transactionByID = Dictionary(uniqueKeysWithValues: transactions.map { ($0.id, $0) })
+        let tagNameByID = Dictionary(uniqueKeysWithValues: tags.map { ($0.id, $0.name) })
+
+        return advanceCases.compactMap { advanceCase in
+            var caseTransactions = transactionsByCaseID[advanceCase.id] ?? []
+            let legacyGroupIDs = Set(
+                advanceCase.participants.compactMap(\.initialTransferGroupID)
+                    + advanceCase.repayments.compactMap(\.linkedTransferGroupID)
             )
-        }
+            caseTransactions += legacyGroupIDs.flatMap {
+                transactionsByGroupID[$0] ?? []
+            }
+            if let selfExpenseID = advanceCase.selfExpenseTransactionID,
+               let selfExpense = transactionByID[selfExpenseID] {
+                caseTransactions.append(selfExpense)
+            }
+            caseTransactions = Array(
+                Dictionary(uniqueKeysWithValues: caseTransactions.map { ($0.id, $0) }).values
+            )
+            let activityDates = [advanceCase.date]
+                + advanceCase.repayments.map(\.date)
+                + caseTransactions.map(\.date)
+            let matchingDates = activityDates.filter {
+                filterType.matches(
+                    date: $0,
+                    selectedDate: selectedDate,
+                    customStartDate: customStartDate,
+                    customEndDate: customEndDate
+                )
+            }
+            guard let activityDate = matchingDates.max() else { return nil }
 
-        guard !searchText.isEmpty else {
-            return timeFiltered
-        }
+            if !searchText.isEmpty {
+                let searchableValues = [
+                    advanceCase.title,
+                    advanceCase.note,
+                    advanceCase.payerAccount?.name ?? "",
+                    advanceCase.expenseCategory?.name ?? "",
+                    advanceCase.participants.map(\.name).joined(separator: " "),
+                    advanceCase.participants.compactMap(\.debtAccount?.name).joined(separator: " "),
+                    advanceCase.repayments.map(\.note).joined(separator: " "),
+                    advanceCase.repayments.compactMap(\.receivedAccount?.name).joined(separator: " "),
+                    advanceCase.tagIDs.compactMap { tagNameByID[$0] }.joined(separator: " "),
+                    caseTransactions.compactMap(\.account?.name).joined(separator: " "),
+                ]
+                guard searchableValues.contains(where: {
+                    $0.localizedCaseInsensitiveContains(searchText)
+                }) else {
+                    return nil
+                }
+            }
 
-        return timeFiltered.filter { advanceCase in
-            advanceCase.title.localizedCaseInsensitiveContains(searchText)
-                || advanceCase.note.localizedCaseInsensitiveContains(searchText)
-                || (advanceCase.payerAccount?.name.localizedCaseInsensitiveContains(searchText) ?? false)
-                || advanceCase.participants.contains { $0.name.localizedCaseInsensitiveContains(searchText) }
+            return AdvanceCaseLedgerSummary(
+                advanceCase: advanceCase,
+                activityDate: activityDate,
+                caseTransactions: caseTransactions
+            )
         }
     }
 
     private static func ledgerItems(
         transactions: [FinancialTransaction],
-        advanceCases: [AdvanceCase]
+        advanceCases: [AdvanceCaseLedgerSummary]
     ) -> [TransactionsListView.LedgerItem] {
-        (transactions.map(TransactionsListView.LedgerItem.transaction) + advanceCases.map(TransactionsListView.LedgerItem.advanceCaseSummary))
+        (transactions.map(TransactionsListView.LedgerItem.transaction)
+            + advanceCases.map(TransactionsListView.LedgerItem.advanceCaseSummary))
             .sorted { lhs, rhs in
                 if lhs.date == rhs.date {
                     return lhs.id > rhs.id
@@ -651,27 +719,92 @@ private struct LedgerSearchModifier: ViewModifier {
     }
 }
 
-private struct AdvanceCaseSummaryRow: View {
-    let advanceCase: AdvanceCase
-
-    private var totalAmount: Decimal {
-        AdvanceService.totalAdvanced(for: advanceCase)
+struct AdvanceCaseLedgerSummary {
+    struct CurrencyTotal: Identifiable {
+        let currencyCode: String
+        let amount: Decimal
+        var id: String { currencyCode }
     }
 
-    private var outstandingAmount: Decimal {
+    let advanceCase: AdvanceCase
+    let activityDate: Date
+    let paymentTotals: [CurrencyTotal]
+
+    init(
+        advanceCase: AdvanceCase,
+        activityDate: Date,
+        caseTransactions: [FinancialTransaction]
+    ) {
+        self.advanceCase = advanceCase
+        self.activityDate = activityDate
+
+        let initialGroupIDs = Set(advanceCase.participants.compactMap(\.initialTransferGroupID))
+        let assetPayments = caseTransactions.filter {
+            ($0.advanceEntryRole == .initialAsset
+                || (
+                    $0.advanceEntryRole == nil
+                        && $0.transferGroupID.map(initialGroupIDs.contains) == true
+                        && ($0.transferSide == .outgoing || $0.amount < 0)
+                ))
+                && $0.amount < 0
+        }
+        let grouped = Dictionary(grouping: assetPayments, by: \.currencyCode)
+        self.paymentTotals = grouped.map { currencyCode, transactions in
+            CurrencyTotal(
+                currencyCode: currencyCode,
+                amount: transactions.reduce(Decimal.zero) { $0 + abs($1.amount) }
+            )
+        }.sorted { $0.currencyCode < $1.currencyCode }
+    }
+
+    var outstandingAmount: Decimal {
         AdvanceService.outstandingAmount(for: advanceCase)
     }
+
+    var isSettled: Bool {
+        outstandingAmount <= Decimal(string: "0.0001")!
+    }
+
+    var directionLabel: String {
+        advanceCase.direction == .othersAdvancedMe ? "他人代墊我" : "我代墊他人"
+    }
+
+    var paymentSummary: String {
+        if paymentTotals.isEmpty {
+            return advanceCase.direction == .othersAdvancedMe
+                ? "\(AdvanceService.totalAdvanced(for: advanceCase).formatted(.currency(code: advanceCase.currencyCode)))（他人代付）"
+                : AdvanceService.totalAdvanced(for: advanceCase)
+                    .formatted(.currency(code: advanceCase.currencyCode))
+        }
+        return paymentTotals.map {
+            $0.amount.formatted(.currency(code: $0.currencyCode))
+        }.joined(separator: " + ")
+    }
+}
+
+private struct AdvanceCaseSummaryRow: View {
+    let summary: AdvanceCaseLedgerSummary
 
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(advanceCase.title)
+                HStack(spacing: 6) {
+                    Text(summary.advanceCase.title)
+                    Text(summary.directionLabel)
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.orange.opacity(0.12))
+                        .foregroundStyle(.orange)
+                        .clipShape(Capsule())
+                }
                     .font(.headline)
                     .foregroundStyle(.primary)
                 Text(summaryLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(advanceCase.date.formatted(date: .abbreviated, time: .shortened))
+                Text("最近活動 \(summary.activityDate.formatted(date: .abbreviated, time: .shortened))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -679,19 +812,32 @@ private struct AdvanceCaseSummaryRow: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 4) {
-                Text(totalAmount.formatted(.currency(code: advanceCase.currencyCode)))
+                Text(summary.paymentSummary)
                     .font(.headline)
                     .foregroundStyle(.orange)
-                Text("未清 \(outstandingAmount.formatted(.currency(code: advanceCase.currencyCode)))")
+                    .multilineTextAlignment(.trailing)
+                Text(statusText)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(summary.isSettled ? .green : .secondary)
             }
         }
         .padding(.vertical, 4)
+        .opacity(summary.isSettled ? 0.72 : 1)
     }
 
     private var summaryLine: String {
-        let payer = advanceCase.payerAccount?.name ?? "他人代付（不影響自己帳戶）"
-        return "\(advanceCase.participants.count) 人 · \(payer)"
+        let payer = summary.advanceCase.payerAccount?.name ?? "不影響自己帳戶"
+        let ownShare = summary.advanceCase.myShareAmount.formatted(
+            .currency(code: summary.advanceCase.currencyCode)
+        )
+        return "\(summary.advanceCase.participants.count) 人 · 自己份額 \(ownShare) · \(payer)"
+    }
+
+    private var statusText: String {
+        if summary.isSettled {
+            return "已結清"
+        }
+        let label = summary.advanceCase.direction == .othersAdvancedMe ? "待還" : "待收"
+        return "\(label) \(summary.outstandingAmount.formatted(.currency(code: summary.advanceCase.currencyCode)))"
     }
 }

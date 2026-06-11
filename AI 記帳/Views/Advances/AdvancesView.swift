@@ -224,11 +224,14 @@ struct AdvanceCaseDetailView: View {
     
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Query(sort: \FinancialTransaction.date, order: .reverse)
+    private var transactions: [FinancialTransaction]
     
     let advanceCase: AdvanceCase
     @State private var selectedParticipantForRepayment: AdvanceParticipant?
     @State private var selectedParticipantForEdit: AdvanceParticipant?
     @State private var selectedRepaymentForEdit: AdvanceRepayment?
+    @State private var showingCaseEditor = false
     @State private var repaymentToRollback: AdvanceRepayment?
     @State private var selectedDeleteMode: DeleteMode?
     @State private var showingDeleteModeDialog = false
@@ -249,6 +252,44 @@ struct AdvanceCaseDetailView: View {
     
     private var sortedRepayments: [AdvanceRepayment] {
         advanceCase.repayments.sorted { $0.date > $1.date }
+    }
+
+    private var linkedAssetTransactionCount: Int {
+        linkedTransactions.filter { $0.account?.type != .debt }.count
+    }
+
+    private var linkedDebtTransactionCount: Int {
+        linkedTransactions.filter { $0.account?.type == .debt }.count
+    }
+
+    private var linkedTransactions: [FinancialTransaction] {
+        let participantIDs = Set(advanceCase.participants.map(\.id))
+        let groupIDs = Set(
+            advanceCase.participants.compactMap(\.initialTransferGroupID)
+                + advanceCase.repayments.compactMap(\.linkedTransferGroupID)
+        )
+        return transactions.filter { transaction in
+            transaction.advanceCaseID == advanceCase.id
+                || transaction.advanceParticipantID.map(participantIDs.contains) == true
+                || transaction.transferGroupID.map(groupIDs.contains) == true
+                || transaction.id == advanceCase.selfExpenseTransactionID
+        }
+    }
+
+    private var initialPaymentTransactions: [FinancialTransaction] {
+        linkedTransactions
+            .filter { transaction in
+                transaction.advanceEntryRole == .initialAsset
+                    || (
+                        transaction.advanceEntryRole == nil
+                            && transaction.type == .transfer
+                            && (transaction.transferSide == .outgoing || transaction.amount < 0)
+                            && advanceCase.participants.contains { participant in
+                                participant.initialTransferGroupID == transaction.transferGroupID
+                            }
+                    )
+            }
+            .sorted { $0.date < $1.date }
     }
     
     var body: some View {
@@ -274,6 +315,44 @@ struct AdvanceCaseDetailView: View {
                     title: "帳務儲存",
                     value: settlementDirection == .iAdvancedOthers ? "借貸帳戶轉帳" : "借貸帳戶支出"
                 )
+            }
+
+            Section("實際付款") {
+                if initialPaymentTransactions.isEmpty {
+                    Text(settlementDirection == .othersAdvancedMe
+                         ? "由他人代付，自己的資產帳戶沒有變動。"
+                         : "找不到可唯一識別的實際付款分錄，請執行資料健康檢查。")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(initialPaymentTransactions) { transaction in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(transaction.account?.name ?? "未指定帳戶")
+                                if let participant = advanceCase.participants.first(where: {
+                                    $0.id == transaction.advanceParticipantID
+                                }) {
+                                    Text(participant.name)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Text(abs(transaction.amount).formatted(.currency(code: transaction.currencyCode)))
+                                .fontWeight(.semibold)
+                        }
+                    }
+                }
+            }
+
+            Section("帳務影響") {
+                summaryRow(
+                    title: "收入／支出報表",
+                    value: settlementDirection == .iAdvancedOthers
+                        ? (advanceCase.myShareAmount > 0 ? "只計自己的份額" : "不計入")
+                        : "代付當日計為支出"
+                )
+                summaryRow(title: "資產帳戶", value: "\(linkedAssetTransactionCount) 筆流水")
+                summaryRow(title: "借貸帳戶", value: "\(linkedDebtTransactionCount) 筆流水")
             }
             
             Section {
@@ -336,6 +415,16 @@ struct AdvanceCaseDetailView: View {
             }
         }
         .navigationTitle(advanceCase.title)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("編輯") {
+                    showingCaseEditor = true
+                }
+            }
+        }
+        .sheet(isPresented: $showingCaseEditor) {
+            EditAdvanceCaseView(advanceCase: advanceCase)
+        }
         .sheet(item: $selectedParticipantForRepayment) { participant in
             AddAdvanceRepaymentView(advanceCase: advanceCase, participant: participant)
         }
@@ -579,6 +668,170 @@ struct AdvanceCaseDetailView: View {
             errorMessage = error.localizedDescription
             showingError = true
         }
+    }
+}
+
+struct EditAdvanceCaseView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Category.name) private var categories: [Category]
+    @Query(sort: \Tag.name) private var tags: [Tag]
+
+    let advanceCase: AdvanceCase
+
+    @State private var title = ""
+    @State private var date = Date()
+    @State private var note = ""
+    @State private var selectedCategory: Category?
+    @State private var selectedTags: Set<Tag> = []
+    @State private var direction: AdvanceService.SettlementDirection = .iAdvancedOthers
+    @State private var showingError = false
+    @State private var errorMessage = ""
+
+    private var availableCategories: [Category] {
+        direction == .othersAdvancedMe
+            ? categories.filter { $0.kind.supports(.expense) }
+            : []
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("案件") {
+                    TextField("案件名稱", text: $title)
+                    DatePicker("日期", selection: $date)
+                    LabeledContent("方向", value: direction == .iAdvancedOthers ? "我代墊他人" : "他人代墊我")
+                    LabeledContent("案件幣種", value: advanceCase.currencyCode)
+                    Text("方向與案件幣種會改變所有底層分錄；請先逐筆確認參與人及還款，再使用重建流程。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if direction == .othersAdvancedMe {
+                    Section("支出分類") {
+                        Picker("分類", selection: $selectedCategory) {
+                            Text("無分類").tag(nil as Category?)
+                            ForEach(availableCategories) { category in
+                                Text(category.name).tag(category as Category?)
+                            }
+                        }
+                    }
+                }
+
+                Section("標籤") {
+                    ForEach(tags) { tag in
+                        Toggle(tag.name, isOn: Binding(
+                            get: { selectedTags.contains(tag) },
+                            set: { selected in
+                                if selected {
+                                    selectedTags.insert(tag)
+                                } else {
+                                    selectedTags.remove(tag)
+                                }
+                            }
+                        ))
+                    }
+                }
+
+                Section("備註") {
+                    TextEditor(text: $note)
+                        .frame(minHeight: 100)
+                }
+
+                Section("完整金額編輯") {
+                    Text("返回案件詳情後，可逐位修改債務帳戶、欠款、實際付款帳戶、金額與幣種；每筆普通還款亦可獨立修改。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("編輯代墊案件")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("儲存") { save() }
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("完成") { hideKeyboard() }
+                }
+            }
+            .alert("無法儲存", isPresented: $showingError) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text(errorMessage)
+            }
+            .onAppear {
+                title = advanceCase.title
+                date = advanceCase.date
+                note = advanceCase.note
+                selectedCategory = advanceCase.expenseCategory
+                selectedTags = Set(tags.filter { advanceCase.tagIDs.contains($0.id) })
+                if let participant = advanceCase.participants.first {
+                    direction = AdvanceService.inferSettlementDirection(
+                        for: participant,
+                        modelContext: modelContext
+                    )
+                }
+            }
+        }
+    }
+
+    private func save() {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            showError("請輸入案件名稱。")
+            return
+        }
+        guard let participant = advanceCase.participants.first else {
+            showError("案件沒有可編輯的參與人。")
+            return
+        }
+
+        let payment = initialPayment(for: participant)
+        do {
+            try AdvanceService.updateInitialEntry(
+                advanceCase: advanceCase,
+                participant: participant,
+                draft: .init(
+                    caseTitle: trimmedTitle,
+                    participantName: participant.name,
+                    debtAccount: participant.debtAccount,
+                    payerAccount: direction == .iAdvancedOthers
+                        ? (payment?.account ?? advanceCase.payerAccount)
+                        : nil,
+                    owedAmount: participant.owedAmount,
+                    paymentAmount: payment.map { abs($0.amount) },
+                    paymentCurrencyCode: payment?.currencyCode,
+                    date: date,
+                    note: note,
+                    category: direction == .othersAdvancedMe ? selectedCategory : nil,
+                    tags: Array(selectedTags)
+                ),
+                modelContext: modelContext
+            )
+            dismiss()
+        } catch {
+            showError(error.localizedDescription)
+        }
+    }
+
+    private func initialPayment(for participant: AdvanceParticipant) -> FinancialTransaction? {
+        guard let groupID = participant.initialTransferGroupID else { return nil }
+        let descriptor = FetchDescriptor<FinancialTransaction>(
+            predicate: #Predicate { $0.transferGroupID == groupID }
+        )
+        return try? modelContext.fetch(descriptor).first(where: {
+            $0.advanceEntryRole == .initialAsset
+                || $0.transferSide == .outgoing
+                || $0.amount < 0
+        })
+    }
+
+    private func showError(_ message: String) {
+        errorMessage = message
+        showingError = true
     }
 }
 
@@ -1653,24 +1906,48 @@ struct AddAdvanceRepaymentView: View {
 struct EditAdvanceParticipantView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Account.sortOrder) private var accounts: [Account]
+    @Query(sort: \Tag.name) private var tags: [Tag]
     
     let advanceCase: AdvanceCase
     let participant: AdvanceParticipant
     
+    @State private var name = ""
+    @State private var selectedDebtAccount: Account?
     @State private var owedAmountString = ""
+    @State private var selectedPaymentAccount: Account?
+    @State private var paymentAmountString = ""
+    @State private var paymentCurrency = "HKD"
+    @State private var direction: AdvanceService.SettlementDirection = .iAdvancedOthers
     @State private var showingError = false
     @State private var errorMessage = ""
+
+    private var ownAccounts: [Account] {
+        accounts.filter { !$0.isArchived && $0.type != .debt }
+    }
+
+    private var debtAccounts: [Account] {
+        accounts.filter { !$0.isArchived && $0.type == .debt }
+    }
+
+    private var availableCurrencies: [String] {
+        Array(Set(accounts.map(\.currency) + [advanceCase.currencyCode, "HKD", "JPY", "USD", "CNY"]))
+            .sorted()
+    }
     
     var body: some View {
         NavigationStack {
             Form {
                 Section("對象") {
-                    HStack {
-                        Text("姓名")
-                        Spacer()
-                        Text(participant.name)
-                            .foregroundStyle(.secondary)
+                    TextField("姓名", text: $name)
+
+                    Picker("債務帳戶", selection: $selectedDebtAccount) {
+                        Text("請選擇").tag(nil as Account?)
+                        ForEach(debtAccounts) { account in
+                            Text(account.name).tag(account as Account?)
+                        }
                     }
+
                     HStack {
                         Text("已還")
                         Spacer()
@@ -1679,19 +1956,46 @@ struct EditAdvanceParticipantView: View {
                     }
                 }
                 
-                Section("更正欠款") {
+                Section(direction == .iAdvancedOthers ? "對方欠款" : "我欠對方") {
                     TextField("欠款金額", text: Binding(
                         get: { owedAmountString },
                         set: { owedAmountString = sanitizePositiveDecimalInput($0) }
                     ))
                     .keyboardType(.decimalPad)
                     
-                    Text("此值用於代墊追蹤；借貸實際帳務仍以轉帳紀錄為準。")
+                    Text("此金額使用案件幣種 \(advanceCase.currencyCode)，不可低於已還金額。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                if direction == .iAdvancedOthers {
+                    Section("實際付款") {
+                        Picker("付款帳戶", selection: $selectedPaymentAccount) {
+                            Text("請選擇").tag(nil as Account?)
+                            ForEach(ownAccounts) { account in
+                                Text(account.name).tag(account as Account?)
+                            }
+                        }
+
+                        TextField("實際付款金額", text: Binding(
+                            get: { paymentAmountString },
+                            set: { paymentAmountString = sanitizePositiveDecimalInput($0) }
+                        ))
+                        .keyboardType(.decimalPad)
+
+                        Picker("付款幣種", selection: $paymentCurrency) {
+                            ForEach(availableCurrencies, id: \.self) { currency in
+                                Text(currency).tag(currency)
+                            }
+                        }
+
+                        Text("付款金額可與欠款金額及案件幣種不同，例如實付 34.86 HKD、朋友欠 710 JPY。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
-            .navigationTitle("更正欠款")
+            .navigationTitle("編輯代墊對象")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
@@ -1712,28 +2016,86 @@ struct EditAdvanceParticipantView: View {
                 Text(errorMessage)
             }
             .onAppear {
+                name = participant.name
+                selectedDebtAccount = participant.debtAccount
                 owedAmountString = NSDecimalNumber(decimal: participant.owedAmount).stringValue
+                direction = AdvanceService.inferSettlementDirection(
+                    for: participant,
+                    modelContext: modelContext
+                )
+                loadPaymentLeg()
             }
         }
     }
     
     private func save() {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            showError("請輸入對象名稱。")
+            return
+        }
+        guard let debtAccount = selectedDebtAccount else {
+            showError("請選擇債務帳戶。")
+            return
+        }
         guard let newOwed = Decimal(string: owedAmountString), newOwed > 0 else {
             showError("請輸入大於 0 的欠款金額。")
             return
         }
+
+        var paymentAmount: Decimal?
+        if direction == .iAdvancedOthers {
+            guard selectedPaymentAccount != nil,
+                  let parsedPayment = Decimal(string: paymentAmountString),
+                  parsedPayment > 0 else {
+                showError("請選擇付款帳戶並輸入實際付款金額。")
+                return
+            }
+            paymentAmount = parsedPayment
+        }
         
         do {
-            try AdvanceService.updateParticipantOwedAmount(
+            try AdvanceService.updateInitialEntry(
                 advanceCase: advanceCase,
                 participant: participant,
-                newOwedAmount: newOwed,
+                draft: .init(
+                    participantName: trimmedName,
+                    debtAccount: debtAccount,
+                    payerAccount: direction == .iAdvancedOthers ? selectedPaymentAccount : nil,
+                    owedAmount: newOwed,
+                    paymentAmount: paymentAmount,
+                    paymentCurrencyCode: direction == .iAdvancedOthers ? paymentCurrency : nil,
+                    date: advanceCase.date,
+                    note: advanceCase.note,
+                    category: advanceCase.expenseCategory,
+                    tags: tags.filter { advanceCase.tagIDs.contains($0.id) }
+                ),
                 modelContext: modelContext
             )
             dismiss()
         } catch {
             showError(error.localizedDescription)
         }
+    }
+
+    private func loadPaymentLeg() {
+        guard direction == .iAdvancedOthers,
+              let groupID = participant.initialTransferGroupID else {
+            return
+        }
+        let descriptor = FetchDescriptor<FinancialTransaction>(
+            predicate: #Predicate { $0.transferGroupID == groupID }
+        )
+        guard let outgoing = try? modelContext.fetch(descriptor).first(where: {
+            $0.advanceEntryRole == .initialAsset
+                || $0.transferSide == .outgoing
+                || $0.amount < 0
+        }) else {
+            return
+        }
+        selectedPaymentAccount = outgoing.account ?? advanceCase.payerAccount
+        paymentAmountString = NSDecimalNumber(decimal: abs(outgoing.amount)).stringValue
+        paymentCurrency = outgoing.currencyCode
     }
     
     private func sanitizePositiveDecimalInput(_ value: String) -> String {

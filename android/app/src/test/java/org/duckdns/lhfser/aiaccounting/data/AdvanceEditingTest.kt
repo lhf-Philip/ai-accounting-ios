@@ -79,6 +79,8 @@ class AdvanceEditingTest {
 
     @Test
     fun initialEntry_supportsActualPaymentCurrencySeparateFromDebtCurrency() = runBlocking {
+        val renamedDebtAccount = account("TKL", AccountType.Debt, 3)
+        repository.upsertAccount(renamedDebtAccount)
         val caseId = repository.createAdvanceCase(
             title = "LUUP",
             date = Instant.parse("2026-06-10T10:00:00Z"),
@@ -95,6 +97,9 @@ class AdvanceEditingTest {
         repository.updateAdvanceParticipantOwedAmount(
             participantId = participant.id,
             newOwedAmount = BigDecimal("710"),
+            participantName = "TKL",
+            debtAccountId = renamedDebtAccount.id,
+            paymentAccountId = bank.id,
             paymentAmount = BigDecimal("34.86"),
             paymentCurrencyCode = "HKD"
         )
@@ -108,8 +113,13 @@ class AdvanceEditingTest {
         assertEquals("HKD", asset.currencyCode)
         assertEquals("710", debt.amount.toPlainString())
         assertEquals("JPY", debt.currencyCode)
+        assertEquals(bank.id, asset.accountId)
+        assertEquals(renamedDebtAccount.id, debt.accountId)
         assertEquals(caseId, asset.advanceCaseId)
         assertEquals(participant.id, debt.advanceParticipantId)
+        val updatedParticipant = requireNotNull(repository.getAdvanceCase(caseId)).participants.single()
+        assertEquals("TKL", updatedParticipant.name)
+        assertEquals(renamedDebtAccount.id, updatedParticipant.debtAccountId)
     }
 
     @Test
@@ -323,6 +333,7 @@ class AdvanceEditingTest {
         repository.updateAdvanceInitialMetadata(
             AdvanceInitialMetadataEditDraft(
                 caseId = caseId,
+                title = "Japan trip updated",
                 payerAccountId = bank.id,
                 date = editedDate,
                 note = "Edited",
@@ -332,17 +343,18 @@ class AdvanceEditingTest {
         )
 
         val updated = requireNotNull(repository.getAdvanceCase(caseId))
-        assertEquals(bank.id, updated.advanceCase.payerAccountId)
+        assertEquals("Japan trip updated", updated.advanceCase.title)
+        assertEquals(wallet.id, updated.advanceCase.payerAccountId)
         assertEquals(editedDate, updated.advanceCase.date)
         assertEquals("Edited", updated.advanceCase.note)
         updated.participants.forEach { participant ->
             val group = repository.getTransferGroup(requireNotNull(participant.initialTransferGroupId))
             val outgoing = group.single { it.transaction.transferSide == TransferSide.Outgoing }
             val incoming = group.single { it.transaction.transferSide == TransferSide.Incoming }
-            assertEquals(bank.id, outgoing.transaction.accountId)
+            assertEquals(wallet.id, outgoing.transaction.accountId)
             assertEquals(editedDate, outgoing.transaction.date)
             assertEquals(editedDate, incoming.transaction.date)
-            assertTrue(incoming.transaction.note.contains(bank.name))
+            assertTrue(incoming.transaction.note.contains(wallet.name))
             assertEquals(participant.owedAmount.negate(), outgoing.transaction.amount)
             assertEquals(participant.owedAmount, incoming.transaction.amount)
         }

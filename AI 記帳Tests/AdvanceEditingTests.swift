@@ -8,7 +8,8 @@ final class AdvanceEditingTests: XCTestCase {
         let context = try makeContext()
         let bank = Account(name: "HSBC HKD", currency: "HKD", type: .bank, baseBalance: 0)
         let friend = Account(name: "TKL", currency: "JPY", type: .debt, baseBalance: 0)
-        [bank, friend].forEach(context.insert)
+        let replacementDebt = Account(name: "TKL Travel", currency: "JPY", type: .debt, baseBalance: 0)
+        [bank, friend, replacementDebt].forEach(context.insert)
 
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "LUUP",
@@ -28,6 +29,8 @@ final class AdvanceEditingTests: XCTestCase {
             advanceCase: advanceCase,
             participant: participant,
             draft: .init(
+                participantName: "TKL Travel",
+                debtAccount: replacementDebt,
                 payerAccount: bank,
                 owedAmount: 710,
                 paymentAmount: Decimal(string: "34.86"),
@@ -48,6 +51,9 @@ final class AdvanceEditingTests: XCTestCase {
         XCTAssertEqual("HKD", asset.currencyCode)
         XCTAssertEqual(Decimal(710), debt.amount)
         XCTAssertEqual("JPY", debt.currencyCode)
+        XCTAssertEqual("TKL Travel", participant.name)
+        XCTAssertEqual(replacementDebt.id, participant.debtAccount?.id)
+        XCTAssertEqual(replacementDebt.id, debt.account?.id)
         XCTAssertEqual(advanceCase.id, asset.advanceCaseID)
         XCTAssertEqual(participant.id, debt.advanceParticipantID)
     }
@@ -321,7 +327,7 @@ final class AdvanceEditingTests: XCTestCase {
 
         XCTAssertEqual(Decimal(120), participantA.owedAmount)
         XCTAssertEqual(Decimal(200), participantB.owedAmount)
-        XCTAssertEqual(bank.id, advanceCase.payerAccount?.id)
+        XCTAssertNil(advanceCase.payerAccount)
         XCTAssertEqual(editedDate, advanceCase.date)
         XCTAssertEqual("Edited", advanceCase.note)
 
@@ -334,10 +340,11 @@ final class AdvanceEditingTests: XCTestCase {
             let incoming = try XCTUnwrap(
                 transactions.first { $0.transferSide == .incoming }
             )
-            XCTAssertEqual(bank.id, outgoing.account?.id)
+            let expectedPaymentAccount = participant.id == participantA.id ? bank : wallet
+            XCTAssertEqual(expectedPaymentAccount.id, outgoing.account?.id)
             XCTAssertEqual(editedDate, outgoing.date)
             XCTAssertEqual(editedDate, incoming.date)
-            XCTAssertTrue(incoming.note.contains(bank.name))
+            XCTAssertTrue(incoming.note.contains(expectedPaymentAccount.name))
             XCTAssertEqual(participant.owedAmount, abs(outgoing.amount))
             XCTAssertEqual(participant.owedAmount, incoming.amount)
         }
