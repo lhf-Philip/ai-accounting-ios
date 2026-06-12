@@ -47,6 +47,15 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             test | tee xcodebuild-test.log
 
+      - name: Run Advance Structural UI Tests
+        run: |
+          xcodebuild \
+            -project 'AI 記帳.xcodeproj' \
+            -scheme 'AI 記帳 UI Automation' \
+            -destination 'platform=iOS Simulator,name=iPhone 13' \
+            -only-testing:'AI 記帳UITests/AdvanceStructuralEditingUITests' \
+            test | tee xcodebuild-ui-test.log
+
       - name: Upload Build Log on Failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -55,3 +64,4 @@ jobs:
           path: |
             xcodebuild.log
             xcodebuild-test.log
+            xcodebuild-ui-test.log

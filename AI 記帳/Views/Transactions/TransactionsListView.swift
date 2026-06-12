@@ -590,7 +590,10 @@ private struct TransactionsRenderState {
                 caseTransactions.append(selfExpense)
             }
             caseTransactions = Array(
-                Dictionary(uniqueKeysWithValues: caseTransactions.map { ($0.id, $0) }).values
+                Dictionary(
+                    caseTransactions.map { ($0.id, $0) },
+                    uniquingKeysWith: { current, _ in current }
+                ).values
             )
             let activityDates = [advanceCase.date]
                 + advanceCase.repayments.map(\.date)

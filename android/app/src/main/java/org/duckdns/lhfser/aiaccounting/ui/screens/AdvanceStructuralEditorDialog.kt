@@ -307,7 +307,9 @@ fun AdvanceStructuralEditorDialog(
                                     value = title,
                                     onValueChange = { title = it },
                                     label = { Text("案件名稱") },
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("advance.structural.title"),
                                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                         imeAction = ImeAction.Done
                                     ),
@@ -323,7 +325,8 @@ fun AdvanceStructuralEditorDialog(
                                         }
                                         currencyCode = it
                                     },
-                                    buttonStyle = CurrencyButtonStyle.Tonal
+                                    buttonStyle = CurrencyButtonStyle.Tonal,
+                                    modifier = Modifier.testTag("advance.structural.currency")
                                 )
                                 StructuralPicker(
                                     label = "支出分類",
@@ -593,10 +596,13 @@ fun AdvanceStructuralEditorDialog(
                 }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    pendingImpact = null
-                    pendingDraft = null
-                }) {
+                TextButton(
+                    modifier = Modifier.testTag("advance.structural.cancelPreview"),
+                    onClick = {
+                        pendingImpact = null
+                        pendingDraft = null
+                    }
+                ) {
                     Text("取消")
                 }
             }
@@ -717,7 +723,7 @@ private fun StructuralParticipantEditor(
     onChange: (StructuralParticipantUi) -> Unit,
     onRemove: (() -> Unit)?
 ) {
-    SectionCard {
+    SectionCard(modifier = Modifier.testTag("advance.structural.participant")) {
         OutlinedTextField(
             value = participant.name,
             onValueChange = { onChange(participant.copy(name = it)) },
@@ -746,7 +752,9 @@ private fun StructuralParticipantEditor(
         if (direction == AdvanceSettlementDirection.IAdvancedOthers) {
             participant.paymentLegs.forEach { leg ->
                 Column(
-                    modifier = Modifier.padding(start = 12.dp),
+                    modifier = Modifier
+                        .padding(start = 12.dp)
+                        .testTag("advance.structural.paymentLeg"),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     StructuralPicker(

@@ -69,77 +69,45 @@ enum UITestSeedService {
             account: usdPocket
         )
 
-        let advanceCase = AdvanceCase(
-            title: "UITest 代墊晚餐",
-            date: now.addingTimeInterval(-180),
-            currencyCode: "HKD",
-            myShareAmount: 50,
-            note: "UITest 代墊案件",
-            payerAccount: cash,
-            expenseCategory: food
-        )
-        let participant = AdvanceParticipant(
-            name: "UITest Friend",
-            owedAmount: 80,
-            repaidAmount: 20,
-            advanceCase: advanceCase,
-            debtAccount: friendDebt
-        )
-        advanceCase.participants = [participant]
-
-        let repaymentGroupID = UUID()
-        let repaymentOutID = UUID()
-        let repaymentInID = UUID()
-        let repayment = AdvanceRepayment(
-            amount: 20,
-            currencyCode: "HKD",
-            normalizedAmount: 20,
-            date: now.addingTimeInterval(-240),
-            note: "UITest 代墊還款",
-            linkedTransferGroupID: repaymentGroupID,
-            advanceCase: advanceCase,
-            participant: participant,
-            receivedAccount: bank
-        )
-        advanceCase.repayments = [repayment]
-
-        let repaymentOut = FinancialTransaction(
-            id: repaymentOutID,
-            amount: -20,
-            currencyCode: "HKD",
-            date: now.addingTimeInterval(-240),
-            note: "UITest 代墊還款 (還款至 UITest Bank HKD)",
-            type: .transfer,
-            linkedTransactionID: repaymentInID,
-            transferGroupID: repaymentGroupID,
-            transferSide: .outgoing,
-            account: friendDebt
-        )
-        let repaymentIn = FinancialTransaction(
-            id: repaymentInID,
-            amount: 20,
-            currencyCode: "HKD",
-            date: now.addingTimeInterval(-240),
-            note: "UITest 代墊還款 (還款至 UITest Bank HKD)",
-            type: .transfer,
-            linkedTransactionID: repaymentOutID,
-            transferGroupID: repaymentGroupID,
-            transferSide: .incoming,
-            account: bank,
-            category: repaymentCategory,
-            tags: [tag]
-        )
-
         modelContext.insert(expense)
         modelContext.insert(transferOut)
         modelContext.insert(transferIn)
-        modelContext.insert(advanceCase)
-        modelContext.insert(participant)
-        modelContext.insert(repayment)
-        modelContext.insert(repaymentOut)
-        modelContext.insert(repaymentIn)
 
         do {
+            let advanceCase = try AdvanceService.createAdvanceCase(
+                title: "UITest 代墊晚餐",
+                date: now.addingTimeInterval(-180),
+                currencyCode: "HKD",
+                myShareAmount: 50,
+                note: "UITest 代墊案件",
+                payerAccount: cash,
+                category: food,
+                tags: [tag],
+                participants: [
+                    AdvanceService.ParticipantInput(
+                        debtAccount: friendDebt,
+                        owedAmount: 80
+                    )
+                ],
+                modelContext: modelContext
+            )
+            guard let participant = advanceCase.participants.first else {
+                throw AdvanceServiceError.noParticipants
+            }
+            _ = try AdvanceService.recordRepayment(
+                advanceCase: advanceCase,
+                participant: participant,
+                amount: 20,
+                currencyCode: "HKD",
+                date: now.addingTimeInterval(-120),
+                note: "UITest 代墊還款",
+                receiveAccount: bank,
+                category: repaymentCategory,
+                tags: [tag],
+                currencyService: CurrencyService.shared,
+                normalizedAmountOverride: 20,
+                modelContext: modelContext
+            )
             try modelContext.save()
         } catch {
             print("⚠️ UI test seed failed: \(error)")

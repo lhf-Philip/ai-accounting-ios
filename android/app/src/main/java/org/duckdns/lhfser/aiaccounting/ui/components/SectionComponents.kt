@@ -171,7 +171,8 @@ fun PressableCard(
 fun CurrencyPicker(
     selected: String,
     onSelect: (String) -> Unit,
-    buttonStyle: CurrencyButtonStyle = CurrencyButtonStyle.Tonal
+    buttonStyle: CurrencyButtonStyle = CurrencyButtonStyle.Tonal,
+    modifier: Modifier = Modifier
 ) {
     val standardCurrencies = listOf("HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP")
     val currencies = if (selected in standardCurrencies) {
@@ -183,12 +184,12 @@ fun CurrencyPicker(
     val onClick = { expanded.value = true }
     when (buttonStyle) {
         CurrencyButtonStyle.Tonal -> {
-            FilledTonalButton(onClick = onClick) {
+            FilledTonalButton(onClick = onClick, modifier = modifier) {
                 Text(selected)
             }
         }
         CurrencyButtonStyle.Text -> {
-            TextButton(onClick = onClick) {
+            TextButton(onClick = onClick, modifier = modifier) {
                 Text(selected)
             }
         }
