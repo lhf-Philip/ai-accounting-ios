@@ -48,6 +48,8 @@ jobs:
       - name: Run Unit Tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --console=plain --stacktrace
         working-directory: android
+        env:
+          JAVA_TOOL_OPTIONS: -XX:TieredStopAtLevel=1
 
       - name: Enable KVM
         run: |
