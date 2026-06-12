@@ -253,7 +253,9 @@ fun AdvanceStructuralEditorDialog(
                     Text("載入中...")
                 } else {
                     LazyColumn(
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .testTag("advance.structural.list"),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         item {

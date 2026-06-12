@@ -12,7 +12,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -123,9 +123,8 @@ class AdvanceStructuralEditingUiTest {
         composeRule.onNodeWithTag(
             "advance.structural.direction.OthersAdvancedMe"
         ).performClick()
-        composeRule.onNodeWithTag("advance.structural.repaymentCategory")
-            .performScrollTo()
-            .performClick()
+        scrollToTag("advance.structural.repaymentCategory")
+        composeRule.onNodeWithTag("advance.structural.repaymentCategory").performClick()
         composeRule.onNodeWithTag(
             "advance.structural.repaymentCategory.option.UITest Food"
         ).performClick()
@@ -142,10 +141,8 @@ class AdvanceStructuralEditingUiTest {
 
         composeRule.onNodeWithTag("advance.structural.currency").performClick()
         composeRule.onNodeWithTag("currency.option.USD").performClick()
-        waitForTag("advance.structural.confirmCurrency")
-        composeRule.onNodeWithTag("advance.structural.confirmCurrency")
-            .performScrollTo()
-            .performClick()
+        scrollToTag("advance.structural.confirmCurrency")
+        composeRule.onNodeWithTag("advance.structural.confirmCurrency").performClick()
         previewAndApply()
 
         composeRule.waitUntil(timeoutMillis = 10_000) { applied.get() }
@@ -160,34 +157,32 @@ class AdvanceStructuralEditingUiTest {
         composeRule.onNodeWithTag("advance.structural.title")
             .performClick()
             .performTextReplacement("UITest 代墊晚餐 UI")
+        composeRule.onNodeWithTag("advance.structural.title").assertTextContains("UI")
         UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("advance.structural.title").assertTextContains("UI")
+        waitForTag("advance.structural.editor")
 
         composeRule.onAllNodesWithTag("advance.structural.paymentLeg")
             .assertCountEquals(1)
-        composeRule.onNodeWithTag("advance.structural.addPaymentLeg")
-            .performScrollTo()
-            .performClick()
+        scrollToTag("advance.structural.addPaymentLeg")
+        composeRule.onNodeWithTag("advance.structural.addPaymentLeg").performClick()
         composeRule.onAllNodesWithTag("advance.structural.paymentLeg")
             .assertCountEquals(2)
-        composeRule.onNodeWithText("刪除此付款來源")
-            .performScrollTo()
-            .performClick()
+        scrollToText("刪除此付款來源")
+        composeRule.onNodeWithText("刪除此付款來源").performClick()
         composeRule.onAllNodesWithTag("advance.structural.paymentLeg")
             .assertCountEquals(1)
 
+        scrollToTag("advance.structural.participant")
         composeRule.onAllNodesWithTag("advance.structural.participant")
             .assertCountEquals(1)
-        composeRule.onNodeWithTag("advance.structural.addParticipant")
-            .performScrollTo()
-            .performClick()
+        scrollToTag("advance.structural.addParticipant")
+        composeRule.onNodeWithTag("advance.structural.addParticipant").performClick()
         composeRule.onAllNodesWithTag("advance.structural.participant")
             .assertCountEquals(2)
+        scrollToText("刪除此參與人")
         val removeParticipants = composeRule.onAllNodesWithText("刪除此參與人")
-        removeParticipants[removeParticipants.fetchSemanticsNodes().lastIndex]
-            .performScrollTo()
-            .performClick()
+        removeParticipants[removeParticipants.fetchSemanticsNodes().lastIndex].performClick()
         composeRule.onAllNodesWithTag("advance.structural.participant")
             .assertCountEquals(1)
     }
@@ -224,7 +219,9 @@ class AdvanceStructuralEditingUiTest {
             }
         }
         composeRule.waitUntil(timeoutMillis = 10_000) {
-            composeRule.onAllNodes(hasTestTag("advance.structural.editor"))
+            composeRule.onAllNodes(
+                hasTestTag("advance.structural.direction.IAdvancedOthers")
+            )
                 .fetchSemanticsNodes().isNotEmpty()
         }
         return applied
@@ -246,6 +243,18 @@ class AdvanceStructuralEditingUiTest {
         composeRule.waitUntil(timeoutMillis = 10_000) {
             composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
         }
+    }
+
+    private fun scrollToTag(tag: String) {
+        composeRule.onNodeWithTag("advance.structural.list")
+            .performScrollToNode(hasTestTag(tag))
+        waitForTag(tag)
+    }
+
+    private fun scrollToText(text: String) {
+        composeRule.onNodeWithTag("advance.structural.list")
+            .performScrollToNode(androidx.compose.ui.test.hasText(text))
+        waitForText(text)
     }
 
     private fun account(name: String, type: AccountType, sortOrder: Int): AccountEntity {
