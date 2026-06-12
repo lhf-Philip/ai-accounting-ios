@@ -152,21 +152,21 @@ class AdvanceStructuralEditingUiTest {
         composeRule.waitForIdle()
         waitForTag("advance.structural.editor")
 
-        scrollToTag("advance.structural.addPaymentLeg")
-        composeRule.onNodeWithTag("advance.structural.addPaymentLeg").performClick()
+        scrollToTag("advance.structural.addPaymentLeg.1")
+        composeRule.onNodeWithTag("advance.structural.addPaymentLeg.1").performClick()
+        scrollToTag("advance.structural.addPaymentLeg.2")
         scrollToText("刪除此付款來源")
         val removePaymentLegs = composeRule.onAllNodesWithText("刪除此付款來源")
         removePaymentLegs[removePaymentLegs.fetchSemanticsNodes().lastIndex].performClick()
-        scrollToTag("advance.structural.addPaymentLeg")
-        waitForTextGone("刪除此付款來源")
+        scrollToTag("advance.structural.addPaymentLeg.1")
 
-        scrollToTag("advance.structural.addParticipant")
-        composeRule.onNodeWithTag("advance.structural.addParticipant").performClick()
+        scrollToTag("advance.structural.addParticipant.1")
+        composeRule.onNodeWithTag("advance.structural.addParticipant.1").performClick()
+        scrollToTag("advance.structural.addParticipant.2")
         scrollToText("刪除此參與人")
         val removeParticipants = composeRule.onAllNodesWithText("刪除此參與人")
         removeParticipants[removeParticipants.fetchSemanticsNodes().lastIndex].performClick()
-        scrollToTag("advance.structural.addParticipant")
-        waitForTextGone("刪除此參與人")
+        scrollToTag("advance.structural.addParticipant.1")
     }
 
     @Test
@@ -233,12 +233,6 @@ class AdvanceStructuralEditingUiTest {
     private fun waitForText(text: String) {
         composeRule.waitUntil(timeoutMillis = 10_000) {
             composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
-        }
-    }
-
-    private fun waitForTextGone(text: String) {
-        composeRule.waitUntil(timeoutMillis = 10_000) {
-            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isEmpty()
         }
     }
 
