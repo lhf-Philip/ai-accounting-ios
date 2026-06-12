@@ -155,7 +155,8 @@ class AdvanceStructuralEditingUiTest {
         scrollToTag("advance.structural.addPaymentLeg")
         composeRule.onNodeWithTag("advance.structural.addPaymentLeg").performClick()
         scrollToText("刪除此付款來源")
-        composeRule.onNodeWithText("刪除此付款來源").performClick()
+        val removePaymentLegs = composeRule.onAllNodesWithText("刪除此付款來源")
+        removePaymentLegs[removePaymentLegs.fetchSemanticsNodes().lastIndex].performClick()
         scrollToTag("advance.structural.addPaymentLeg")
         waitForTextGone("刪除此付款來源")
 
