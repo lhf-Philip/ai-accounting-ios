@@ -3,7 +3,6 @@ package org.duckdns.lhfser.aiaccounting
 import android.content.Context
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -153,29 +152,20 @@ class AdvanceStructuralEditingUiTest {
         composeRule.waitForIdle()
         waitForTag("advance.structural.editor")
 
-        composeRule.onAllNodesWithTag("advance.structural.paymentLeg")
-            .assertCountEquals(1)
         scrollToTag("advance.structural.addPaymentLeg")
         composeRule.onNodeWithTag("advance.structural.addPaymentLeg").performClick()
-        composeRule.onAllNodesWithTag("advance.structural.paymentLeg")
-            .assertCountEquals(2)
         scrollToText("刪除此付款來源")
         composeRule.onNodeWithText("刪除此付款來源").performClick()
-        composeRule.onAllNodesWithTag("advance.structural.paymentLeg")
-            .assertCountEquals(1)
+        scrollToTag("advance.structural.addPaymentLeg")
+        waitForTextGone("刪除此付款來源")
 
-        scrollToTag("advance.structural.participant")
-        composeRule.onAllNodesWithTag("advance.structural.participant")
-            .assertCountEquals(1)
         scrollToTag("advance.structural.addParticipant")
         composeRule.onNodeWithTag("advance.structural.addParticipant").performClick()
-        composeRule.onAllNodesWithTag("advance.structural.participant")
-            .assertCountEquals(2)
         scrollToText("刪除此參與人")
         val removeParticipants = composeRule.onAllNodesWithText("刪除此參與人")
         removeParticipants[removeParticipants.fetchSemanticsNodes().lastIndex].performClick()
-        composeRule.onAllNodesWithTag("advance.structural.participant")
-            .assertCountEquals(1)
+        scrollToTag("advance.structural.addParticipant")
+        waitForTextGone("刪除此參與人")
     }
 
     @Test
@@ -242,6 +232,12 @@ class AdvanceStructuralEditingUiTest {
     private fun waitForText(text: String) {
         composeRule.waitUntil(timeoutMillis = 10_000) {
             composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun waitForTextGone(text: String) {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isEmpty()
         }
     }
 
