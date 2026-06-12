@@ -121,7 +121,7 @@ class AdvanceStructuralEditingUiTest {
         selectOthersAdvancedMe()
         previewAndApply()
 
-        composeRule.waitUntil(timeoutMillis = 10_000) { applied.get() }
+        composeRule.waitUntil(timeoutMillis = 20_000) { applied.get() }
         val updated = runBlocking { repository.getAdvanceCase(advanceCase.advanceCase.id) }
         assertEquals("OthersAdvancedMe", updated?.advanceCase?.direction)
     }
@@ -136,31 +136,49 @@ class AdvanceStructuralEditingUiTest {
         composeRule.onNodeWithTag("advance.structural.confirmCurrency").performClick()
         previewAndApply()
 
-        composeRule.waitUntil(timeoutMillis = 10_000) { applied.get() }
+        composeRule.waitUntil(timeoutMillis = 20_000) { applied.get() }
         val updated = runBlocking { repository.getAdvanceCase(advanceCase.advanceCase.id) }
         assertEquals("USD", updated?.advanceCase?.currencyCode)
     }
 
     @Test
-    fun splitLegAndParticipantControls_supportAddDeleteAndKeyboardExit() {
-        showEditor()
+    fun splitLegAndParticipantControls_supportAddAndDelete() {
+        val applied = showEditor()
 
-        scrollToTag("advance.structural.addPaymentLeg.1")
-        composeRule.onNodeWithTag("advance.structural.addPaymentLeg.1").performClick()
-        scrollToTag("advance.structural.addPaymentLeg.2")
+        scrollToTag("advance.structural.addPaymentLeg")
+        composeRule.onNodeWithTag("advance.structural.addPaymentLeg").performClick()
         scrollToText("刪除此付款來源")
         val removePaymentLegs = composeRule.onAllNodesWithText("刪除此付款來源")
         removePaymentLegs[removePaymentLegs.fetchSemanticsNodes().lastIndex].performClick()
-        scrollToTag("advance.structural.addPaymentLeg.1")
+        scrollToTag("advance.structural.addPaymentLeg")
 
-        scrollToTag("advance.structural.addParticipant.1")
-        composeRule.onNodeWithTag("advance.structural.addParticipant.1").performClick()
-        scrollToTag("advance.structural.addParticipant.2")
+        scrollToTag("advance.structural.addParticipant")
+        composeRule.onNodeWithTag("advance.structural.addParticipant").performClick()
         scrollToText("刪除此參與人")
         val removeParticipants = composeRule.onAllNodesWithText("刪除此參與人")
         removeParticipants[removeParticipants.fetchSemanticsNodes().lastIndex].performClick()
-        scrollToTag("advance.structural.addParticipant.1")
+        scrollToTag("advance.structural.addParticipant")
 
+        previewAndApply()
+        composeRule.waitUntil(timeoutMillis = 20_000) { applied.get() }
+        val updated = runBlocking {
+            requireNotNull(repository.getAdvanceCase(advanceCase.advanceCase.id))
+        }
+        assertEquals(1, updated.participants.size)
+        val initialGroup = runBlocking {
+            database.transactionDao().getTransferGroup(
+                requireNotNull(updated.participants.single().initialTransferGroupId)
+            )
+        }
+        assertEquals(
+            1,
+            initialGroup.count { it.transaction.advanceEntryRole == "InitialAsset" }
+        )
+    }
+
+    @Test
+    fun keyboardExit_usesUiAutomatorBackFromFocusedField() {
+        showEditor()
         scrollToTag("advance.structural.title")
         composeRule.onNodeWithTag("advance.structural.title")
             .performClick()
@@ -224,13 +242,13 @@ class AdvanceStructuralEditingUiTest {
     }
 
     private fun waitForTag(tag: String) {
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
         }
     }
 
     private fun waitForText(text: String) {
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
         }
     }

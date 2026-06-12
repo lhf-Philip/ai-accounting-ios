@@ -426,9 +426,7 @@ fun AdvanceStructuralEditorDialog(
 
                         item {
                             TextButton(
-                                modifier = Modifier.testTag(
-                                    "advance.structural.addParticipant.${participants.size}"
-                                ),
+                                modifier = Modifier.testTag("advance.structural.addParticipant"),
                                 onClick = {
                                     participants = participants + StructuralParticipantUi(
                                         id = UUID.randomUUID(),
@@ -828,9 +826,7 @@ private fun StructuralParticipantEditor(
                 }
             }
             TextButton(
-                modifier = Modifier.testTag(
-                    "advance.structural.addPaymentLeg.${participant.paymentLegs.size}"
-                ),
+                modifier = Modifier.testTag("advance.structural.addPaymentLeg"),
                 onClick = {
                     onChange(
                         participant.copy(
