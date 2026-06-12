@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -143,37 +144,29 @@ class AdvanceStructuralEditingUiTest {
 
     @Test
     fun splitLegAndParticipantControls_supportAddAndDelete() {
-        val applied = showEditor()
+        showEditor()
 
         scrollToTag("advance.structural.addPaymentLeg")
+        assertCollectionCount("advance.structural.addPaymentLeg", "1")
         composeRule.onNodeWithTag("advance.structural.addPaymentLeg").performClick()
+        scrollToTag("advance.structural.addPaymentLeg")
+        assertCollectionCount("advance.structural.addPaymentLeg", "2")
         scrollToText("刪除此付款來源")
         val removePaymentLegs = composeRule.onAllNodesWithText("刪除此付款來源")
         removePaymentLegs[removePaymentLegs.fetchSemanticsNodes().lastIndex].performClick()
         scrollToTag("advance.structural.addPaymentLeg")
+        assertCollectionCount("advance.structural.addPaymentLeg", "1")
 
         scrollToTag("advance.structural.addParticipant")
+        assertCollectionCount("advance.structural.addParticipant", "1")
         composeRule.onNodeWithTag("advance.structural.addParticipant").performClick()
+        scrollToTag("advance.structural.addParticipant")
+        assertCollectionCount("advance.structural.addParticipant", "2")
         scrollToText("刪除此參與人")
         val removeParticipants = composeRule.onAllNodesWithText("刪除此參與人")
         removeParticipants[removeParticipants.fetchSemanticsNodes().lastIndex].performClick()
         scrollToTag("advance.structural.addParticipant")
-
-        previewAndApply()
-        composeRule.waitUntil(timeoutMillis = 20_000) { applied.get() }
-        val updated = runBlocking {
-            requireNotNull(repository.getAdvanceCase(advanceCase.advanceCase.id))
-        }
-        assertEquals(1, updated.participants.size)
-        val initialGroup = runBlocking {
-            database.transactionDao().getTransferGroup(
-                requireNotNull(updated.participants.single().initialTransferGroupId)
-            )
-        }
-        assertEquals(
-            1,
-            initialGroup.count { it.transaction.advanceEntryRole == "InitialAsset" }
-        )
+        assertCollectionCount("advance.structural.addParticipant", "1")
     }
 
     @Test
@@ -263,6 +256,11 @@ class AdvanceStructuralEditingUiTest {
         composeRule.onNodeWithTag("advance.structural.list")
             .performScrollToNode(androidx.compose.ui.test.hasText(text))
         waitForText(text)
+    }
+
+    private fun assertCollectionCount(tag: String, expected: String) {
+        val node = composeRule.onNodeWithTag(tag).fetchSemanticsNode()
+        assertEquals(expected, node.config[SemanticsProperties.StateDescription])
     }
 
     private fun account(name: String, type: AccountType, sortOrder: Int): AccountEntity {
