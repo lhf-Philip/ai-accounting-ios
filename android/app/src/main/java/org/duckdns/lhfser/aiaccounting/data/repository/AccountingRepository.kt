@@ -174,6 +174,66 @@ data class AdvanceInitialMetadataEditDraft(
     val tagIds: List<UUID>
 )
 
+data class AdvancePaymentLegStructuralDraft(
+    val transactionId: UUID? = null,
+    val accountId: UUID,
+    val amount: BigDecimal,
+    val currencyCode: String
+)
+
+data class AdvanceShareStructuralDraft(
+    val transactionId: UUID? = null,
+    val accountId: UUID,
+    val amount: BigDecimal,
+    val normalizedAmount: BigDecimal,
+    val currencyCode: String
+)
+
+data class AdvanceParticipantStructuralDraft(
+    val participantId: UUID? = null,
+    val name: String,
+    val debtAccountId: UUID,
+    val owedAmount: BigDecimal,
+    val paymentLegs: List<AdvancePaymentLegStructuralDraft>
+)
+
+data class AdvanceRepaymentStructuralDraft(
+    val repaymentId: UUID,
+    val receiveAccountId: UUID,
+    val amount: BigDecimal,
+    val currencyCode: String,
+    val normalizedAmount: BigDecimal,
+    val date: Instant,
+    val note: String,
+    val categoryId: UUID?,
+    val tagIds: List<UUID>
+)
+
+data class AdvanceCaseStructuralEditDraft(
+    val caseId: UUID,
+    val title: String,
+    val date: Instant,
+    val direction: AdvanceSettlementDirection,
+    val currencyCode: String,
+    val note: String,
+    val categoryId: UUID?,
+    val tagIds: List<UUID>,
+    val share: AdvanceShareStructuralDraft?,
+    val participants: List<AdvanceParticipantStructuralDraft>,
+    val repayments: List<AdvanceRepaymentStructuralDraft>
+)
+
+data class AdvanceCaseStructuralImpact(
+    val changesDirection: Boolean,
+    val changesCurrency: Boolean,
+    val affectedTransactionCount: Int,
+    val affectedParticipantCount: Int,
+    val affectedRepaymentCount: Int,
+    val removedParticipantCount: Int,
+    val removedRepaymentCount: Int,
+    val warnings: List<String>
+)
+
 data class LegacyBorrowedAdvanceRepairResult(
     val repairedParticipantCount: Int,
     val removedInflatedAccountTransactionCount: Int
@@ -2271,6 +2331,550 @@ class AccountingRepository(
                 )
             }
             syncAllBudgetHistory()
+        }
+    }
+
+    suspend fun previewAdvanceCaseStructuralEdit(
+        draft: AdvanceCaseStructuralEditDraft
+    ): AdvanceCaseStructuralImpact {
+        return database.withTransaction {
+            val current = validateAdvanceCaseStructuralEdit(draft)
+            val retainedParticipantIds = draft.participants.mapNotNull { it.participantId }.toSet()
+            val retainedRepaymentIds = draft.repayments.map { it.repaymentId }.toSet()
+            val removedParticipants = current.participants.count { it.id !in retainedParticipantIds }
+            val removedRepayments = current.repayments.count { it.id !in retainedRepaymentIds }
+            val warnings = buildList {
+                if (draft.direction.name != current.advanceCase.direction) {
+                    add("改變方向會原子重建案件的初始分錄與普通還款分錄。")
+                }
+                if (!draft.currencyCode.equals(current.advanceCase.currencyCode, ignoreCase = true)) {
+                    add("案件幣種改變後，所有沖銷金額均以輸入值為準，不會自動換算。")
+                }
+                if (removedParticipants > 0) {
+                    add("刪除參與人會一併刪除其普通還款及相關底層分錄。")
+                } else if (removedRepayments > 0) {
+                    add("未保留的普通還款會連同底層分錄刪除。")
+                }
+            }
+            AdvanceCaseStructuralImpact(
+                changesDirection = draft.direction.name != current.advanceCase.direction,
+                changesCurrency = !draft.currencyCode.equals(
+                    current.advanceCase.currencyCode,
+                    ignoreCase = true
+                ),
+                affectedTransactionCount = advanceLinkedTransactions(current).size,
+                affectedParticipantCount = draft.participants.size,
+                affectedRepaymentCount = draft.repayments.size,
+                removedParticipantCount = removedParticipants,
+                removedRepaymentCount = removedRepayments,
+                warnings = warnings
+            )
+        }
+    }
+
+    suspend fun applyAdvanceCaseStructuralEdit(draft: AdvanceCaseStructuralEditDraft) {
+        database.withTransaction {
+            val current = validateAdvanceCaseStructuralEdit(draft)
+            val now = Instant.now()
+            val currency = draft.currencyCode.trim().uppercase()
+            val title = draft.title.trim()
+            val note = draft.note.trim()
+            val memo = note.ifBlank { title }
+            val currentParticipantsById = current.participants.associateBy { it.id }
+            val currentRepaymentsById = current.repayments.associateBy { it.id }
+            val normalizedByParticipant = draft.repayments
+                .groupBy { currentRepaymentsById.getValue(it.repaymentId).participantId }
+                .mapValues { (_, repayments) ->
+                    repayments.fold(BigDecimal.ZERO) { total, repayment ->
+                        total + repayment.normalizedAmount.abs()
+                    }
+                }
+
+            data class PreparedParticipant(
+                val draft: AdvanceParticipantStructuralDraft,
+                val entity: AdvanceParticipantEntity
+            )
+
+            val preparedParticipants = draft.participants.map { participantDraft ->
+                val existing = participantDraft.participantId?.let(currentParticipantsById::get)
+                val participantId = existing?.id ?: UUID.randomUUID()
+                val repaidAmount = normalizedByParticipant[participantId] ?: BigDecimal.ZERO
+                PreparedParticipant(
+                    draft = participantDraft,
+                    entity = AdvanceParticipantEntity(
+                        id = participantId,
+                        name = participantDraft.name.trim(),
+                        owedAmount = participantDraft.owedAmount.abs(),
+                        repaidAmount = repaidAmount,
+                        initialTransferGroupId = existing?.initialTransferGroupId ?: UUID.randomUUID(),
+                        createdAt = existing?.createdAt ?: now,
+                        updatedAt = now,
+                        advanceCaseId = current.advanceCase.id,
+                        debtAccountId = participantDraft.debtAccountId
+                    )
+                )
+            }
+            val preparedById = preparedParticipants.associateBy { it.entity.id }
+            val desiredParticipantIds = preparedById.keys
+            val desiredRepaymentIds = draft.repayments.map { it.repaymentId }.toSet()
+
+            for (repayment in current.repayments.filter { it.id !in desiredRepaymentIds }) {
+                advanceDao.deleteRepayment(repayment)
+            }
+            for (participant in current.participants.filter { it.id !in desiredParticipantIds }) {
+                advanceDao.deleteParticipant(participant)
+            }
+            advanceDao.upsertParticipants(preparedParticipants.map { it.entity })
+
+            val existingCaseTransactions = advanceLinkedTransactions(current)
+            val existingCaseTransactionsById = existingCaseTransactions.associateBy { it.id }
+            deleteTransactions(existingCaseTransactions)
+
+            val transactions = mutableListOf<TransactionEntity>()
+            val tagRefs = mutableListOf<TransactionTagCrossRef>()
+
+            fun addTransaction(
+                id: UUID,
+                amount: BigDecimal,
+                transactionCurrency: String,
+                date: Instant,
+                transactionNote: String,
+                type: TransactionType,
+                linkedTransactionId: UUID?,
+                transferGroupId: UUID?,
+                transferSide: TransferSide?,
+                participantId: UUID?,
+                repaymentId: UUID?,
+                role: AdvanceEntryRole,
+                accountId: UUID,
+                categoryId: UUID?,
+                tags: List<UUID>
+            ) {
+                transactions += TransactionEntity(
+                    id = id,
+                    amount = amount,
+                    currencyCode = transactionCurrency.trim().uppercase(),
+                    date = date,
+                    note = transactionNote,
+                    photoPath = null,
+                    type = type,
+                    linkedTransactionId = linkedTransactionId,
+                    transferGroupId = transferGroupId,
+                    transferSide = transferSide,
+                    createdAt = existingCaseTransactionsById[id]?.createdAt ?: now,
+                    updatedAt = now,
+                    accountId = accountId,
+                    categoryId = categoryId,
+                    advanceCaseId = current.advanceCase.id,
+                    advanceParticipantId = participantId,
+                    advanceRepaymentId = repaymentId,
+                    advanceEntryRole = role.name
+                )
+                tagRefs += tags.distinct().map { tagId -> TransactionTagCrossRef(id, tagId) }
+            }
+
+            draft.share?.let { share ->
+                addTransaction(
+                    id = share.transactionId
+                        ?: current.advanceCase.selfExpenseTransactionId
+                        ?: UUID.randomUUID(),
+                    amount = share.amount.abs().negate(),
+                    transactionCurrency = share.currencyCode,
+                    date = draft.date,
+                    transactionNote = "$memo (自己份額)",
+                    type = TransactionType.Expense,
+                    linkedTransactionId = null,
+                    transferGroupId = null,
+                    transferSide = null,
+                    participantId = null,
+                    repaymentId = null,
+                    role = AdvanceEntryRole.SelfExpense,
+                    accountId = share.accountId,
+                    categoryId = draft.categoryId,
+                    tags = draft.tagIds
+                )
+            }
+
+            preparedParticipants.forEach { prepared ->
+                val participant = prepared.entity
+                val participantDraft = prepared.draft
+                val groupId = requireNotNull(participant.initialTransferGroupId)
+                if (draft.direction == AdvanceSettlementDirection.OthersAdvancedMe) {
+                    addTransaction(
+                        id = UUID.randomUUID(),
+                        amount = participant.owedAmount.negate(),
+                        transactionCurrency = currency,
+                        date = draft.date,
+                        transactionNote = "$memo (他人代墊我：${participant.name})",
+                        type = TransactionType.Expense,
+                        linkedTransactionId = null,
+                        transferGroupId = groupId,
+                        transferSide = TransferSide.Outgoing,
+                        participantId = participant.id,
+                        repaymentId = null,
+                        role = AdvanceEntryRole.InitialDebt,
+                        accountId = participantDraft.debtAccountId,
+                        categoryId = draft.categoryId,
+                        tags = draft.tagIds
+                    )
+                } else {
+                    val debtId = UUID.randomUUID()
+                    val assetIds = participantDraft.paymentLegs.map {
+                        it.transactionId ?: UUID.randomUUID()
+                    }
+                    participantDraft.paymentLegs.zip(assetIds).forEach { (leg, assetId) ->
+                        addTransaction(
+                            id = assetId,
+                            amount = leg.amount.abs().negate(),
+                            transactionCurrency = leg.currencyCode,
+                            date = draft.date,
+                            transactionNote = "$memo (代墊給 ${participant.name})",
+                            type = TransactionType.Transfer,
+                            linkedTransactionId = debtId,
+                            transferGroupId = groupId,
+                            transferSide = TransferSide.Outgoing,
+                            participantId = participant.id,
+                            repaymentId = null,
+                            role = AdvanceEntryRole.InitialAsset,
+                            accountId = leg.accountId,
+                            categoryId = null,
+                            tags = emptyList()
+                        )
+                    }
+                    addTransaction(
+                        id = debtId,
+                        amount = participant.owedAmount,
+                        transactionCurrency = currency,
+                        date = draft.date,
+                        transactionNote = "$memo (來自多付款來源)",
+                        type = TransactionType.Transfer,
+                        linkedTransactionId = assetIds.singleOrNull(),
+                        transferGroupId = groupId,
+                        transferSide = TransferSide.Incoming,
+                        participantId = participant.id,
+                        repaymentId = null,
+                        role = AdvanceEntryRole.InitialDebt,
+                        accountId = participantDraft.debtAccountId,
+                        categoryId = null,
+                        tags = emptyList()
+                    )
+                }
+            }
+
+            draft.repayments.forEach { repaymentDraft ->
+                val existingRepayment = currentRepaymentsById.getValue(repaymentDraft.repaymentId)
+                val participant = preparedById.getValue(
+                    requireNotNull(existingRepayment.participantId)
+                ).entity
+                val groupId = existingRepayment.linkedTransferGroupId ?: UUID.randomUUID()
+                val debtId = UUID.randomUUID()
+                val assetId = UUID.randomUUID()
+                val repaymentCurrency = repaymentDraft.currencyCode.trim().uppercase()
+                val repaymentMemo = repaymentDraft.note.trim().ifBlank { title }
+                if (draft.direction == AdvanceSettlementDirection.IAdvancedOthers) {
+                    addTransaction(
+                        id = debtId,
+                        amount = repaymentDraft.amount.abs().negate(),
+                        transactionCurrency = repaymentCurrency,
+                        date = repaymentDraft.date,
+                        transactionNote = "$repaymentMemo (還款至帳戶)",
+                        type = TransactionType.Transfer,
+                        linkedTransactionId = assetId,
+                        transferGroupId = groupId,
+                        transferSide = TransferSide.Outgoing,
+                        participantId = participant.id,
+                        repaymentId = existingRepayment.id,
+                        role = AdvanceEntryRole.RepaymentDebt,
+                        accountId = requireNotNull(participant.debtAccountId),
+                        categoryId = null,
+                        tags = emptyList()
+                    )
+                    addTransaction(
+                        id = assetId,
+                        amount = repaymentDraft.amount.abs(),
+                        transactionCurrency = repaymentCurrency,
+                        date = repaymentDraft.date,
+                        transactionNote = "$repaymentMemo (來自 ${participant.name})",
+                        type = TransactionType.Transfer,
+                        linkedTransactionId = debtId,
+                        transferGroupId = groupId,
+                        transferSide = TransferSide.Incoming,
+                        participantId = participant.id,
+                        repaymentId = existingRepayment.id,
+                        role = AdvanceEntryRole.RepaymentAsset,
+                        accountId = repaymentDraft.receiveAccountId,
+                        categoryId = repaymentDraft.categoryId,
+                        tags = repaymentDraft.tagIds
+                    )
+                } else {
+                    addTransaction(
+                        id = assetId,
+                        amount = repaymentDraft.amount.abs().negate(),
+                        transactionCurrency = repaymentCurrency,
+                        date = repaymentDraft.date,
+                        transactionNote = "$repaymentMemo (還款給 ${participant.name})",
+                        type = TransactionType.Transfer,
+                        linkedTransactionId = debtId,
+                        transferGroupId = groupId,
+                        transferSide = TransferSide.Outgoing,
+                        participantId = participant.id,
+                        repaymentId = existingRepayment.id,
+                        role = AdvanceEntryRole.RepaymentAsset,
+                        accountId = repaymentDraft.receiveAccountId,
+                        categoryId = repaymentDraft.categoryId,
+                        tags = repaymentDraft.tagIds
+                    )
+                    addTransaction(
+                        id = debtId,
+                        amount = repaymentDraft.amount.abs(),
+                        transactionCurrency = repaymentCurrency,
+                        date = repaymentDraft.date,
+                        transactionNote = "$repaymentMemo (來自帳戶)",
+                        type = TransactionType.Transfer,
+                        linkedTransactionId = assetId,
+                        transferGroupId = groupId,
+                        transferSide = TransferSide.Incoming,
+                        participantId = participant.id,
+                        repaymentId = existingRepayment.id,
+                        role = AdvanceEntryRole.RepaymentDebt,
+                        accountId = requireNotNull(participant.debtAccountId),
+                        categoryId = null,
+                        tags = emptyList()
+                    )
+                }
+                advanceDao.upsertRepayment(
+                    existingRepayment.copy(
+                        amount = repaymentDraft.amount.abs(),
+                        currencyCode = repaymentCurrency,
+                        normalizedAmount = repaymentDraft.normalizedAmount.abs(),
+                        date = repaymentDraft.date,
+                        note = repaymentDraft.note.trim(),
+                        linkedTransferGroupId = groupId,
+                        advanceCaseId = current.advanceCase.id,
+                        participantId = participant.id,
+                        receivedAccountId = repaymentDraft.receiveAccountId
+                    )
+                )
+            }
+
+            require(transactions.map { it.id }.distinct().size == transactions.size) {
+                "底層分錄識別碼重複。"
+            }
+            transactionDao.upsertAll(transactions)
+            if (tagRefs.isNotEmpty()) {
+                transactionDao.insertTransactionTags(tagRefs)
+            }
+
+            val paymentAccountIds = draft.participants
+                .flatMap { it.paymentLegs }
+                .map { it.accountId }
+                .distinct()
+            val selfExpenseId = transactions.firstOrNull {
+                it.advanceEntryRole == AdvanceEntryRole.SelfExpense.name
+            }?.id
+            advanceDao.upsertCase(
+                current.advanceCase.copy(
+                    title = title,
+                    date = draft.date,
+                    currencyCode = currency,
+                    myShareAmount = draft.share?.normalizedAmount?.abs() ?: BigDecimal.ZERO,
+                    note = note,
+                    selfExpenseTransactionId = selfExpenseId,
+                    updatedAt = now,
+                    payerAccountId = if (
+                        draft.direction == AdvanceSettlementDirection.IAdvancedOthers
+                    ) {
+                        paymentAccountIds.singleOrNull()
+                    } else {
+                        null
+                    },
+                    expenseCategoryId = draft.categoryId,
+                    direction = draft.direction.name
+                )
+            )
+            advanceDao.clearCaseTags(current.advanceCase.id)
+            if (draft.tagIds.isNotEmpty()) {
+                advanceDao.insertCaseTags(
+                    draft.tagIds.distinct().map { tagId ->
+                        AdvanceCaseTagCrossRef(current.advanceCase.id, tagId)
+                    }
+                )
+            }
+            syncAllBudgetHistory()
+        }
+    }
+
+    private suspend fun validateAdvanceCaseStructuralEdit(
+        draft: AdvanceCaseStructuralEditDraft
+    ): AdvanceCaseWithDetails {
+        val current = requireNotNull(advanceDao.getAdvanceCase(draft.caseId)) {
+            "找不到代墊案件。"
+        }
+        require(draft.title.isNotBlank()) { "請輸入案件名稱。" }
+        require(draft.currencyCode.isNotBlank()) { "請選擇案件幣種。" }
+        require(draft.participants.isNotEmpty()) { "請至少保留一位代墊對象。" }
+
+        val currentParticipantIds = current.participants.map { it.id }.toSet()
+        val participantIds = draft.participants.mapNotNull { it.participantId }
+        require(participantIds.all { it in currentParticipantIds }) {
+            "編輯草稿包含不屬於此案件的參與人。"
+        }
+        require(participantIds.distinct().size == participantIds.size) {
+            "同一參與人不可重複。"
+        }
+        require(
+            draft.participants.map { it.debtAccountId }.distinct().size ==
+                draft.participants.size
+        ) { "同一債務對象不可重複。" }
+
+        val currentRepaymentsById = current.repayments.associateBy { it.id }
+        val repaymentIds = draft.repayments.map { it.repaymentId }
+        require(repaymentIds.distinct().size == repaymentIds.size) { "同一筆還款不可重複。" }
+        require(repaymentIds.all(currentRepaymentsById::containsKey)) {
+            "編輯草稿包含不屬於此案件的還款。"
+        }
+        val requestedTransactionIds = buildList {
+            draft.share?.transactionId?.let(::add)
+            draft.participants.flatMap { it.paymentLegs }.mapNotNullTo(this) {
+                it.transactionId
+            }
+        }
+        require(requestedTransactionIds.distinct().size == requestedTransactionIds.size) {
+            "付款分錄識別碼不可重複。"
+        }
+        val selfExpenseId = current.advanceCase.selfExpenseTransactionId
+        val linkedTransactionIds = advanceLinkedTransactions(current).map { it.id }.toSet()
+        val conflictingTransaction = transactionDao.getAll().any {
+            it.id in requestedTransactionIds &&
+                it.id !in linkedTransactionIds &&
+                it.id != selfExpenseId
+        }
+        require(!conflictingTransaction) {
+            "付款分錄識別碼已屬於其他交易，無法安全重建。"
+        }
+        current.repayments
+            .filter { it.id !in repaymentIds }
+            .forEach {
+                require(!isMutualDebtOffset(it.note) && !isManualDebtSettlement(it.note)) {
+                    "債務抵銷或跨幣種平賬必須先整組撤銷。"
+                }
+            }
+
+        val retainedParticipantIds = participantIds.toSet()
+        val normalizedByParticipant = draft.repayments
+            .groupBy { currentRepaymentsById.getValue(it.repaymentId).participantId }
+            .mapValues { (_, repayments) ->
+                repayments.fold(BigDecimal.ZERO) { total, repayment ->
+                    total + repayment.normalizedAmount.abs()
+                }
+            }
+        draft.repayments.forEach { repayment ->
+            val existing = currentRepaymentsById.getValue(repayment.repaymentId)
+            require(
+                !isMutualDebtOffset(existing.note) &&
+                    !isManualDebtSettlement(existing.note)
+            ) { "債務抵銷或跨幣種平賬必須先整組撤銷。" }
+            require(existing.participantId in retainedParticipantIds) {
+                "還款對象必須保留在案件中。"
+            }
+            require(
+                repayment.amount > BigDecimal.ZERO &&
+                    repayment.normalizedAmount > BigDecimal.ZERO &&
+                    repayment.currencyCode.isNotBlank()
+            ) { "還款金額與沖銷金額必須大於 0。" }
+            val account = requireNotNull(accountDao.getAccount(repayment.receiveAccountId)) {
+                "找不到還款帳戶。"
+            }
+            require(account.type != AccountType.Debt && !account.isArchived) {
+                "請選擇未歸檔的非借貸帳戶。"
+            }
+            repayment.categoryId?.let { categoryId ->
+                val category = requireNotNull(categoryDao.getCategory(categoryId)) {
+                    "找不到所選分類。"
+                }
+                val expectedType = if (
+                    draft.direction == AdvanceSettlementDirection.IAdvancedOthers
+                ) {
+                    TransactionType.Income
+                } else {
+                    TransactionType.Expense
+                }
+                require(category.kind.supports(expectedType)) {
+                    "所選分類與這筆還款方向不相符。"
+                }
+            }
+        }
+
+        draft.participants.forEach { participant ->
+            val debtAccount = requireNotNull(accountDao.getAccount(participant.debtAccountId)) {
+                "找不到債務帳戶。"
+            }
+            require(debtAccount.type == AccountType.Debt && !debtAccount.isArchived) {
+                "請選擇未歸檔的借貸帳戶。"
+            }
+            require(participant.owedAmount > BigDecimal.ZERO) { "欠款金額必須大於 0。" }
+            val settled = normalizedByParticipant[participant.participantId] ?: BigDecimal.ZERO
+            require(participant.owedAmount >= settled) { "欠款金額不可低於已還金額。" }
+            if (draft.direction == AdvanceSettlementDirection.IAdvancedOthers) {
+                require(participant.paymentLegs.isNotEmpty()) { "請至少保留一個付款來源。" }
+                participant.paymentLegs.forEach { leg ->
+                    val account = requireNotNull(accountDao.getAccount(leg.accountId)) {
+                        "找不到付款帳戶。"
+                    }
+                    require(
+                        account.type != AccountType.Debt &&
+                            !account.isArchived &&
+                            leg.amount > BigDecimal.ZERO &&
+                            leg.currencyCode.isNotBlank()
+                    ) { "付款來源、金額或幣種無效。" }
+                }
+            } else {
+                require(participant.paymentLegs.isEmpty()) {
+                    "他人代墊我不可包含付款來源。"
+                }
+            }
+        }
+
+        draft.share?.let { share ->
+            val account = requireNotNull(accountDao.getAccount(share.accountId)) {
+                "找不到自己份額的付款帳戶。"
+            }
+            require(
+                draft.direction == AdvanceSettlementDirection.IAdvancedOthers &&
+                    account.type != AccountType.Debt &&
+                    !account.isArchived &&
+                    share.amount > BigDecimal.ZERO &&
+                    share.normalizedAmount > BigDecimal.ZERO &&
+                    share.currencyCode.isNotBlank()
+            ) { "自己的份額、付款帳戶或幣種無效。" }
+        }
+
+        draft.categoryId?.let { categoryId ->
+            val category = requireNotNull(categoryDao.getCategory(categoryId)) {
+                "找不到所選分類。"
+            }
+            if (draft.direction == AdvanceSettlementDirection.OthersAdvancedMe) {
+                require(category.kind.supports(TransactionType.Expense)) {
+                    "他人代墊我的初始分錄只能使用支出分類。"
+                }
+            }
+        }
+        return current
+    }
+
+    private suspend fun advanceLinkedTransactions(
+        current: AdvanceCaseWithDetails
+    ): List<TransactionEntity> {
+        val groupIds = buildSet {
+            current.participants.mapNotNullTo(this) { it.initialTransferGroupId }
+            current.repayments.mapNotNullTo(this) { it.linkedTransferGroupId }
+        }
+        val caseId = current.advanceCase.id
+        val selfExpenseId = current.advanceCase.selfExpenseTransactionId
+        return transactionDao.getAll().filter {
+            it.advanceCaseId == caseId ||
+                it.transferGroupId in groupIds ||
+                it.id == selfExpenseId
         }
     }
 

@@ -24,6 +24,10 @@ import org.duckdns.lhfser.aiaccounting.data.db.CategoryEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceInitialMetadataEditDraft
+import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceCaseStructuralEditDraft
+import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceParticipantStructuralDraft
+import org.duckdns.lhfser.aiaccounting.data.repository.AdvancePaymentLegStructuralDraft
+import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceRepaymentStructuralDraft
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceParticipantInput
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceRepaymentCreateDraft
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceRepaymentEditDraft
@@ -630,6 +634,265 @@ class AdvanceEditingTest {
 
         val unchanged = requireNotNull(repository.getAdvanceCase(caseId))
         assertEquals(BigDecimal("40"), unchanged.repayments.single().amount)
+        assertEquals(BigDecimal("40"), unchanged.participants.single().repaidAmount)
+    }
+
+    @Test
+    fun structuralEdit_rebuildsDirectionAndRepaymentEntries() = runBlocking {
+        val caseId = repository.createAdvanceCase(
+            title = "Dinner",
+            date = Instant.parse("2026-06-01T10:00:00Z"),
+            currencyCode = "HKD",
+            myShareAmount = BigDecimal.ZERO,
+            note = "",
+            payerAccount = wallet,
+            expenseCategory = null,
+            tagIds = emptyList(),
+            participants = listOf(AdvanceParticipantInput(friend, BigDecimal("100")))
+        )
+        val original = requireNotNull(repository.getAdvanceCase(caseId))
+        repository.recordAdvanceRepayment(
+            advanceCase = original.advanceCase,
+            participant = original.participants.single(),
+            amount = BigDecimal("40"),
+            normalizedAmount = BigDecimal("40"),
+            currencyCode = "HKD",
+            date = Instant.parse("2026-06-02T10:00:00Z"),
+            note = "Paid",
+            receiveAccount = wallet,
+            category = null,
+            tagIds = emptyList()
+        )
+        val current = requireNotNull(repository.getAdvanceCase(caseId))
+        val participant = current.participants.single()
+        val repayment = current.repayments.single()
+        val draft = AdvanceCaseStructuralEditDraft(
+            caseId = caseId,
+            title = "Changed",
+            date = current.advanceCase.date,
+            direction = org.duckdns.lhfser.aiaccounting.data.repository.AdvanceSettlementDirection.OthersAdvancedMe,
+            currencyCode = "HKD",
+            note = "",
+            categoryId = expenseCategory.id,
+            tagIds = emptyList(),
+            share = null,
+            participants = listOf(
+                AdvanceParticipantStructuralDraft(
+                    participantId = participant.id,
+                    name = participant.name,
+                    debtAccountId = friend.id,
+                    owedAmount = BigDecimal("100"),
+                    paymentLegs = emptyList()
+                )
+            ),
+            repayments = listOf(
+                AdvanceRepaymentStructuralDraft(
+                    repaymentId = repayment.id,
+                    receiveAccountId = wallet.id,
+                    amount = BigDecimal("40"),
+                    currencyCode = "HKD",
+                    normalizedAmount = BigDecimal("40"),
+                    date = repayment.date,
+                    note = repayment.note,
+                    categoryId = expenseCategory.id,
+                    tagIds = emptyList()
+                )
+            )
+        )
+
+        val preview = repository.previewAdvanceCaseStructuralEdit(draft)
+        assertTrue(preview.changesDirection)
+        repository.applyAdvanceCaseStructuralEdit(draft)
+
+        val updated = requireNotNull(repository.getAdvanceCase(caseId))
+        assertEquals("OthersAdvancedMe", updated.advanceCase.direction)
+        assertEquals(null, updated.advanceCase.payerAccountId)
+        val initial = database.transactionDao()
+            .getTransferGroup(requireNotNull(updated.participants.single().initialTransferGroupId))
+            .single()
+            .transaction
+        assertEquals(TransactionType.Expense, initial.type)
+        assertEquals(friend.id, initial.accountId)
+        assertEquals("InitialDebt", initial.advanceEntryRole)
+        val repaymentGroup = database.transactionDao()
+            .getTransferGroup(requireNotNull(updated.repayments.single().linkedTransferGroupId))
+            .map { it.transaction }
+        assertEquals(
+            wallet.id,
+            repaymentGroup.single { it.transferSide == TransferSide.Outgoing }.accountId
+        )
+        assertEquals(
+            friend.id,
+            repaymentGroup.single { it.transferSide == TransferSide.Incoming }.accountId
+        )
+        assertTrue(repaymentGroup.all { it.advanceRepaymentId == repayment.id })
+    }
+
+    @Test
+    fun structuralEdit_supportsSplitLegsAndNewParticipant() = runBlocking {
+        val friendB = account("Friend B", AccountType.Debt, 3)
+        repository.upsertAccount(friendB)
+        val caseId = repository.createAdvanceCase(
+            title = "Japan",
+            date = Instant.parse("2026-06-01T10:00:00Z"),
+            currencyCode = "JPY",
+            myShareAmount = BigDecimal.ZERO,
+            note = "",
+            payerAccount = wallet,
+            expenseCategory = null,
+            tagIds = emptyList(),
+            participants = listOf(AdvanceParticipantInput(friend, BigDecimal("1000")))
+        )
+        val current = requireNotNull(repository.getAdvanceCase(caseId))
+        val participant = current.participants.single()
+        val existingAsset = database.transactionDao()
+            .getTransferGroup(requireNotNull(participant.initialTransferGroupId))
+            .single { it.transaction.advanceEntryRole == "InitialAsset" }
+            .transaction
+
+        repository.applyAdvanceCaseStructuralEdit(
+            AdvanceCaseStructuralEditDraft(
+                caseId = caseId,
+                title = current.advanceCase.title,
+                date = current.advanceCase.date,
+                direction = org.duckdns.lhfser.aiaccounting.data.repository.AdvanceSettlementDirection.IAdvancedOthers,
+                currencyCode = "JPY",
+                note = "",
+                categoryId = null,
+                tagIds = emptyList(),
+                share = null,
+                participants = listOf(
+                    AdvanceParticipantStructuralDraft(
+                        participantId = participant.id,
+                        name = participant.name,
+                        debtAccountId = friend.id,
+                        owedAmount = BigDecimal("1200"),
+                        paymentLegs = listOf(
+                            AdvancePaymentLegStructuralDraft(
+                                transactionId = existingAsset.id,
+                                accountId = wallet.id,
+                                amount = BigDecimal("500"),
+                                currencyCode = "HKD"
+                            ),
+                            AdvancePaymentLegStructuralDraft(
+                                accountId = bank.id,
+                                amount = BigDecimal("30"),
+                                currencyCode = "USD"
+                            )
+                        )
+                    ),
+                    AdvanceParticipantStructuralDraft(
+                        name = "Friend B",
+                        debtAccountId = friendB.id,
+                        owedAmount = BigDecimal("800"),
+                        paymentLegs = listOf(
+                            AdvancePaymentLegStructuralDraft(
+                                accountId = bank.id,
+                                amount = BigDecimal("40"),
+                                currencyCode = "USD"
+                            )
+                        )
+                    )
+                ),
+                repayments = emptyList()
+            )
+        )
+
+        val updated = requireNotNull(repository.getAdvanceCase(caseId))
+        assertEquals(2, updated.participants.size)
+        assertEquals(null, updated.advanceCase.payerAccountId)
+        val updatedA = updated.participants.single { it.debtAccountId == friend.id }
+        val group = database.transactionDao()
+            .getTransferGroup(requireNotNull(updatedA.initialTransferGroupId))
+            .map { it.transaction }
+        assertEquals(3, group.size)
+        assertEquals(2, group.count { it.advanceEntryRole == "InitialAsset" })
+        assertEquals(
+            setOf("HKD", "USD"),
+            group.filter { it.advanceEntryRole == "InitialAsset" }.map { it.currencyCode }.toSet()
+        )
+    }
+
+    @Test
+    fun structuralEdit_invalidCurrencyAmountsRollBackWholeTransaction() = runBlocking {
+        val caseId = repository.createAdvanceCase(
+            title = "Dinner",
+            date = Instant.parse("2026-06-01T10:00:00Z"),
+            currencyCode = "HKD",
+            myShareAmount = BigDecimal.ZERO,
+            note = "",
+            payerAccount = wallet,
+            expenseCategory = null,
+            tagIds = emptyList(),
+            participants = listOf(AdvanceParticipantInput(friend, BigDecimal("100")))
+        )
+        val initial = requireNotNull(repository.getAdvanceCase(caseId))
+        repository.recordAdvanceRepayment(
+            advanceCase = initial.advanceCase,
+            participant = initial.participants.single(),
+            amount = BigDecimal("40"),
+            normalizedAmount = BigDecimal("40"),
+            currencyCode = "HKD",
+            date = Instant.parse("2026-06-02T10:00:00Z"),
+            note = "",
+            receiveAccount = wallet,
+            category = null,
+            tagIds = emptyList()
+        )
+        val current = requireNotNull(repository.getAdvanceCase(caseId))
+        val participant = current.participants.single()
+        val repayment = current.repayments.single()
+
+        try {
+            repository.applyAdvanceCaseStructuralEdit(
+                AdvanceCaseStructuralEditDraft(
+                    caseId = caseId,
+                    title = current.advanceCase.title,
+                    date = current.advanceCase.date,
+                    direction = org.duckdns.lhfser.aiaccounting.data.repository.AdvanceSettlementDirection.IAdvancedOthers,
+                    currencyCode = "JPY",
+                    note = "",
+                    categoryId = null,
+                    tagIds = emptyList(),
+                    share = null,
+                    participants = listOf(
+                        AdvanceParticipantStructuralDraft(
+                            participantId = participant.id,
+                            name = participant.name,
+                            debtAccountId = friend.id,
+                            owedAmount = BigDecimal("499"),
+                            paymentLegs = listOf(
+                                AdvancePaymentLegStructuralDraft(
+                                    accountId = wallet.id,
+                                    amount = BigDecimal("25"),
+                                    currencyCode = "HKD"
+                                )
+                            )
+                        )
+                    ),
+                    repayments = listOf(
+                        AdvanceRepaymentStructuralDraft(
+                            repaymentId = repayment.id,
+                            receiveAccountId = wallet.id,
+                            amount = BigDecimal("40"),
+                            currencyCode = "HKD",
+                            normalizedAmount = BigDecimal("500"),
+                            date = repayment.date,
+                            note = "",
+                            categoryId = null,
+                            tagIds = emptyList()
+                        )
+                    )
+                )
+            )
+            fail("Expected invalid settled amount to reject the whole edit.")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message.orEmpty().contains("低於"))
+        }
+
+        val unchanged = requireNotNull(repository.getAdvanceCase(caseId))
+        assertEquals("HKD", unchanged.advanceCase.currencyCode)
+        assertEquals(BigDecimal("100"), unchanged.participants.single().owedAmount)
         assertEquals(BigDecimal("40"), unchanged.participants.single().repaidAmount)
     }
 

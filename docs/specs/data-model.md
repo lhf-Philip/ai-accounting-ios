@@ -2,7 +2,7 @@
 
 Status: Active  
 Last updated: 2026-03-03  
-Current backup JSON version: `1.5`
+Current backup JSON version: `1.9`
 
 ## Purpose
 
@@ -143,6 +143,18 @@ Invariants:
 - `receivedAccountID: UUID?`
 - `createdAt: Date`
 
+### Structural Advance Editing
+
+- Every structural edit follows `validate -> preview -> atomic apply -> rollback`.
+- Direction changes rebuild initial entries and ordinary repayment entries from explicit draft values.
+- Case currency changes never infer exchange rates. The user must explicitly confirm the normalized case-currency amount for the user's share, every participant, and every repayment.
+- A participant's new owed amount must not be lower than the sum of retained normalized repayments.
+- Multiple payment sources are represented by multiple `FinancialTransaction` rows with role `InitialAsset`, one shared `transferGroupID`, and explicit `advanceCaseID` / `advanceParticipantID` links. The matching debt leg uses role `InitialDebt`.
+- Adding a participant creates the participant and all linked initial entries in the same atomic operation.
+- Removing a participant removes that participant's ordinary repayments and all explicitly linked entries in the same atomic operation.
+- Mutual debt offsets and manual debt settlements cannot be edited as individual repayments. They must be rolled back as a whole group before structural editing.
+- New data must use explicit advance links. Note markers remain legacy/special-settlement compatibility signals only.
+
 ## Backup JSON Contract (`FullBackupData`)
 
 Top-level fields:
@@ -165,6 +177,7 @@ Compatibility behavior currently implemented on import:
 - `budgets[].isEnabled` missing -> default `true`
 - `advanceCases[].myShareAmount` missing -> default `0`
 - `advanceRepayments[].normalizedAmount` missing -> fallback to `amount`
+- explicit advance transaction links missing -> conservatively backfill from existing case/group identifiers when unambiguous
 
 ## Cross-Platform Behavior Rules
 
