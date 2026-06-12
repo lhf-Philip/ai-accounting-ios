@@ -211,6 +211,7 @@ class AdvanceStructuralEditingUiTest {
                         accounts = listOf(wallet, bank, friend),
                         categories = listOf(food, repaymentCategory),
                         tags = listOf(tag),
+                        preloadedTagIds = listOf(tag.id),
                         onDismiss = {},
                         onApplied = { applied.set(true) }
                     )

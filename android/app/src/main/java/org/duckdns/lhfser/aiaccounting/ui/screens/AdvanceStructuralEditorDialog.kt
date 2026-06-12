@@ -99,6 +99,7 @@ fun AdvanceStructuralEditorDialog(
     accounts: List<AccountEntity>,
     categories: List<CategoryEntity>,
     tags: List<TagEntity>,
+    preloadedTagIds: List<UUID>? = null,
     onDismiss: () -> Unit,
     onApplied: suspend () -> Unit
 ) {
@@ -156,11 +157,11 @@ fun AdvanceStructuralEditorDialog(
     }
 
     LaunchedEffect(advanceCase.advanceCase.id) {
-        selectedTagIds = repository.exportBackup().advanceCases
-            .orEmpty()
-            .firstOrNull { it.id == advanceCase.advanceCase.id }
-            ?.tagIDs
-            .orEmpty()
+        selectedTagIds = preloadedTagIds ?: repository.exportBackup().advanceCases
+                .orEmpty()
+                .firstOrNull { it.id == advanceCase.advanceCase.id }
+                ?.tagIDs
+                .orEmpty()
         share = advanceCase.advanceCase.selfExpenseTransactionId?.let { transactionId ->
             repository.getTransaction(transactionId)?.let { transaction ->
                 StructuralShareUi(
