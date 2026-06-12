@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.animateColorAsState
@@ -200,6 +201,7 @@ fun CurrencyPicker(
     ) {
         currencies.forEach { code ->
             DropdownMenuItem(
+                modifier = Modifier.testTag("currency.option.$code"),
                 text = { Text(code) },
                 onClick = {
                     expanded.value = false

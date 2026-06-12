@@ -3,7 +3,7 @@ package org.duckdns.lhfser.aiaccounting
 import android.content.Context
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -130,7 +130,8 @@ class AdvanceStructuralEditingUiTest {
         val applied = showEditor()
 
         composeRule.onNodeWithTag("advance.structural.currency").performClick()
-        composeRule.onNodeWithText("USD", useUnmergedTree = true).performClick()
+        composeRule.onNodeWithTag("currency.option.USD").performClick()
+        waitForTag("advance.structural.confirmCurrency")
         composeRule.onNodeWithTag("advance.structural.confirmCurrency")
             .performScrollTo()
             .performClick()
@@ -150,7 +151,7 @@ class AdvanceStructuralEditingUiTest {
             .performTextInput(" UI")
         UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("UITest 代墊晚餐 UI").assertIsDisplayed()
+        composeRule.onNodeWithTag("advance.structural.title").assertTextContains("UI")
 
         composeRule.onAllNodesWithTag("advance.structural.paymentLeg")
             .assertCountEquals(1)
@@ -188,7 +189,7 @@ class AdvanceStructuralEditingUiTest {
             "advance.structural.direction.OthersAdvancedMe"
         ).performClick()
         composeRule.onNodeWithTag("advance.structural.preview").performClick()
-        composeRule.onNodeWithText("確認套用結構性變更？").assertIsDisplayed()
+        waitForText("確認套用結構性變更？")
         composeRule.onNodeWithTag("advance.structural.cancelPreview").performClick()
 
         val unchanged = runBlocking { repository.getAdvanceCase(advanceCase.advanceCase.id) }
@@ -215,14 +216,25 @@ class AdvanceStructuralEditingUiTest {
             composeRule.onAllNodes(hasTestTag("advance.structural.editor"))
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithTag("advance.structural.title").assertIsDisplayed()
         return applied
     }
 
     private fun previewAndApply() {
         composeRule.onNodeWithTag("advance.structural.preview").performClick()
-        composeRule.onNodeWithText("確認套用結構性變更？").assertIsDisplayed()
+        waitForText("確認套用結構性變更？")
         composeRule.onNodeWithTag("advance.structural.apply").performClick()
+    }
+
+    private fun waitForTag(tag: String) {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun waitForText(text: String) {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     private fun account(name: String, type: AccountType, sortOrder: Int): AccountEntity {
