@@ -145,13 +145,6 @@ class AdvanceStructuralEditingUiTest {
     fun splitLegAndParticipantControls_supportAddDeleteAndKeyboardExit() {
         showEditor()
 
-        composeRule.onNodeWithTag("advance.structural.title")
-            .performClick()
-            .assertIsFocused()
-        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
-        composeRule.waitForIdle()
-        waitForTag("advance.structural.editor")
-
         scrollToTag("advance.structural.addPaymentLeg.1")
         composeRule.onNodeWithTag("advance.structural.addPaymentLeg.1").performClick()
         scrollToTag("advance.structural.addPaymentLeg.2")
@@ -167,6 +160,12 @@ class AdvanceStructuralEditingUiTest {
         val removeParticipants = composeRule.onAllNodesWithText("刪除此參與人")
         removeParticipants[removeParticipants.fetchSemanticsNodes().lastIndex].performClick()
         scrollToTag("advance.structural.addParticipant.1")
+
+        scrollToTag("advance.structural.title")
+        composeRule.onNodeWithTag("advance.structural.title")
+            .performClick()
+            .assertIsFocused()
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
     }
 
     @Test
