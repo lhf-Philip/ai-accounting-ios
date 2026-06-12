@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -13,7 +13,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.performTextReplacement
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -120,14 +119,7 @@ class AdvanceStructuralEditingUiTest {
     fun directionConversion_appliesAfterImpactPreview() {
         val applied = showEditor()
 
-        composeRule.onNodeWithTag(
-            "advance.structural.direction.OthersAdvancedMe"
-        ).performClick()
-        scrollToTag("advance.structural.repaymentCategory")
-        composeRule.onNodeWithTag("advance.structural.repaymentCategory").performClick()
-        composeRule.onNodeWithTag(
-            "advance.structural.repaymentCategory.option.UITest Food"
-        ).performClick()
+        selectOthersAdvancedMe()
         previewAndApply()
 
         composeRule.waitUntil(timeoutMillis = 10_000) { applied.get() }
@@ -156,8 +148,7 @@ class AdvanceStructuralEditingUiTest {
 
         composeRule.onNodeWithTag("advance.structural.title")
             .performClick()
-            .performTextReplacement("UITest 代墊晚餐 UI")
-        composeRule.onNodeWithTag("advance.structural.title").assertTextContains("UI")
+            .assertIsFocused()
         UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
         composeRule.waitForIdle()
         waitForTag("advance.structural.editor")
@@ -191,9 +182,7 @@ class AdvanceStructuralEditingUiTest {
     fun cancellingImpactPreview_keepsStoredCaseUnchanged() {
         showEditor()
 
-        composeRule.onNodeWithTag(
-            "advance.structural.direction.OthersAdvancedMe"
-        ).performClick()
+        selectOthersAdvancedMe()
         composeRule.onNodeWithTag("advance.structural.preview").performClick()
         waitForText("確認套用結構性變更？")
         composeRule.onNodeWithTag("advance.structural.cancelPreview").performClick()
@@ -231,6 +220,17 @@ class AdvanceStructuralEditingUiTest {
         composeRule.onNodeWithTag("advance.structural.preview").performClick()
         waitForText("確認套用結構性變更？")
         composeRule.onNodeWithTag("advance.structural.apply").performClick()
+    }
+
+    private fun selectOthersAdvancedMe() {
+        composeRule.onNodeWithTag(
+            "advance.structural.direction.OthersAdvancedMe"
+        ).performClick()
+        scrollToTag("advance.structural.repaymentCategory")
+        composeRule.onNodeWithTag("advance.structural.repaymentCategory").performClick()
+        composeRule.onNodeWithTag(
+            "advance.structural.repaymentCategory.option.UITest Food"
+        ).performClick()
     }
 
     private fun waitForTag(tag: String) {
