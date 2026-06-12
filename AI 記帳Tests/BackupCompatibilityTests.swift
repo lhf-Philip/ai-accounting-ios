@@ -690,6 +690,89 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertEqual(Decimal(100), exportedRepayment.normalizedAmount)
     }
 
+    func testSplitAdvancePaymentLegs_roundTripExplicitLinks() async throws {
+        let container = try makeInMemoryContainer()
+        let modelContext = ModelContext(container)
+        let wallet = Account(name: "Wallet", currency: "HKD", type: .cash, baseBalance: 0)
+        let card = Account(name: "Card", currency: "USD", type: .creditCard, baseBalance: 0)
+        let friend = Account(name: "Friend", currency: "JPY", type: .debt, baseBalance: 0)
+        [wallet, card, friend].forEach(modelContext.insert)
+        let advanceCase = try AdvanceService.createAdvanceCase(
+            title: "Japan",
+            date: Date(timeIntervalSince1970: 10),
+            currencyCode: "JPY",
+            myShareAmount: 0,
+            note: "",
+            payerAccount: wallet,
+            category: nil,
+            tags: [],
+            participants: [.init(debtAccount: friend, owedAmount: 1_000)],
+            modelContext: modelContext
+        )
+        let participant = try XCTUnwrap(advanceCase.participants.first)
+        try AdvanceCaseEditingService.apply(
+            AdvanceCaseEditDraft(
+                advanceCase: advanceCase,
+                title: advanceCase.title,
+                date: advanceCase.date,
+                direction: .iAdvancedOthers,
+                currencyCode: advanceCase.currencyCode,
+                note: "",
+                category: nil,
+                tags: [],
+                share: nil,
+                participants: [
+                    AdvanceParticipantDraft(
+                        participant: participant,
+                        name: participant.name,
+                        debtAccount: friend,
+                        owedAmount: 1_000,
+                        paymentLegs: [
+                            AdvancePaymentLegDraft(
+                                transactionID: nil,
+                                account: wallet,
+                                amount: 500,
+                                currencyCode: "HKD"
+                            ),
+                            AdvancePaymentLegDraft(
+                                transactionID: nil,
+                                account: card,
+                                amount: 30,
+                                currencyCode: "USD"
+                            ),
+                        ]
+                    )
+                ],
+                repayments: []
+            ),
+            modelContext: modelContext
+        )
+
+        let exported = BackupManager.shared.createBackupData(modelContext: modelContext)
+        let linked = exported.transactions.filter {
+            $0.advanceCaseID == advanceCase.id &&
+                $0.advanceParticipantID == participant.id
+        }
+        XCTAssertEqual(3, linked.count)
+        XCTAssertEqual(2, linked.filter { $0.advanceEntryRole == "InitialAsset" }.count)
+
+        let secondContainer = try makeInMemoryContainer()
+        let secondContext = ModelContext(secondContainer)
+        let url = try writeBackup(exported, named: "split-advance-roundtrip.json")
+        try await BackupManager.shared.restoreFromJSON(url: url, modelContext: secondContext)
+        let restored = try secondContext.fetch(FetchDescriptor<FinancialTransaction>())
+            .filter {
+                $0.advanceCaseID == advanceCase.id &&
+                    $0.advanceParticipantID == participant.id
+            }
+        XCTAssertEqual(3, restored.count)
+        XCTAssertEqual(2, restored.filter { $0.advanceEntryRole == .initialAsset }.count)
+        XCTAssertEqual(
+            Set(["HKD", "USD"]),
+            Set(restored.filter { $0.advanceEntryRole == .initialAsset }.map(\.currencyCode))
+        )
+    }
+
     func testCrossCurrencyAdvanceRepayment_semanticDebtBalanceUsesCaseCurrencyRemainingOnly() throws {
         let container = try makeInMemoryContainer()
         let modelContext = ModelContext(container)

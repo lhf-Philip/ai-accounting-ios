@@ -60,6 +60,8 @@
 - Debt flow: create transfer pair(s) matching iOS notes and entry modes.
 - Account detail flow: account list -> account detail -> edit transaction / transfer / account.
 - First-launch guide behavior stays aligned with iOS.
+- Advance structural editing uses the same preview and confirmation sequence on both platforms for direction changes, case currency changes, split payment sources, and participant additions/removals.
+- Both platforms rebuild linked bookkeeping atomically and reject partial edits of mutual offsets or manual settlements.
 
 ## Allowed Differences
 - Android widget is Android-only.

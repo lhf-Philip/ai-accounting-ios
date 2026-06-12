@@ -18,6 +18,10 @@ import org.duckdns.lhfser.aiaccounting.data.db.RecurringRuleEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TagEntity
 import org.duckdns.lhfser.aiaccounting.data.db.TransactionEntity
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceParticipantInput
+import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceCaseStructuralEditDraft
+import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceParticipantStructuralDraft
+import org.duckdns.lhfser.aiaccounting.data.repository.AdvancePaymentLegStructuralDraft
+import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceSettlementDirection
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
 import org.duckdns.lhfser.aiaccounting.data.repository.ManualDebtSettlementDirection
 import org.duckdns.lhfser.aiaccounting.data.settlement.DebtSettlementBalanceCalculator
@@ -862,6 +866,109 @@ class BackupRoundTripTest {
             assertEquals(1, secondDatabase.recurringDao().getAllRules().size)
             assertEquals(1, secondDatabase.recurringDao().getAllOccurrences().size)
             assertNotNull(secondRepository.getTransaction(transactionId))
+        } finally {
+            secondDatabase.close()
+        }
+    }
+
+    @Test
+    fun splitAdvancePaymentLegs_roundTripExplicitLinks() = runBlocking {
+        val wallet = AccountEntity(
+            UUID.randomUUID(),
+            "Wallet",
+            "HKD",
+            AccountType.Cash,
+            BigDecimal.ZERO,
+            0,
+            false
+        )
+        val card = wallet.copy(
+            id = UUID.randomUUID(),
+            name = "Card",
+            currency = "USD",
+            type = AccountType.CreditCard,
+            sortOrder = 1
+        )
+        val friend = wallet.copy(
+            id = UUID.randomUUID(),
+            name = "Friend",
+            currency = "JPY",
+            type = AccountType.Debt,
+            sortOrder = 2
+        )
+        repository.upsertAccount(wallet)
+        repository.upsertAccount(card)
+        repository.upsertAccount(friend)
+        val caseId = repository.createAdvanceCase(
+            title = "Japan",
+            date = Instant.parse("2026-06-01T00:00:00Z"),
+            currencyCode = "JPY",
+            myShareAmount = BigDecimal.ZERO,
+            note = "",
+            payerAccount = wallet,
+            expenseCategory = null,
+            tagIds = emptyList(),
+            participants = listOf(AdvanceParticipantInput(friend, BigDecimal("1000")))
+        )
+        val participant = requireNotNull(repository.getAdvanceCase(caseId)).participants.single()
+        repository.applyAdvanceCaseStructuralEdit(
+            AdvanceCaseStructuralEditDraft(
+                caseId = caseId,
+                title = "Japan",
+                date = Instant.parse("2026-06-01T00:00:00Z"),
+                direction = AdvanceSettlementDirection.IAdvancedOthers,
+                currencyCode = "JPY",
+                note = "",
+                categoryId = null,
+                tagIds = emptyList(),
+                share = null,
+                participants = listOf(
+                    AdvanceParticipantStructuralDraft(
+                        participantId = participant.id,
+                        name = participant.name,
+                        debtAccountId = friend.id,
+                        owedAmount = BigDecimal("1000"),
+                        paymentLegs = listOf(
+                            AdvancePaymentLegStructuralDraft(
+                                accountId = wallet.id,
+                                amount = BigDecimal("500"),
+                                currencyCode = "HKD"
+                            ),
+                            AdvancePaymentLegStructuralDraft(
+                                accountId = card.id,
+                                amount = BigDecimal("30"),
+                                currencyCode = "USD"
+                            )
+                        )
+                    )
+                ),
+                repayments = emptyList()
+            )
+        )
+
+        val exportedJson = repository.exportBackupJson()
+        val exported = BackupJsonAdapter.gson.fromJson(exportedJson, FullBackupData::class.java)
+        val linked = exported.transactions.filter {
+            it.advanceCaseID == caseId && it.advanceParticipantID == participant.id
+        }
+        assertEquals(3, linked.size)
+        assertEquals(2, linked.count { it.advanceEntryRole == "InitialAsset" })
+
+        val secondDatabase = buildDatabase()
+        try {
+            val secondRepository = AccountingRepository(secondDatabase, currencyService)
+            secondRepository.importBackupJson(exportedJson, replaceExisting = true)
+            val restored = secondDatabase.transactionDao().getAll().filter {
+                it.advanceCaseId == caseId && it.advanceParticipantId == participant.id
+            }
+            assertEquals(3, restored.size)
+            assertEquals(2, restored.count { it.advanceEntryRole == "InitialAsset" })
+            assertEquals(
+                setOf("HKD", "USD"),
+                restored.filter { it.advanceEntryRole == "InitialAsset" }
+                    .map { it.currencyCode }
+                    .toSet()
+            )
         } finally {
             secondDatabase.close()
         }
