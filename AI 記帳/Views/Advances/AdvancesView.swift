@@ -423,7 +423,7 @@ struct AdvanceCaseDetailView: View {
             }
         }
         .sheet(isPresented: $showingCaseEditor) {
-            EditAdvanceCaseView(advanceCase: advanceCase)
+            AdvanceStructuralEditorView(advanceCase: advanceCase)
         }
         .sheet(item: $selectedParticipantForRepayment) { participant in
             AddAdvanceRepaymentView(advanceCase: advanceCase, participant: participant)

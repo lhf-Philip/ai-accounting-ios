@@ -27,6 +27,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.AccountType
@@ -141,6 +142,7 @@ fun AdvanceDetailScreen(caseId: String?) {
     var initialTags by remember { mutableStateOf<List<TagEntity>>(emptyList()) }
     var initialDate by remember { mutableStateOf(Instant.now()) }
     var initialNote by remember { mutableStateOf("") }
+    var showingStructuralEditor by remember { mutableStateOf(false) }
 
     if (advanceCase == null) {
         Column(modifier = Modifier.padding(AppSpacing.screenHorizontal)) {
@@ -297,6 +299,12 @@ fun AdvanceDetailScreen(caseId: String?) {
                     Text("幣種：$caseCurrency")
                     Text("備註：${caseData.advanceCase.note.ifBlank { "-" }}")
                     if (!isEditingInitialMetadata) {
+                        TextButton(
+                            modifier = Modifier.testTag("advance.structural.open"),
+                            onClick = { showingStructuralEditor = true }
+                        ) {
+                            Text("完整結構編輯")
+                        }
                         TextButton(onClick = {
                             initialTitle = caseData.advanceCase.title
                             initialPayerAccount = receiveAccounts.firstOrNull {
@@ -1130,6 +1138,19 @@ fun AdvanceDetailScreen(caseId: String?) {
             },
             dismissButton = {
                 TextButton(onClick = { participantToEdit = null }) { Text("取消") }
+            }
+        )
+    }
+
+    if (showingStructuralEditor) {
+        AdvanceStructuralEditorDialog(
+            advanceCase = caseData,
+            accounts = accounts,
+            categories = categories,
+            tags = tags,
+            onDismiss = { showingStructuralEditor = false },
+            onApplied = {
+                advanceCase = repository.getAdvanceCase(caseData.advanceCase.id)
             }
         )
     }
