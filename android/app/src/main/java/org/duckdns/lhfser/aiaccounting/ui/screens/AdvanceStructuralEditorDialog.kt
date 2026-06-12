@@ -455,6 +455,8 @@ fun AdvanceStructuralEditorDialog(
                                         it.participantId == repayment.participantId
                                     }?.name ?: "已移除對象",
                                     accounts = ownAccounts,
+                                    categories = categories,
+                                    direction = direction,
                                     caseCurrency = currencyCode,
                                     onChange = { updated ->
                                         repayments = repayments.map {
@@ -850,9 +852,18 @@ private fun StructuralRepaymentEditor(
     repayment: StructuralRepaymentUi,
     participantName: String,
     accounts: List<AccountEntity>,
+    categories: List<CategoryEntity>,
+    direction: AdvanceSettlementDirection,
     caseCurrency: String,
     onChange: (StructuralRepaymentUi) -> Unit
 ) {
+    val expectedType = if (direction == AdvanceSettlementDirection.IAdvancedOthers) {
+        TransactionType.Income
+    } else {
+        TransactionType.Expense
+    }
+    val compatibleCategories = categories.filter { it.kind.supports(expectedType) }
+
     SectionCard {
         Text("$participantName 的普通還款", style = MaterialTheme.typography.titleSmall)
         StructuralPicker(
@@ -861,6 +872,14 @@ private fun StructuralRepaymentEditor(
             options = accounts,
             optionLabel = { it.name },
             onSelect = { onChange(repayment.copy(receiveAccountId = it?.id)) }
+        )
+        StructuralPicker(
+            label = "還款分類",
+            value = compatibleCategories.firstOrNull { it.id == repayment.categoryId },
+            options = compatibleCategories,
+            optionLabel = { it.name },
+            onSelect = { onChange(repayment.copy(categoryId = it?.id)) },
+            testTagPrefix = "advance.structural.repaymentCategory"
         )
         StructuralAmountRow(
             label = "實際還款",
@@ -936,12 +955,16 @@ private fun <T> StructuralPicker(
     value: T?,
     options: List<T>,
     optionLabel: (T) -> String,
-    onSelect: (T?) -> Unit
+    onSelect: (T?) -> Unit,
+    testTagPrefix: String? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { expanded = true }) {
+        TextButton(
+            modifier = testTagPrefix?.let { Modifier.testTag(it) } ?: Modifier,
+            onClick = { expanded = true }
+        ) {
             Text(value?.let(optionLabel) ?: "請選擇")
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -954,6 +977,9 @@ private fun <T> StructuralPicker(
             )
             options.forEach { option ->
                 DropdownMenuItem(
+                    modifier = testTagPrefix?.let {
+                        Modifier.testTag("$it.option.${optionLabel(option)}")
+                    } ?: Modifier,
                     text = { Text(optionLabel(option)) },
                     onClick = {
                         expanded = false

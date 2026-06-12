@@ -1,6 +1,7 @@
 package org.duckdns.lhfser.aiaccounting
 
 import android.content.Context
+import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextContains
@@ -12,7 +13,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -108,6 +109,10 @@ class AdvanceStructuralEditingUiTest {
 
     @After
     fun tearDown() {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            composeRule.activity.setContent {}
+        }
+        composeRule.waitForIdle()
         database.close()
     }
 
@@ -117,6 +122,12 @@ class AdvanceStructuralEditingUiTest {
 
         composeRule.onNodeWithTag(
             "advance.structural.direction.OthersAdvancedMe"
+        ).performClick()
+        composeRule.onNodeWithTag("advance.structural.repaymentCategory")
+            .performScrollTo()
+            .performClick()
+        composeRule.onNodeWithTag(
+            "advance.structural.repaymentCategory.option.UITest Food"
         ).performClick()
         previewAndApply()
 
@@ -148,7 +159,7 @@ class AdvanceStructuralEditingUiTest {
 
         composeRule.onNodeWithTag("advance.structural.title")
             .performClick()
-            .performTextInput(" UI")
+            .performTextReplacement("UITest 代墊晚餐 UI")
         UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("advance.structural.title").assertTextContains("UI")
