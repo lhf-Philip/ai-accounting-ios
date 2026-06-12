@@ -27,6 +27,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -97,6 +99,7 @@ fun AdvanceStructuralEditorDialog(
     accounts: List<AccountEntity>,
     categories: List<CategoryEntity>,
     tags: List<TagEntity>,
+    preloadedTagIds: List<UUID>? = null,
     onDismiss: () -> Unit,
     onApplied: suspend () -> Unit
 ) {
@@ -154,11 +157,11 @@ fun AdvanceStructuralEditorDialog(
     }
 
     LaunchedEffect(advanceCase.advanceCase.id) {
-        selectedTagIds = repository.exportBackup().advanceCases
-            .orEmpty()
-            .firstOrNull { it.id == advanceCase.advanceCase.id }
-            ?.tagIDs
-            .orEmpty()
+        selectedTagIds = preloadedTagIds ?: repository.exportBackup().advanceCases
+                .orEmpty()
+                .firstOrNull { it.id == advanceCase.advanceCase.id }
+                ?.tagIDs
+                .orEmpty()
         share = advanceCase.advanceCase.selfExpenseTransactionId?.let { transactionId ->
             repository.getTransaction(transactionId)?.let { transaction ->
                 StructuralShareUi(
@@ -253,7 +256,12 @@ fun AdvanceStructuralEditorDialog(
                     Text("載入中...")
                 } else {
                     LazyColumn(
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .testTag("advance.structural.list")
+                            .semantics {
+                                stateDescription = "advance.structural.ready"
+                            },
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         item {
@@ -307,7 +315,9 @@ fun AdvanceStructuralEditorDialog(
                                     value = title,
                                     onValueChange = { title = it },
                                     label = { Text("案件名稱") },
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("advance.structural.title"),
                                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                         imeAction = ImeAction.Done
                                     ),
@@ -323,7 +333,8 @@ fun AdvanceStructuralEditorDialog(
                                         }
                                         currencyCode = it
                                     },
-                                    buttonStyle = CurrencyButtonStyle.Tonal
+                                    buttonStyle = CurrencyButtonStyle.Tonal,
+                                    modifier = Modifier.testTag("advance.structural.currency")
                                 )
                                 StructuralPicker(
                                     label = "支出分類",
@@ -388,10 +399,11 @@ fun AdvanceStructuralEditorDialog(
                             }
                         }
 
-                        participants.forEach { participant ->
+                        participants.forEachIndexed { participantIndex, participant ->
                             item(key = participant.id) {
                                 StructuralParticipantEditor(
                                     participant = participant,
+                                    participantIndex = participantIndex,
                                     direction = direction,
                                     caseCurrency = currencyCode,
                                     ownAccounts = ownAccounts,
@@ -421,7 +433,11 @@ fun AdvanceStructuralEditorDialog(
 
                         item {
                             TextButton(
-                                modifier = Modifier.testTag("advance.structural.addParticipant"),
+                                modifier = Modifier
+                                    .testTag("advance.structural.addParticipant")
+                                    .semantics {
+                                        stateDescription = participants.size.toString()
+                                    },
                                 onClick = {
                                     participants = participants + StructuralParticipantUi(
                                         id = UUID.randomUUID(),
@@ -452,6 +468,8 @@ fun AdvanceStructuralEditorDialog(
                                         it.participantId == repayment.participantId
                                     }?.name ?: "已移除對象",
                                     accounts = ownAccounts,
+                                    categories = categories,
+                                    direction = direction,
                                     caseCurrency = currencyCode,
                                     onChange = { updated ->
                                         repayments = repayments.map {
@@ -593,10 +611,13 @@ fun AdvanceStructuralEditorDialog(
                 }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    pendingImpact = null
-                    pendingDraft = null
-                }) {
+                TextButton(
+                    modifier = Modifier.testTag("advance.structural.cancelPreview"),
+                    onClick = {
+                        pendingImpact = null
+                        pendingDraft = null
+                    }
+                ) {
                     Text("取消")
                 }
             }
@@ -710,6 +731,7 @@ private fun buildStructuralDraft(
 @Composable
 private fun StructuralParticipantEditor(
     participant: StructuralParticipantUi,
+    participantIndex: Int,
     direction: AdvanceSettlementDirection,
     caseCurrency: String,
     ownAccounts: List<AccountEntity>,
@@ -717,7 +739,7 @@ private fun StructuralParticipantEditor(
     onChange: (StructuralParticipantUi) -> Unit,
     onRemove: (() -> Unit)?
 ) {
-    SectionCard {
+    SectionCard(modifier = Modifier.testTag("advance.structural.participant")) {
         OutlinedTextField(
             value = participant.name,
             onValueChange = { onChange(participant.copy(name = it)) },
@@ -744,9 +766,11 @@ private fun StructuralParticipantEditor(
             }
         )
         if (direction == AdvanceSettlementDirection.IAdvancedOthers) {
-            participant.paymentLegs.forEach { leg ->
+            participant.paymentLegs.forEachIndexed { legIndex, leg ->
                 Column(
-                    modifier = Modifier.padding(start = 12.dp),
+                    modifier = Modifier
+                        .padding(start = 12.dp)
+                        .testTag("advance.structural.paymentLeg"),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     StructuralPicker(
@@ -799,22 +823,31 @@ private fun StructuralParticipantEditor(
                         }
                     )
                     if (participant.paymentLegs.size > 1) {
-                        TextButton(onClick = {
-                            onChange(
-                                participant.copy(
-                                    paymentLegs = participant.paymentLegs.filterNot {
-                                        it.id == leg.id
-                                    }
+                        TextButton(
+                            modifier = Modifier.testTag(
+                                "advance.structural.deletePaymentLeg.$legIndex"
+                            ),
+                            onClick = {
+                                onChange(
+                                    participant.copy(
+                                        paymentLegs = participant.paymentLegs.filterNot {
+                                            it.id == leg.id
+                                        }
+                                    )
                                 )
-                            )
-                        }) {
+                            }
+                        ) {
                             Text("刪除此付款來源")
                         }
                     }
                 }
             }
             TextButton(
-                modifier = Modifier.testTag("advance.structural.addPaymentLeg"),
+                modifier = Modifier
+                    .testTag("advance.structural.addPaymentLeg")
+                    .semantics {
+                        stateDescription = participant.paymentLegs.size.toString()
+                    },
                 onClick = {
                     onChange(
                         participant.copy(
@@ -830,7 +863,12 @@ private fun StructuralParticipantEditor(
             }
         }
         onRemove?.let {
-            TextButton(onClick = it) {
+            TextButton(
+                modifier = Modifier.testTag(
+                    "advance.structural.deleteParticipant.$participantIndex"
+                ),
+                onClick = it
+            ) {
                 Text("刪除此參與人", color = MaterialTheme.colorScheme.error)
             }
         }
@@ -842,9 +880,18 @@ private fun StructuralRepaymentEditor(
     repayment: StructuralRepaymentUi,
     participantName: String,
     accounts: List<AccountEntity>,
+    categories: List<CategoryEntity>,
+    direction: AdvanceSettlementDirection,
     caseCurrency: String,
     onChange: (StructuralRepaymentUi) -> Unit
 ) {
+    val expectedType = if (direction == AdvanceSettlementDirection.IAdvancedOthers) {
+        TransactionType.Income
+    } else {
+        TransactionType.Expense
+    }
+    val compatibleCategories = categories.filter { it.kind.supports(expectedType) }
+
     SectionCard {
         Text("$participantName 的普通還款", style = MaterialTheme.typography.titleSmall)
         StructuralPicker(
@@ -853,6 +900,14 @@ private fun StructuralRepaymentEditor(
             options = accounts,
             optionLabel = { it.name },
             onSelect = { onChange(repayment.copy(receiveAccountId = it?.id)) }
+        )
+        StructuralPicker(
+            label = "還款分類",
+            value = compatibleCategories.firstOrNull { it.id == repayment.categoryId },
+            options = compatibleCategories,
+            optionLabel = { it.name },
+            onSelect = { onChange(repayment.copy(categoryId = it?.id)) },
+            testTagPrefix = "advance.structural.repaymentCategory"
         )
         StructuralAmountRow(
             label = "實際還款",
@@ -928,12 +983,16 @@ private fun <T> StructuralPicker(
     value: T?,
     options: List<T>,
     optionLabel: (T) -> String,
-    onSelect: (T?) -> Unit
+    onSelect: (T?) -> Unit,
+    testTagPrefix: String? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { expanded = true }) {
+        TextButton(
+            modifier = testTagPrefix?.let { Modifier.testTag(it) } ?: Modifier,
+            onClick = { expanded = true }
+        ) {
             Text(value?.let(optionLabel) ?: "請選擇")
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -946,6 +1005,9 @@ private fun <T> StructuralPicker(
             )
             options.forEach { option ->
                 DropdownMenuItem(
+                    modifier = testTagPrefix?.let {
+                        Modifier.testTag("$it.option.${optionLabel(option)}")
+                    } ?: Modifier,
                     text = { Text(optionLabel(option)) },
                     onClick = {
                         expanded = false

@@ -612,6 +612,7 @@ private struct ParticipantEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             TextField("姓名", text: $participant.name)
+                .accessibilityIdentifier("advance.structural.participantName")
             Picker("債務帳戶", selection: $participant.debtAccount) {
                 Text("請選擇").tag(nil as Account?)
                 ForEach(debtAccounts) { account in
@@ -647,9 +648,11 @@ private struct ParticipantEditor: View {
                                 onRemovePaymentLeg(leg.id)
                             }
                             .buttonStyle(.borderless)
+                            .accessibilityIdentifier("advance.structural.removePaymentLeg")
                         }
                     }
                     .padding(.leading, 12)
+                    .accessibilityIdentifier("advance.structural.paymentLeg")
                 }
                 Button("新增付款來源", action: onAddPaymentLeg)
                     .accessibilityIdentifier("advance.structural.addPaymentLeg")
@@ -658,6 +661,7 @@ private struct ParticipantEditor: View {
             if canRemove {
                 Button("刪除此參與人", role: .destructive, action: onRemove)
                     .buttonStyle(.borderless)
+                    .accessibilityIdentifier("advance.structural.removeParticipant")
             }
         }
         .padding(.vertical, 6)

@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.animateColorAsState
@@ -171,7 +172,8 @@ fun PressableCard(
 fun CurrencyPicker(
     selected: String,
     onSelect: (String) -> Unit,
-    buttonStyle: CurrencyButtonStyle = CurrencyButtonStyle.Tonal
+    buttonStyle: CurrencyButtonStyle = CurrencyButtonStyle.Tonal,
+    modifier: Modifier = Modifier
 ) {
     val standardCurrencies = listOf("HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP")
     val currencies = if (selected in standardCurrencies) {
@@ -183,12 +185,12 @@ fun CurrencyPicker(
     val onClick = { expanded.value = true }
     when (buttonStyle) {
         CurrencyButtonStyle.Tonal -> {
-            FilledTonalButton(onClick = onClick) {
+            FilledTonalButton(onClick = onClick, modifier = modifier) {
                 Text(selected)
             }
         }
         CurrencyButtonStyle.Text -> {
-            TextButton(onClick = onClick) {
+            TextButton(onClick = onClick, modifier = modifier) {
                 Text(selected)
             }
         }
@@ -199,6 +201,7 @@ fun CurrencyPicker(
     ) {
         currencies.forEach { code ->
             DropdownMenuItem(
+                modifier = Modifier.testTag("currency.option.$code"),
                 text = { Text(code) },
                 onClick = {
                     expanded.value = false
