@@ -257,7 +257,10 @@ fun AdvanceStructuralEditorDialog(
                     LazyColumn(
                         modifier = Modifier
                             .weight(1f, fill = false)
-                            .testTag("advance.structural.list"),
+                            .testTag("advance.structural.list")
+                            .semantics {
+                                stateDescription = "advance.structural.ready"
+                            },
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         item {
@@ -395,10 +398,11 @@ fun AdvanceStructuralEditorDialog(
                             }
                         }
 
-                        participants.forEach { participant ->
+                        participants.forEachIndexed { participantIndex, participant ->
                             item(key = participant.id) {
                                 StructuralParticipantEditor(
                                     participant = participant,
+                                    participantIndex = participantIndex,
                                     direction = direction,
                                     caseCurrency = currencyCode,
                                     ownAccounts = ownAccounts,
@@ -726,6 +730,7 @@ private fun buildStructuralDraft(
 @Composable
 private fun StructuralParticipantEditor(
     participant: StructuralParticipantUi,
+    participantIndex: Int,
     direction: AdvanceSettlementDirection,
     caseCurrency: String,
     ownAccounts: List<AccountEntity>,
@@ -760,7 +765,7 @@ private fun StructuralParticipantEditor(
             }
         )
         if (direction == AdvanceSettlementDirection.IAdvancedOthers) {
-            participant.paymentLegs.forEach { leg ->
+            participant.paymentLegs.forEachIndexed { legIndex, leg ->
                 Column(
                     modifier = Modifier
                         .padding(start = 12.dp)
@@ -817,15 +822,20 @@ private fun StructuralParticipantEditor(
                         }
                     )
                     if (participant.paymentLegs.size > 1) {
-                        TextButton(onClick = {
-                            onChange(
-                                participant.copy(
-                                    paymentLegs = participant.paymentLegs.filterNot {
-                                        it.id == leg.id
-                                    }
+                        TextButton(
+                            modifier = Modifier.testTag(
+                                "advance.structural.deletePaymentLeg.$legIndex"
+                            ),
+                            onClick = {
+                                onChange(
+                                    participant.copy(
+                                        paymentLegs = participant.paymentLegs.filterNot {
+                                            it.id == leg.id
+                                        }
+                                    )
                                 )
-                            )
-                        }) {
+                            }
+                        ) {
                             Text("刪除此付款來源")
                         }
                     }
@@ -852,7 +862,12 @@ private fun StructuralParticipantEditor(
             }
         }
         onRemove?.let {
-            TextButton(onClick = it) {
+            TextButton(
+                modifier = Modifier.testTag(
+                    "advance.structural.deleteParticipant.$participantIndex"
+                ),
+                onClick = it
+            ) {
                 Text("刪除此參與人", color = MaterialTheme.colorScheme.error)
             }
         }

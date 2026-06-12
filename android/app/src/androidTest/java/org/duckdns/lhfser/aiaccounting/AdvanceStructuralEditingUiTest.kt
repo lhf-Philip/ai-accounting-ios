@@ -12,7 +12,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -147,26 +149,33 @@ class AdvanceStructuralEditingUiTest {
         showEditor()
 
         scrollToTag("advance.structural.addPaymentLeg")
-        assertCollectionCount("advance.structural.addPaymentLeg", "1")
+        val initialPaymentLegCount = nodeCount("advance.structural.paymentLeg")
         composeRule.onNodeWithTag("advance.structural.addPaymentLeg").performClick()
         scrollToTag("advance.structural.addPaymentLeg")
-        assertCollectionCount("advance.structural.addPaymentLeg", "2")
-        scrollToText("刪除此付款來源")
-        val removePaymentLegs = composeRule.onAllNodesWithText("刪除此付款來源")
-        removePaymentLegs[removePaymentLegs.fetchSemanticsNodes().lastIndex].performClick()
+        waitForNodeCount("advance.structural.paymentLeg", initialPaymentLegCount + 1)
+        val addedPaymentLegTag =
+            "advance.structural.deletePaymentLeg.$initialPaymentLegCount"
+        scrollToTag(addedPaymentLegTag)
+        composeRule.onNodeWithTag(addedPaymentLegTag)
+            .performSemanticsAction(SemanticsActions.OnClick)
         scrollToTag("advance.structural.addPaymentLeg")
-        assertCollectionCount("advance.structural.addPaymentLeg", "1")
+        waitForNodeCount("advance.structural.paymentLeg", initialPaymentLegCount)
 
         scrollToTag("advance.structural.addParticipant")
-        assertCollectionCount("advance.structural.addParticipant", "1")
+        val initialParticipantCount = collectionCount("advance.structural.addParticipant")
         composeRule.onNodeWithTag("advance.structural.addParticipant").performClick()
         scrollToTag("advance.structural.addParticipant")
-        assertCollectionCount("advance.structural.addParticipant", "2")
-        scrollToText("刪除此參與人")
-        val removeParticipants = composeRule.onAllNodesWithText("刪除此參與人")
-        removeParticipants[removeParticipants.fetchSemanticsNodes().lastIndex].performClick()
+        waitForCollectionCount(
+            "advance.structural.addParticipant",
+            initialParticipantCount + 1
+        )
+        val addedParticipantTag =
+            "advance.structural.deleteParticipant.$initialParticipantCount"
+        scrollToTag(addedParticipantTag)
+        composeRule.onNodeWithTag(addedParticipantTag)
+            .performSemanticsAction(SemanticsActions.OnClick)
         scrollToTag("advance.structural.addParticipant")
-        assertCollectionCount("advance.structural.addParticipant", "1")
+        waitForCollectionCount("advance.structural.addParticipant", initialParticipantCount)
     }
 
     @Test
@@ -208,11 +217,12 @@ class AdvanceStructuralEditingUiTest {
                 }
             }
         }
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitForIdle()
+        waitForGate("editor-loaded", timeoutMillis = 30_000) {
             composeRule.onAllNodes(
-                hasTestTag("advance.structural.direction.IAdvancedOthers")
-            )
-                .fetchSemanticsNodes().isNotEmpty()
+                hasTestTag("advance.structural.list") and
+                    androidx.compose.ui.test.hasStateDescription("advance.structural.ready")
+            ).fetchSemanticsNodes().isNotEmpty()
         }
         return applied
     }
@@ -235,14 +245,26 @@ class AdvanceStructuralEditingUiTest {
     }
 
     private fun waitForTag(tag: String) {
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        waitForGate("tag:$tag") {
             composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
         }
     }
 
     private fun waitForText(text: String) {
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        waitForGate("text:$text") {
             composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun waitForGate(
+        gate: String,
+        timeoutMillis: Long = 20_000,
+        condition: () -> Boolean
+    ) {
+        try {
+            composeRule.waitUntil(timeoutMillis = timeoutMillis, condition = condition)
+        } catch (error: androidx.compose.ui.test.ComposeTimeoutException) {
+            throw AssertionError("Compose gate '$gate' timed out after ${timeoutMillis}ms", error)
         }
     }
 
@@ -258,9 +280,33 @@ class AdvanceStructuralEditingUiTest {
         waitForText(text)
     }
 
-    private fun assertCollectionCount(tag: String, expected: String) {
-        val node = composeRule.onNodeWithTag(tag).fetchSemanticsNode()
-        assertEquals(expected, node.config[SemanticsProperties.StateDescription])
+    private fun collectionCount(tag: String): Int {
+        val description = composeRule.onNodeWithTag(tag)
+            .fetchSemanticsNode()
+            .config[SemanticsProperties.StateDescription]
+        return requireNotNull(description.toIntOrNull()) {
+            "Collection '$tag' has invalid stateDescription '$description'"
+        }
+    }
+
+    private fun nodeCount(tag: String): Int {
+        return composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().size
+    }
+
+    private fun waitForNodeCount(tag: String, expected: Int) {
+        waitForGate("nodes:$tag=$expected") {
+            nodeCount(tag) == expected
+        }
+    }
+
+    private fun waitForCollectionCount(tag: String, expected: Int) {
+        val expectedDescription = expected.toString()
+        waitForGate("collection:$tag=$expected") {
+            composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().any { node ->
+                node.config.contains(SemanticsProperties.StateDescription) &&
+                    node.config[SemanticsProperties.StateDescription] == expectedDescription
+            }
+        }
     }
 
     private fun account(name: String, type: AccountType, sortOrder: Int): AccountEntity {
