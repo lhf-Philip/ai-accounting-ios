@@ -1802,7 +1802,7 @@ enum AdvanceService {
                 }
             }
 
-            if advanceCase.tagIDs.isEmpty,
+            if (advanceCase.tagIDs ?? []).isEmpty,
                let expenseID = advanceCase.selfExpenseTransactionID,
                let expense = transactionByID[expenseID] {
                 advanceCase.tagIDs = expense.tags.map(\.id)

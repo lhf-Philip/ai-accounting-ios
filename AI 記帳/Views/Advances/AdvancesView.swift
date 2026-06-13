@@ -767,7 +767,8 @@ struct EditAdvanceCaseView: View {
                 date = advanceCase.date
                 note = advanceCase.note
                 selectedCategory = advanceCase.expenseCategory
-                selectedTags = Set(tags.filter { advanceCase.tagIDs.contains($0.id) })
+                let caseTagIDs = advanceCase.tagIDs ?? []
+                selectedTags = Set(tags.filter { caseTagIDs.contains($0.id) })
                 if let participant = advanceCase.participants.first {
                     direction = AdvanceService.inferSettlementDirection(
                         for: participant,
@@ -2068,7 +2069,7 @@ struct EditAdvanceParticipantView: View {
                     date: advanceCase.date,
                     note: advanceCase.note,
                     category: advanceCase.expenseCategory,
-                    tags: tags.filter { advanceCase.tagIDs.contains($0.id) }
+                    tags: tags.filter { (advanceCase.tagIDs ?? []).contains($0.id) }
                 ),
                 modelContext: modelContext
             )

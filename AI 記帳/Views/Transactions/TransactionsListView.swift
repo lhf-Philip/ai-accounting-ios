@@ -618,7 +618,7 @@ private struct TransactionsRenderState {
                     advanceCase.participants.compactMap(\.debtAccount?.name).joined(separator: " "),
                     advanceCase.repayments.map(\.note).joined(separator: " "),
                     advanceCase.repayments.compactMap(\.receivedAccount?.name).joined(separator: " "),
-                    advanceCase.tagIDs.compactMap { tagNameByID[$0] }.joined(separator: " "),
+                    (advanceCase.tagIDs ?? []).compactMap { tagNameByID[$0] }.joined(separator: " "),
                     caseTransactions.compactMap(\.account?.name).joined(separator: " "),
                 ]
                 guard searchableValues.contains(where: {

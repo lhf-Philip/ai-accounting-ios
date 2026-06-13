@@ -332,7 +332,7 @@ class BackupManager: NSObject, ObservableObject {
                     createdAt: $0.createdAt,
                     updatedAt: $0.updatedAt,
                     direction: $0.directionRaw,
-                    tagIDs: $0.tagIDs
+                    tagIDs: $0.tagIDs ?? []
                 )
             },
             advanceParticipants: advanceParticipants.map {

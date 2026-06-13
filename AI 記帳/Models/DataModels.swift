@@ -525,7 +525,7 @@ final class AdvanceCase {
     var note: String
     var selfExpenseTransactionID: UUID?
     var directionRaw: String?
-    var tagIDs: [UUID]
+    var tagIDs: [UUID]?
     var createdAt: Date
     var updatedAt: Date
     

@@ -234,6 +234,18 @@ struct AI___App: App {
         // 3. 使用新檔名 (v3) 避開舊的損壞檔案
         let storeURL = documentsURL.appendingPathComponent("AI_Accounting_v3.store")
         print("📂 資料庫路徑: \(storeURL.path)")
+
+        do {
+            if let backupURL = try StoreMigrationSafetyService.createPreMigrationBackupIfNeeded(
+                storeURL: storeURL
+            ) {
+                print("🛡️ SwiftData 遷移前備份: \(backupURL.lastPathComponent)")
+            }
+        } catch {
+            let details = StoreMigrationSafetyService.detailedDescription(for: error)
+            print("❌ 無法建立 SwiftData 遷移前備份，已停止開啟資料庫: \(details)")
+            fatalError("Could not create pre-migration backup: \(details)")
+        }
         
         // 4. 啟動前先修復舊資料的 Category.kind，避免 enum 強制轉型崩潰
         repairLegacyCategoryKindsIfNeeded(storeURL: storeURL)
@@ -250,9 +262,22 @@ struct AI___App: App {
         )
 
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+            do {
+                let repairedCount = try StoreMigrationSafetyService.backfillMissingAdvanceCaseTagIDs(
+                    modelContext: container.mainContext
+                )
+                if repairedCount > 0 {
+                    print("✅ 已修復 AdvanceCase.tagIDs 舊資料 \(repairedCount) 筆")
+                }
+            } catch {
+                print("⚠️ AdvanceCase.tagIDs 舊資料正規化失敗: \(error.localizedDescription)")
+            }
+            return container
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            let details = StoreMigrationSafetyService.detailedDescription(for: error)
+            print("❌ Could not create ModelContainer: \(details)")
+            fatalError("Could not create ModelContainer: \(details)")
         }
     }()
 

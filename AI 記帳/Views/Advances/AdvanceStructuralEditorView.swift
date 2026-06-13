@@ -379,7 +379,8 @@ struct AdvanceStructuralEditorView: View {
         currencyCode = advanceCase.currencyCode
         note = advanceCase.note
         category = advanceCase.expenseCategory
-        selectedTags = Set(tags.filter { advanceCase.tagIDs.contains($0.id) })
+        let caseTagIDs = advanceCase.tagIDs ?? []
+        selectedTags = Set(tags.filter { caseTagIDs.contains($0.id) })
 
         if let shareID = advanceCase.selfExpenseTransactionID,
            let transaction = transactions.first(where: { $0.id == shareID }) {
