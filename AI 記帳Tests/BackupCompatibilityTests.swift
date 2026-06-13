@@ -5,6 +5,113 @@ import SQLite3
 
 @MainActor
 final class BackupCompatibilityTests: XCTestCase {
+    func testAdvanceCaseTagIDs_nilIsBackfilledAndExportedAsEmptyArray() throws {
+        let container = try makeInMemoryContainer()
+        let modelContext = ModelContext(container)
+        let advanceCase = AdvanceCase(title: "Legacy advance")
+        advanceCase.tagIDs = nil
+        modelContext.insert(advanceCase)
+        try modelContext.save()
+
+        XCTAssertNil(advanceCase.tagIDs)
+
+        let repairedCount = try StoreMigrationSafetyService.backfillMissingAdvanceCaseTagIDs(
+            modelContext: modelContext
+        )
+
+        XCTAssertEqual(1, repairedCount)
+        XCTAssertEqual([], advanceCase.tagIDs)
+
+        let backup = BackupManager.shared.createBackupData(modelContext: modelContext)
+        XCTAssertEqual([], backup.advanceCases?.first?.tagIDs)
+    }
+
+    func testPreMigrationBackup_copiesStoreFamilyAndReusesRecentCompleteBackup() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("migration-backup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let storeURL = rootURL.appendingPathComponent("AI_Accounting_v3.store")
+        let walURL = URL(fileURLWithPath: storeURL.path + "-wal")
+        let shmURL = URL(fileURLWithPath: storeURL.path + "-shm")
+        try Data("store".utf8).write(to: storeURL)
+        try Data("wal".utf8).write(to: walURL)
+        try Data("shm".utf8).write(to: shmURL)
+        let now = Date(timeIntervalSince1970: 1_750_000_000)
+
+        let firstBackup = try XCTUnwrap(
+            StoreMigrationSafetyService.createPreMigrationBackupIfNeeded(
+                storeURL: storeURL,
+                now: now
+            )
+        )
+
+        XCTAssertEqual(
+            Data("store".utf8),
+            try Data(contentsOf: firstBackup.appendingPathComponent(storeURL.lastPathComponent))
+        )
+        XCTAssertEqual(
+            Data("wal".utf8),
+            try Data(contentsOf: firstBackup.appendingPathComponent(walURL.lastPathComponent))
+        )
+        XCTAssertEqual(
+            Data("shm".utf8),
+            try Data(contentsOf: firstBackup.appendingPathComponent(shmURL.lastPathComponent))
+        )
+
+        let secondBackup = try StoreMigrationSafetyService.createPreMigrationBackupIfNeeded(
+            storeURL: storeURL,
+            now: now.addingTimeInterval(60)
+        )
+
+        XCTAssertEqual(firstBackup, secondBackup)
+        let backupRoot = rootURL.appendingPathComponent("MigrationBackups", isDirectory: true)
+        let backupDirectories = try FileManager.default.contentsOfDirectory(
+            at: backupRoot,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(1, backupDirectories.count)
+    }
+
+    func testPreMigrationBackup_failureLeavesStoreUntouched() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("migration-backup-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let storeURL = rootURL.appendingPathComponent("AI_Accounting_v3.store")
+        let originalStore = Data("original-store".utf8)
+        try originalStore.write(to: storeURL)
+        try Data("not-a-directory".utf8).write(
+            to: rootURL.appendingPathComponent("MigrationBackups")
+        )
+
+        XCTAssertThrowsError(
+            try StoreMigrationSafetyService.createPreMigrationBackupIfNeeded(storeURL: storeURL)
+        )
+        XCTAssertEqual(originalStore, try Data(contentsOf: storeURL))
+    }
+
+    func testModelContainerErrorDescriptionIncludesUnderlyingFailureReason() {
+        let underlying = NSError(
+            domain: NSCocoaErrorDomain,
+            code: 134110,
+            userInfo: [NSLocalizedFailureReasonErrorKey: "missing AdvanceCase.tagIDs"]
+        )
+        let outer = NSError(
+            domain: "SwiftData",
+            code: 1,
+            userInfo: [NSUnderlyingErrorKey: underlying]
+        )
+
+        let description = StoreMigrationSafetyService.detailedDescription(for: outer)
+
+        XCTAssertTrue(description.contains("SwiftData 1"))
+        XCTAssertTrue(description.contains("NSCocoaErrorDomain 134110"))
+        XCTAssertTrue(description.contains("missing AdvanceCase.tagIDs"))
+    }
+
     func testLegacyStoreRepair_repairsInvalidFinancialTransactionEnumColumnsBeforeSwiftDataLoads() throws {
         let storeURL = try makeTemporarySQLiteStoreURL(named: "legacy-transaction-enums.sqlite")
         defer { try? FileManager.default.removeItem(at: storeURL) }
