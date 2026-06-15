@@ -3,6 +3,11 @@ import SwiftData
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
+    private enum JSONImportMode {
+        case merge
+        case replace
+    }
+
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \CategoryMonthlyBudget.monthKey, order: .reverse) private var budgets: [CategoryMonthlyBudget]
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
@@ -26,7 +31,11 @@ struct SettingsView: View {
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var showingDeleteAlert = false
+    @State private var showingReplaceImportAlert = false
     @State private var showingImportRepairPrompt = false
+    @State private var jsonImportMode: JSONImportMode = .merge
+    @State private var pendingReplaceBackup: FullBackupData?
+    @State private var pendingReplaceFileName = ""
     @State private var apiKey: String = ""
 
     let currencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
@@ -197,18 +206,24 @@ struct SettingsView: View {
                     ) { _ in }
 
                     Button {
+                        jsonImportMode = .merge
                         isImportingJSON = true
                     } label: {
                         if isProcessingImport {
                             Label("匯入中...", systemImage: "hourglass")
                         } else {
-                            Label("匯入 JSON 備份", systemImage: "arrow.down.doc")
+                            Label("合併匯入 JSON 備份", systemImage: "arrow.down.doc")
                         }
                     }
                     .disabled(isProcessingImport)
-                    .fileImporter(isPresented: $isImportingJSON, allowedContentTypes: [.json]) { res in
-                        handleImport(result: res)
+
+                    Button(role: .destructive) {
+                        jsonImportMode = .replace
+                        isImportingJSON = true
+                    } label: {
+                        Label("覆蓋匯入 JSON 備份", systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
                     }
+                    .disabled(isProcessingImport)
 
                     Button {
                         let csv = BackupManager.shared.generateCSV(modelContext: modelContext)
@@ -304,6 +319,9 @@ struct SettingsView: View {
             }
             .prominentInlineTitle("設定")
             .standardKeyboardBehavior()
+            .fileImporter(isPresented: $isImportingJSON, allowedContentTypes: [.json]) { result in
+                handleImport(result: result)
+            }
             .alert("提示", isPresented: $showingAlert) {
                 Button("好") {}
             } message: {
@@ -323,10 +341,27 @@ struct SettingsView: View {
             .alert("確定清除所有資料？", isPresented: $showingDeleteAlert) {
                 Button("取消", role: .cancel) {}
                 Button("確定", role: .destructive) {
-                    deleteAllData()
-                    alertMessage = "資料已清除"
+                    do {
+                        try BackupManager.shared.clearAllBackupData(modelContext: modelContext)
+                        alertMessage = "資料已清除"
+                    } catch {
+                        alertMessage = "清除失敗：\(error.localizedDescription)"
+                    }
                     showingAlert = true
                 }
+            } message: {
+                Text("這會刪除所有帳戶、交易、代墊、預算等帳務資料。請先匯出 JSON 備份。")
+            }
+            .alert("確認覆蓋目前所有資料？", isPresented: $showingReplaceImportAlert) {
+                Button("取消", role: .cancel) {
+                    pendingReplaceBackup = nil
+                    pendingReplaceFileName = ""
+                }
+                Button("覆蓋並還原", role: .destructive) {
+                    confirmReplaceImport()
+                }
+            } message: {
+                Text(replaceImportConfirmationMessage)
             }
             .onAppear {
                 loadAPIKey()
@@ -381,8 +416,18 @@ struct SettingsView: View {
                     isProcessingImport = false
                 }
                 do {
-                    try await BackupManager.shared.restoreFromJSON(url: url, modelContext: modelContext)
-                    showingImportRepairPrompt = true
+                    let backup = try await BackupManager.shared.decodeBackup(from: url)
+                    if jsonImportMode == .replace {
+                        pendingReplaceBackup = backup
+                        pendingReplaceFileName = url.lastPathComponent
+                        showingReplaceImportAlert = true
+                    } else {
+                        try BackupManager.shared.restoreBackupData(
+                            backup,
+                            modelContext: modelContext
+                        )
+                        showingImportRepairPrompt = true
+                    }
                 } catch {
                     alertMessage = "失敗：\(error.localizedDescription)"
                     showingAlert = true
@@ -391,6 +436,50 @@ struct SettingsView: View {
         case .failure(let error):
             alertMessage = error.localizedDescription
             showingAlert = true
+        }
+    }
+
+    private var replaceImportConfirmationMessage: String {
+        guard let backup = pendingReplaceBackup else {
+            return "未能讀取所選備份，請重新選擇檔案。"
+        }
+
+        return """
+        已驗證「\(pendingReplaceFileName)」：
+        \(backup.accounts.count) 個帳戶、\(backup.transactions.count) 筆交易、\(backup.advanceCases?.count ?? 0) 個代墊案件。
+
+        確認後會先清除目前所有資料，再完整還原此備份。若匯入失敗，App 會嘗試自動恢復匯入前資料。
+        """
+    }
+
+    private func confirmReplaceImport() {
+        guard let backup = pendingReplaceBackup, !isProcessingImport else {
+            if pendingReplaceBackup == nil {
+                alertMessage = "未能讀取所選備份，請重新選擇檔案。"
+                showingAlert = true
+            }
+            return
+        }
+
+        isProcessingImport = true
+        Task {
+            defer {
+                pendingReplaceBackup = nil
+                pendingReplaceFileName = ""
+                isProcessingImport = false
+            }
+
+            do {
+                try BackupManager.shared.restoreBackupData(
+                    backup,
+                    modelContext: modelContext,
+                    replaceExisting: true
+                )
+                showingImportRepairPrompt = true
+            } catch {
+                alertMessage = "覆蓋匯入失敗：\(error.localizedDescription)"
+                showingAlert = true
+            }
         }
     }
 
@@ -410,26 +499,6 @@ struct SettingsView: View {
         showingAlert = true
     }
 
-    private func deleteAllData() {
-        do {
-            try modelContext.delete(model: FinancialTransaction.self)
-            try modelContext.delete(model: Account.self)
-            try modelContext.delete(model: Category.self)
-            try modelContext.delete(model: Tag.self)
-            try modelContext.delete(model: Shortcut.self)
-            try modelContext.delete(model: RecurringOccurrence.self)
-            try modelContext.delete(model: RecurringRule.self)
-            try modelContext.delete(model: CategoryMonthlyBudget.self)
-            try modelContext.delete(model: BudgetMonthlyHistory.self)
-            try modelContext.delete(model: BudgetSettings.self)
-            try modelContext.delete(model: AdvanceRepayment.self)
-            try modelContext.delete(model: AdvanceParticipant.self)
-            try modelContext.delete(model: AdvanceCase.self)
-            try modelContext.save()
-        } catch {
-            print("清除失敗: \(error)")
-        }
-    }
 }
 
 struct JSONDocument: FileDocument {
