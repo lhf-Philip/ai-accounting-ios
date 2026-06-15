@@ -61,6 +61,15 @@ final class AdvanceStructuralEditingUITests: XCTestCase {
             reopenedCurrency.label.contains("USD")
                 || (reopenedCurrency.value as? String)?.contains("USD") == true
         )
+
+        let preview = app.buttons["advance.structural.preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 10))
+        preview.tap()
+        XCTAssertTrue(
+            app.alerts["確認套用結構性變更？"].waitForExistence(timeout: 10),
+            "Reopening a non-HKD case without changing its currency must not require confirmation again"
+        )
+        XCTAssertFalse(app.alerts["無法編輯"].exists)
     }
 
     func testSplitLegParticipantEditingAndKeyboardDismissal() {

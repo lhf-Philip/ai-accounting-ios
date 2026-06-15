@@ -123,6 +123,10 @@ struct AdvanceStructuralEditorView: View {
         }
     }
 
+    private var hasChangedCaseCurrency: Bool {
+        currencyCode.caseInsensitiveCompare(advanceCase.currencyCode) != .orderedSame
+    }
+
     private var impactMessage: String {
         guard let preview = pendingPreview else { return "" }
         var lines = preview.warnings
@@ -177,10 +181,9 @@ struct AdvanceStructuralEditorView: View {
                 Text(errorMessage)
             }
             .onAppear(perform: load)
-            .onChange(of: currencyCode) { oldValue, newValue in
-                if oldValue.caseInsensitiveCompare(newValue) != .orderedSame {
-                    confirmsCurrencyAmounts = false
-                }
+            .onChange(of: currencyCode) { _, newValue in
+                confirmsCurrencyAmounts =
+                    newValue.caseInsensitiveCompare(advanceCase.currencyCode) == .orderedSame
             }
             .onChange(of: direction) { _, newValue in
                 if newValue == .othersAdvancedMe {
@@ -359,7 +362,7 @@ struct AdvanceStructuralEditorView: View {
                 )
                 .foregroundStyle(.orange)
             }
-            if currencyCode.caseInsensitiveCompare(advanceCase.currencyCode) != .orderedSame {
+            if hasChangedCaseCurrency {
                 Toggle(
                     "我已重新確認所有 \(currencyCode) 案件金額與還款沖銷額",
                     isOn: $confirmsCurrencyAmounts
@@ -443,7 +446,7 @@ struct AdvanceStructuralEditorView: View {
     }
 
     private func previewAndConfirm() {
-        guard confirmsCurrencyAmounts else {
+        guard !hasChangedCaseCurrency || confirmsCurrencyAmounts else {
             showError("請先確認新案件幣種下的所有金額與還款沖銷額。")
             return
         }
