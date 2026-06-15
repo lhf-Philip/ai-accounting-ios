@@ -152,6 +152,25 @@ struct FullBackupData: Codable {
     }
 }
 
+enum BackupRestoreError: LocalizedError {
+    case clearVerificationFailed
+    case restoreFailedAndRecoveryFailed(importError: Error, recoveryError: Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .clearVerificationFailed:
+            return "資料庫清除後仍然留有資料，已停止後續操作。"
+        case .restoreFailedAndRecoveryFailed(let importError, let recoveryError):
+            return """
+            覆蓋匯入失敗，而且無法自動恢復匯入前資料。
+            匯入錯誤：\(importError.localizedDescription)
+            恢復錯誤：\(recoveryError.localizedDescription)
+            請保留 App，不要繼續修改資料，並使用最近的 JSON 備份恢復。
+            """
+        }
+    }
+}
+
 class BackupManager: NSObject, ObservableObject {
     static let shared = BackupManager()
     
@@ -366,44 +385,104 @@ class BackupManager: NSObject, ObservableObject {
         )
     }
     
-    func restoreFromJSON(url: URL, modelContext: ModelContext) async throws {
+    func restoreFromJSON(
+        url: URL,
+        modelContext: ModelContext,
+        replaceExisting: Bool = false
+    ) async throws {
+        let backup = try await decodeBackup(from: url)
+
+        try await MainActor.run {
+            try restoreBackupData(
+                backup,
+                modelContext: modelContext,
+                replaceExisting: replaceExisting
+            )
+        }
+    }
+
+    func decodeBackup(from url: URL) async throws -> FullBackupData {
         let data = try await Task.detached(priority: .userInitiated) {
             try Data(contentsOf: url)
         }.value
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let backup = try decoder.decode(FullBackupData.self, from: data)
-
-        try await MainActor.run {
-            try restoreDecodedBackup(backup, modelContext: modelContext)
-        }
+        return try decoder.decode(FullBackupData.self, from: data)
     }
 
     @MainActor
     func restoreBackupData(_ backup: FullBackupData, modelContext: ModelContext, replaceExisting: Bool = false) throws {
-        if replaceExisting {
-            try deleteAllBackupData(modelContext: modelContext)
+        guard replaceExisting else {
+            try restoreDecodedBackup(backup, modelContext: modelContext)
+            return
         }
-        try restoreDecodedBackup(backup, modelContext: modelContext)
+
+        let recoveryBackup = createBackupData(modelContext: modelContext)
+        do {
+            try clearAllBackupData(modelContext: modelContext)
+            try restoreDecodedBackup(backup, modelContext: modelContext)
+        } catch {
+            let importError = error
+            do {
+                try clearAllBackupData(modelContext: modelContext)
+                try restoreDecodedBackup(recoveryBackup, modelContext: modelContext)
+            } catch {
+                throw BackupRestoreError.restoreFailedAndRecoveryFailed(
+                    importError: importError,
+                    recoveryError: error
+                )
+            }
+            throw importError
+        }
     }
 
     @MainActor
-    private func deleteAllBackupData(modelContext: ModelContext) throws {
-        try modelContext.delete(model: FinancialTransaction.self)
-        try modelContext.delete(model: Shortcut.self)
-        try modelContext.delete(model: RecurringOccurrence.self)
-        try modelContext.delete(model: RecurringRule.self)
-        try modelContext.delete(model: CategoryMonthlyBudget.self)
-        try modelContext.delete(model: BudgetMonthlyHistory.self)
-        try modelContext.delete(model: BudgetSettings.self)
-        try modelContext.delete(model: AdvanceRepayment.self)
-        try modelContext.delete(model: AdvanceParticipant.self)
-        try modelContext.delete(model: AdvanceCase.self)
-        try modelContext.delete(model: Account.self)
-        try modelContext.delete(model: Category.self)
-        try modelContext.delete(model: Tag.self)
+    func clearAllBackupData(modelContext: ModelContext) throws {
+        try deleteEach(FinancialTransaction.self, modelContext: modelContext)
+        try deleteEach(Shortcut.self, modelContext: modelContext)
+        try deleteEach(RecurringOccurrence.self, modelContext: modelContext)
+        try deleteEach(RecurringRule.self, modelContext: modelContext)
+        try deleteEach(CategoryMonthlyBudget.self, modelContext: modelContext)
+        try deleteEach(BudgetMonthlyHistory.self, modelContext: modelContext)
+        try deleteEach(BudgetSettings.self, modelContext: modelContext)
+        try deleteEach(AdvanceRepayment.self, modelContext: modelContext)
+        try deleteEach(AdvanceParticipant.self, modelContext: modelContext)
+        try deleteEach(AdvanceCase.self, modelContext: modelContext)
+        try deleteEach(Account.self, modelContext: modelContext)
+        try deleteEach(Category.self, modelContext: modelContext)
+        try deleteEach(Tag.self, modelContext: modelContext)
         try modelContext.save()
+
+        let remainingRecordCounts = [
+            try modelContext.fetch(FetchDescriptor<FinancialTransaction>()).count,
+            try modelContext.fetch(FetchDescriptor<Shortcut>()).count,
+            try modelContext.fetch(FetchDescriptor<RecurringOccurrence>()).count,
+            try modelContext.fetch(FetchDescriptor<RecurringRule>()).count,
+            try modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>()).count,
+            try modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>()).count,
+            try modelContext.fetch(FetchDescriptor<BudgetSettings>()).count,
+            try modelContext.fetch(FetchDescriptor<AdvanceRepayment>()).count,
+            try modelContext.fetch(FetchDescriptor<AdvanceParticipant>()).count,
+            try modelContext.fetch(FetchDescriptor<AdvanceCase>()).count,
+            try modelContext.fetch(FetchDescriptor<Account>()).count,
+            try modelContext.fetch(FetchDescriptor<Category>()).count,
+            try modelContext.fetch(FetchDescriptor<Tag>()).count,
+        ]
+
+        guard remainingRecordCounts.allSatisfy({ $0 == 0 }) else {
+            throw BackupRestoreError.clearVerificationFailed
+        }
+    }
+
+    @MainActor
+    private func deleteEach<Model: PersistentModel>(
+        _ modelType: Model.Type,
+        modelContext: ModelContext
+    ) throws {
+        for model in try modelContext.fetch(FetchDescriptor<Model>()) {
+            modelContext.delete(model)
+        }
     }
 
     @MainActor

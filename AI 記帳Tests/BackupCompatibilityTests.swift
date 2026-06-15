@@ -5,6 +5,179 @@ import SQLite3
 
 @MainActor
 final class BackupCompatibilityTests: XCTestCase {
+    func testClearAllBackupData_removesEveryPersistedRecord() throws {
+        let container = try makeInMemoryContainer()
+        let modelContext = ModelContext(container)
+        let account = Account(name: "Old wallet", currency: "HKD", type: .cash, baseBalance: 100)
+        let category = Category(name: "Old category", icon: "star", colorHex: "000000")
+        let tag = Tag(name: "Old tag")
+        let advanceCase = AdvanceCase(
+            title: "Old advance",
+            payerAccount: account,
+            expenseCategory: category
+        )
+        let participant = AdvanceParticipant(
+            name: "Old person",
+            owedAmount: 50,
+            advanceCase: advanceCase,
+            debtAccount: account
+        )
+        let repayment = AdvanceRepayment(
+            amount: 10,
+            normalizedAmount: 10,
+            advanceCase: advanceCase,
+            participant: participant,
+            receivedAccount: account
+        )
+        let transaction = FinancialTransaction(
+            amount: -50,
+            account: account,
+            category: category,
+            tags: [tag]
+        )
+        modelContext.insert(account)
+        modelContext.insert(category)
+        modelContext.insert(tag)
+        modelContext.insert(advanceCase)
+        modelContext.insert(participant)
+        modelContext.insert(repayment)
+        modelContext.insert(transaction)
+        try modelContext.save()
+
+        try BackupManager.shared.clearAllBackupData(modelContext: modelContext)
+
+        XCTAssertTrue(try modelContext.fetch(FetchDescriptor<Account>()).isEmpty)
+        let backup = BackupManager.shared.createBackupData(modelContext: modelContext)
+        XCTAssertTrue(backup.categories.isEmpty)
+        XCTAssertTrue(backup.tags.isEmpty)
+        XCTAssertTrue(backup.transactions.isEmpty)
+        XCTAssertTrue(backup.advanceCases?.isEmpty == true)
+        XCTAssertTrue(backup.advanceParticipants?.isEmpty == true)
+        XCTAssertTrue(backup.advanceRepayments?.isEmpty == true)
+    }
+
+    func testReplaceExistingBackup_removesOldIDsAndRestoresBackupIDs() throws {
+        let sourceContainer = try makeInMemoryContainer()
+        let sourceContext = ModelContext(sourceContainer)
+        let replacementAccount = Account(
+            id: UUID(),
+            name: "Replacement wallet",
+            currency: "JPY",
+            type: .cash,
+            baseBalance: 629
+        )
+        let replacementTransaction = FinancialTransaction(
+            id: UUID(),
+            amount: 43,
+            currencyCode: "JPY",
+            note: "[資產調整] Test replacement",
+            type: .transfer,
+            transferSide: .incoming,
+            account: replacementAccount
+        )
+        sourceContext.insert(replacementAccount)
+        sourceContext.insert(replacementTransaction)
+        try sourceContext.save()
+        let backup = BackupManager.shared.createBackupData(modelContext: sourceContext)
+
+        let targetContainer = try makeInMemoryContainer()
+        let targetContext = ModelContext(targetContainer)
+        let oldAccount = Account(
+            id: UUID(),
+            name: "Old wallet",
+            currency: "HKD",
+            type: .cash,
+            baseBalance: 100
+        )
+        let oldTransaction = FinancialTransaction(
+            id: UUID(),
+            amount: -20,
+            account: oldAccount
+        )
+        targetContext.insert(oldAccount)
+        targetContext.insert(oldTransaction)
+        try targetContext.save()
+
+        try BackupManager.shared.restoreBackupData(
+            backup,
+            modelContext: targetContext,
+            replaceExisting: true
+        )
+
+        let restoredAccounts = try targetContext.fetch(FetchDescriptor<Account>())
+        let restoredTransactions = try targetContext.fetch(FetchDescriptor<FinancialTransaction>())
+        XCTAssertEqual([replacementAccount.id], restoredAccounts.map(\.id))
+        XCTAssertEqual([replacementTransaction.id], restoredTransactions.map(\.id))
+        XCTAssertFalse(restoredAccounts.contains { $0.id == oldAccount.id })
+        XCTAssertFalse(restoredTransactions.contains { $0.id == oldTransaction.id })
+    }
+
+    func testReplaceExistingBackup_overwritesRecordsThatReuseExistingIDs() throws {
+        let sharedAccountID = UUID()
+        let sharedTransactionID = UUID()
+
+        let sourceContainer = try makeInMemoryContainer()
+        let sourceContext = ModelContext(sourceContainer)
+        let correctedAccount = Account(
+            id: sharedAccountID,
+            name: "HSBC JPY",
+            currency: "JPY",
+            type: .bank,
+            baseBalance: 629
+        )
+        let correctedTransaction = FinancialTransaction(
+            id: sharedTransactionID,
+            amount: 43,
+            currencyCode: "JPY",
+            note: "[資產調整] Reconciled balance",
+            type: .transfer,
+            transferSide: .incoming,
+            account: correctedAccount
+        )
+        sourceContext.insert(correctedAccount)
+        sourceContext.insert(correctedTransaction)
+        try sourceContext.save()
+        let correctedBackup = BackupManager.shared.createBackupData(modelContext: sourceContext)
+
+        let targetContainer = try makeInMemoryContainer()
+        let targetContext = ModelContext(targetContainer)
+        let staleAccount = Account(
+            id: sharedAccountID,
+            name: "HSBC JPY",
+            currency: "JPY",
+            type: .bank,
+            baseBalance: -264
+        )
+        let staleTransaction = FinancialTransaction(
+            id: sharedTransactionID,
+            amount: -264,
+            currencyCode: "JPY",
+            note: "Stale value",
+            account: staleAccount
+        )
+        targetContext.insert(staleAccount)
+        targetContext.insert(staleTransaction)
+        try targetContext.save()
+
+        try BackupManager.shared.restoreBackupData(
+            correctedBackup,
+            modelContext: targetContext,
+            replaceExisting: true
+        )
+
+        let restoredAccount = try XCTUnwrap(
+            targetContext.fetch(FetchDescriptor<Account>()).first
+        )
+        let restoredTransaction = try XCTUnwrap(
+            targetContext.fetch(FetchDescriptor<FinancialTransaction>()).first
+        )
+        XCTAssertEqual(sharedAccountID, restoredAccount.id)
+        XCTAssertEqual(629, restoredAccount.baseBalance)
+        XCTAssertEqual(sharedTransactionID, restoredTransaction.id)
+        XCTAssertEqual(43, restoredTransaction.amount)
+        XCTAssertEqual("[資產調整] Reconciled balance", restoredTransaction.note)
+    }
+
     func testAdvanceCaseTagIDs_nilIsBackfilledAndExportedAsEmptyArray() throws {
         let container = try makeInMemoryContainer()
         let modelContext = ModelContext(container)
