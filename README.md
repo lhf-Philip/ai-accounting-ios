@@ -82,8 +82,19 @@ Detailed APK build guide: [`docs/ANDROID_APK_BUILD.md`](./docs/ANDROID_APK_BUILD
 
 GitHub Actions on `push` / `pull_request` to `main`:
 
-- `iOS CI`: string catalog validation + iOS simulator build
-- `Android CI`: `:app:assembleDebug` + `:app:testDebugUnitTest`
+- `iOS CI`: string catalog validation, simulator build, unit tests, and focused UI automation
+- `Android CI`: debug assembly, unit tests, and API 35 emulator instrumentation
+- `Docs CI`: required developer docs, local links, ADR numbering, and privacy guardrails
+
+## Developer Documentation
+
+Start with the [`docs/README.md`](./docs/README.md) engineering index.
+
+- Architecture and module boundaries: [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
+- Feature and cross-platform workflow: [`docs/DEVELOPMENT_GUIDE.md`](./docs/DEVELOPMENT_GUIDE.md)
+- Data migration and recovery: [`docs/DATA_MIGRATION_AND_RECOVERY.md`](./docs/DATA_MIGRATION_AND_RECOVERY.md)
+- Testing and troubleshooting: [`docs/TESTING.md`](./docs/TESTING.md) and [`docs/TROUBLESHOOTING.md`](./docs/TROUBLESHOOTING.md)
+- Release process and history: [`docs/RELEASING.md`](./docs/RELEASING.md) and [`CHANGELOG.md`](./CHANGELOG.md)
 
 ## Data Compatibility
 
@@ -103,6 +114,7 @@ GitHub Actions on `push` / `pull_request` to `main`:
 - Security policy: [English](./SECURITY.md) | [繁體中文](./SECURITY.zh-Hant.md) | [简体中文](./SECURITY.zh-Hans.md)
 - Contribution guide: [English](./CONTRIBUTING.md) | [繁體中文](./CONTRIBUTING.zh-Hant.md) | [简体中文](./CONTRIBUTING.zh-Hans.md)
 - Pull request template: [`.github/pull_request_template.md`](./.github/pull_request_template.md)
+- Developer documentation index: [`docs/README.md`](./docs/README.md)
 - CI checklist: [`docs/CI_CHECKLIST.md`](./docs/CI_CHECKLIST.md)
 - Deployment guide: [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
 - Android APK build guide: [`docs/ANDROID_APK_BUILD.md`](./docs/ANDROID_APK_BUILD.md)

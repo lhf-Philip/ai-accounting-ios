@@ -1,7 +1,9 @@
 # CI Checklist (iOS + Android)
 
 Status: Active  
-Last updated: 2026-04-18
+Last reviewed: 2026-06-20
+Applies to: iOS, Android, developer documentation
+Sources of truth: [Testing Guide](./TESTING.md), [GitHub workflows](../.github/workflows/)
 
 This checklist is the baseline for PR quality gates for dual-platform delivery. Treat Android as a maintained implementation when deciding affected-platform validation.
 
@@ -9,6 +11,7 @@ This checklist is the baseline for PR quality gates for dual-platform delivery. 
 
 - iOS CI (`.github/workflows/ios-ci.yml`)
 - Android CI (`.github/workflows/android-ci.yml`)
+- Docs CI (`.github/workflows/docs-ci.yml`)
 
 ## 2. Pull Request Gate (Must Pass)
 
@@ -21,6 +24,8 @@ This checklist is the baseline for PR quality gates for dual-platform delivery. 
 
 ### iOS
 ```bash
+IOS_SIMULATOR_ID="$(python3 scripts/select-ios-simulator.py)"
+
 xcodebuild -project 'AI 記帳.xcodeproj' \
   -scheme 'AI 記帳' \
   -configuration Debug \
@@ -32,7 +37,7 @@ xcodebuild -project 'AI 記帳.xcodeproj' \
 ```bash
 xcodebuild -project 'AI 記帳.xcodeproj' \
   -scheme 'AI 記帳' \
-  -destination 'platform=iOS Simulator,name=iPhone 13' \
+  -destination "platform=iOS Simulator,id=$IOS_SIMULATOR_ID" \
   CODE_SIGNING_ALLOWED=NO \
   test
 ```
@@ -46,8 +51,13 @@ xcrun xcstringstool compile --dry-run --output-directory /tmp/xcstrings-build Lo
 ### Android
 ```bash
 cd android
-./gradlew assembleDebug
-./gradlew testDebugUnitTest
+./gradlew :app:testDebugUnitTest :app:assembleDebug
+./gradlew :app:connectedDebugAndroidTest
+```
+
+### Developer documentation
+```bash
+python3 scripts/check-docs.py
 ```
 
 ## 4. Manual Validation (Minimum)
@@ -75,3 +85,4 @@ Before creating a release tag:
 - Confirm open PR count is zero.
 - Confirm release notes include data-model compatibility statement.
 - Confirm backup import from previous stable release still works.
+- Follow the complete checklist in [`RELEASING.md`](./RELEASING.md).
