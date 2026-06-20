@@ -18,10 +18,18 @@
 If data-model changed:
 
 - Contract doc updated: `docs/specs/data-model.md`
-- Backup version change: `n/a` / `from -> to`
+- Source store/schema version:
+- Target store/schema version:
+- Backup version decision: `unchanged` / `from -> to`
 - Backward compatibility:
-- Migration / fallback strategy:
+- Migration strategy:
+- Rollback / recovery strategy:
+- Old store or JSON fixtures tested:
+- First and second launch verified:
+- Export -> import -> export roundtrip verified:
 - Risk if user imports old JSON backup:
+
+- [ ] No destructive fallback, silent clear failure, or automatic empty-store recovery
 
 ## Validation
 
