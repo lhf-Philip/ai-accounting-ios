@@ -1,5 +1,9 @@
 # Project Structure
 
+Status: Active
+Last reviewed: 2026-06-20
+Applies to: iOS, Android
+
 This document describes the current file layout for `AI 記帳`.
 
 ## iOS Source
@@ -51,6 +55,9 @@ This document describes the current file layout for `AI 記帳`.
 - `CONTEXT.md`: shared domain glossary and accounting semantics entry point.
 - `docs/adr/`: accepted architecture decision records for ledger and report semantics.
 - `docs/CI_CHECKLIST.md`: CI/release quality gate checklist.
+- `docs/ARCHITECTURE.md`: system boundaries, data flow, and cross-platform architecture.
+- `docs/DEVELOPMENT_GUIDE.md`: standard workflow for features, semantics, storage, and UI changes.
+- `docs/DATA_MIGRATION_AND_RECOVERY.md`: store/backup migration and failure recovery runbook.
 - `docs/specs/data-model.md`: cross-platform data contract.
 - `docs/specs/parity-test-vectors.md`: deterministic parity vectors.
 - `scripts/`: repository maintenance scripts.
