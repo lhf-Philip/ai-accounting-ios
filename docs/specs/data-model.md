@@ -1,7 +1,8 @@
 # Cross-Platform Data Model Contract
 
-Status: Active  
-Last updated: 2026-03-03  
+Status: Active
+Last reviewed: 2026-06-20
+Applies to: iOS, Android, backup JSON
 Current backup JSON version: `1.9`
 
 ## Purpose
@@ -32,6 +33,36 @@ All enum raw values are case-sensitive and must be persisted exactly as below.
 - `Expense`
 - `Income`
 - `Both`
+
+### `AdvanceDirection`
+- `IAdvancedOthers`
+- `OthersAdvancedMe`
+
+### `AdvanceEntryRole`
+- `SelfExpense`
+- `InitialAsset`
+- `InitialDebt`
+- `RepaymentAsset`
+- `RepaymentDebt`
+
+### `RecurringFrequency`
+- `Daily`
+- `Weekly`
+- `Monthly`
+
+### `RecurringOccurrenceStatus`
+- `Pending`
+- `Confirmed`
+- `Skipped`
+
+### `BudgetCarryOverMode`
+- `None`
+- `UnusedOnly`
+- `OverspendOnly`
+- `NetBalance`
+
+### `BudgetForecastMode`
+- `SpendingPace`
 
 ## Entity Contract
 
@@ -70,6 +101,10 @@ Invariants:
 - `linkedTransactionID: UUID?` (legacy paired transfer link)
 - `transferGroupID: UUID?` (group key for merged/split transfers)
 - `transferSide: TransferSide?`
+- `advanceCaseID: UUID?`
+- `advanceParticipantID: UUID?`
+- `advanceRepaymentID: UUID?`
+- `advanceEntryRole: AdvanceEntryRole?`
 - `createdAt: Date`
 - `updatedAt: Date`
 - `accountID: UUID?`
@@ -81,6 +116,7 @@ Invariants:
 - Expense should be negative amount.
 - Transfer should not be counted as income/expense.
 - For transfer groups, legs should share `transferGroupID`.
+- New advance bookkeeping rows must use explicit case, participant, repayment, and role links.
 - Refund semantics are not represented by a dedicated persisted type yet. Until a future schema is defined, refund domain logic must treat refunds as expense reversals, never ordinary income.
 - Report aggregation may receive a non-persisted semantic snapshot that marks a transaction-like record as a refund. That snapshot is a UI/domain adapter only; it must not be exported as a new backup field until a persisted refund schema is explicitly added.
 
@@ -106,6 +142,53 @@ Invariants:
 - `updatedAt: Date`
 - `categoryID: UUID?`
 
+### `RecurringRule`
+- `id: UUID` (unique)
+- `title: String`
+- `amount: Decimal`
+- `currencyCode: String`
+- `type: TransactionType`
+- `note: String`
+- `frequency: Daily | Weekly | Monthly`
+- `intervalCount: Int` (minimum `1`)
+- `nextDueDate: Date`
+- `isPaused: Bool`
+- `accountID: UUID?`
+- `categoryID: UUID?`
+- `tagIDs: [UUID]`
+- `createdAt: Date`
+- `updatedAt: Date`
+
+### `RecurringOccurrence`
+- `id: UUID` (unique)
+- `dueDate: Date`
+- `status: Pending | Confirmed | Skipped`
+- `createdTransactionID: UUID?`
+- `ruleID: UUID?`
+- `createdAt: Date`
+- `updatedAt: Date`
+
+### `BudgetMonthlyHistory`
+- `id: UUID` (unique)
+- `historyKey: String` (unique)
+- `monthKey: String`
+- `categoryID: UUID`
+- `categoryNameSnapshot: String`
+- `budgetAmount: Decimal`
+- `spentAmount: Decimal`
+- `remainingAmount: Decimal`
+- `usageRatio: Decimal`
+- `isOverBudget: Bool`
+- `currencyCode: String`
+- `updatedAt: Date`
+
+### `BudgetSettings`
+- `id: String` (current global key: `global`)
+- `carryOverMode: None | UnusedOnly | OverspendOnly | NetBalance`
+- `alertThresholdPercent: Decimal`
+- `forecastMode: SpendingPace`
+- `updatedAt: Date`
+
 ### `AdvanceCase`
 - `id: UUID` (unique)
 - `title: String`
@@ -114,6 +197,8 @@ Invariants:
 - `myShareAmount: Decimal`
 - `note: String`
 - `selfExpenseTransactionID: UUID?`
+- `direction: IAdvancedOthers | OthersAdvancedMe | nil` for legacy data
+- `tagIDs: [UUID]?` (`nil` is a legacy empty array)
 - `payerAccountID: UUID?`
 - `expenseCategoryID: UUID?`
 - `createdAt: Date`
@@ -165,7 +250,11 @@ Top-level fields:
 - `tags: []`
 - `transactions: []`
 - `shortcuts: []`
+- `recurringRules: []?`
+- `recurringOccurrences: []?`
 - `budgets: []?`
+- `budgetHistory: []?`
+- `budgetSettings: []?`
 - `advanceCases: []?`
 - `advanceParticipants: []?`
 - `advanceRepayments: []?`
@@ -176,6 +265,8 @@ Compatibility behavior currently implemented on import:
 - `shortcuts[].currencyCode` missing -> fallback to account currency or `HKD`
 - `budgets[].isEnabled` missing -> default `true`
 - `advanceCases[].myShareAmount` missing -> default `0`
+- `advanceCases[].direction` missing -> infer only when existing links make the direction unambiguous
+- `advanceCases[].tagIDs` missing/`null` -> default `[]`
 - `advanceRepayments[].normalizedAmount` missing -> fallback to `amount`
 - explicit advance transaction links missing -> conservatively backfill from existing case/group identifiers when unambiguous
 
@@ -195,6 +286,29 @@ When changing data model behavior:
 2. If backward-compatible (additive optional fields), keep import compatibility.
 3. If not backward-compatible, bump backup `version` and provide migrator rules.
 4. Add or refresh parity test vectors for iOS and Android.
+5. Follow [`DATA_MIGRATION_AND_RECOVERY.md`](../DATA_MIGRATION_AND_RECOVERY.md) for store migration, rollback, and device validation.
+
+### Version boundaries
+
+- SwiftData schema compatibility, Room schema version, and backup JSON version are separate decisions.
+- The Room version must increase for every persisted SQLite schema change and must include an explicit registered migration.
+- The backup JSON version changes only when old and new payloads cannot safely share the documented defaults.
+- A SwiftData model change must be tested against an existing store copy or generated legacy fixture even when no explicit numeric SwiftData version exists.
+
+### Optional fields and defaults
+
+- New backup fields should be optional unless every legacy record has a deterministic value.
+- Missing and `null` must have the same documented interpretation when both can occur.
+- Import defaults must be implemented and tested on iOS and Android.
+- A post-import backfill may normalise an optional value, but it must not guess financial meaning.
+
+### Identity and roundtrip
+
+- UUIDs are stable identities, not import-session identifiers.
+- Export → import → export must preserve IDs, references, amounts, currencies, timestamps, and semantic roles.
+- Merge import must not be used to overwrite corrected records that reuse an existing ID.
+- Replace import must validate before clearing, verify the clear, and recover the pre-import state when restore fails.
+- Removing or repurposing an exported field requires a backup-version decision and explicit migration rules.
 
 ## Required Parity Test Vectors
 
