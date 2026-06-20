@@ -1,7 +1,9 @@
 # Validation Matrix
 
 Status: Active  
-Last updated: 2026-03-23
+Last reviewed: 2026-06-20
+Applies to: iOS, Android
+Sources of truth: [Testing Guide](./TESTING.md), [parity vectors](./specs/parity-test-vectors.md)
 
 This matrix is the shared validation baseline before merging dual-platform work. Android is treated as an active app implementation, so validation should cover both parity behaviour and Android-specific surfaces such as the widget where relevant.
 
@@ -21,8 +23,8 @@ This matrix is the shared validation baseline before merging dual-platform work.
 ### Android
 ```bash
 cd android
-./gradlew testDebugUnitTest
-./gradlew assembleDebug
+./gradlew :app:testDebugUnitTest :app:assembleDebug
+./gradlew :app:connectedDebugAndroidTest
 ```
 
 ### iOS
@@ -34,6 +36,9 @@ xcodebuild -project 'AI 記帳.xcodeproj' \
   CODE_SIGNING_ALLOWED=NO \
   build
 ```
+
+The full unit/UI command set and failure-artifact policy are maintained in
+[`TESTING.md`](./TESTING.md).
 
 ## Manual Matrix
 

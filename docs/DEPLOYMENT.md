@@ -1,10 +1,17 @@
 # Deployment Guide
 
-Last verified locally: 2026-03-09
+Status: Active
+Last reviewed: 2026-06-20
+Applies to: iOS, Android
+Sources of truth: [Releasing](./RELEASING.md), [Testing Guide](./TESTING.md)
 
 This document separates local/device deployment from store deployment. Store
 distribution always needs platform account setup, metadata, and signing assets that
 must stay out of git.
+
+For coordinated versioning, compatibility validation, changelog, tagging, and rollback,
+follow [`RELEASING.md`](./RELEASING.md). This page covers platform installation and
+distribution mechanics.
 
 ## Current Readiness
 
@@ -32,6 +39,10 @@ Current repository state:
 - The project supports release signing via local `android/keystore.properties`.
 - A Play-ready signed bundle still requires your upload keystore and Play Console
   app setup.
+
+The current iOS and Android product versions are not aligned. Do not create a
+coordinated product tag until the release PR aligns them as described in
+[`RELEASING.md`](./RELEASING.md#version-policy).
 
 ## iOS Deployment
 

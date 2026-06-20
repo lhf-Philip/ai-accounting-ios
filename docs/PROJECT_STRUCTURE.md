@@ -55,12 +55,19 @@ This document describes the current file layout for `AI 記帳`.
 - `CONTEXT.md`: shared domain glossary and accounting semantics entry point.
 - `docs/adr/`: accepted architecture decision records for ledger and report semantics.
 - `docs/CI_CHECKLIST.md`: CI/release quality gate checklist.
+- `docs/README.md`: developer documentation index.
 - `docs/ARCHITECTURE.md`: system boundaries, data flow, and cross-platform architecture.
 - `docs/DEVELOPMENT_GUIDE.md`: standard workflow for features, semantics, storage, and UI changes.
 - `docs/DATA_MIGRATION_AND_RECOVERY.md`: store/backup migration and failure recovery runbook.
+- `docs/TESTING.md`: automated/manual test responsibilities, commands, fixtures, and evidence.
+- `docs/TROUBLESHOOTING.md`: safe failure diagnosis and recovery-oriented runbooks.
+- `docs/RELEASING.md`: versioning, compatibility, release validation, tagging, and rollback.
 - `docs/specs/data-model.md`: cross-platform data contract.
 - `docs/specs/parity-test-vectors.md`: deterministic parity vectors.
-- `scripts/`: repository maintenance scripts.
+- `CHANGELOG.md`: user-visible and compatibility-relevant release history.
+- `scripts/check-docs.py`: read-only developer-document validation.
+- `scripts/select-ios-simulator.py`: selects an installed iPhone Simulator for portable local test commands.
+- `scripts/`: other repository maintenance scripts.
 
 ## Documentation Rule
 
