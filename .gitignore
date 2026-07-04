@@ -36,3 +36,6 @@ fastlane/test_output/
 android/.gradle/
 android/local.properties
 android/keystore.properties
+
+# Codex local agent state
+.codex/
