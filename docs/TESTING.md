@@ -143,6 +143,18 @@ Committed fixtures must be:
 
 Do not copy a phone database or user JSON into the repository and redact it later. Build a fixture from synthetic records instead.
 
+
+### Exact Money Fixtures
+
+Financial test fixtures must not use fractional floating-point literals for money. Swift `Decimal` values created from `35.59` can vary across compiler and SDK versions because the literal is first represented as binary floating point. Use `exactDecimal("35.59")` in iOS tests, or `Decimal(string: "35.59")!` when a helper is not available. Integer fixtures such as `Decimal(100)` are acceptable.
+
+The repository enforces this with:
+
+```bash
+python3 scripts/check-money-fixtures.py
+```
+
+
 ## Required Financial Invariants
 
 Tests must protect these rules whenever the affected code path changes:

@@ -477,7 +477,7 @@ final class BackupCompatibilityTests: XCTestCase {
         )
         let expense = FinancialTransaction(
             id: expenseID,
-            amount: -128.5,
+            amount: exactDecimal("-128.5"),
             currencyCode: "HKD",
             date: date,
             note: "Budget history sample",
@@ -499,8 +499,8 @@ final class BackupCompatibilityTests: XCTestCase {
             categoryID: categoryID,
             categoryNameSnapshot: "Food",
             budgetAmount: 3000,
-            spentAmount: 128.5,
-            remainingAmount: 2871.5,
+            spentAmount: exactDecimal("128.5"),
+            remainingAmount: exactDecimal("2871.5"),
             usageRatio: Decimal(string: "0.042833")!,
             isOverBudget: false,
             currencyCode: "HKD",
@@ -545,7 +545,7 @@ final class BackupCompatibilityTests: XCTestCase {
         let histories = try secondContext.fetch(FetchDescriptor<BudgetMonthlyHistory>())
         XCTAssertEqual(1, histories.count)
         XCTAssertEqual("2026-03|\(categoryID.uuidString)", histories.first?.historyKey)
-        XCTAssertEqual(Decimal(string: "128.5"), histories.first?.spentAmount)
+        XCTAssertEqual(exactDecimal("128.5"), histories.first?.spentAmount)
     }
 
     func testBorrowedAdvanceCreation_recordsDebtExpenseWithoutInflatingOwnAccount() async throws {

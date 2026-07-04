@@ -37,6 +37,7 @@ If data-model changed:
 - [ ] iOS CI passed
 - [ ] Android CI passed (or N/A if Android not in this PR)
 - [ ] String catalog validation passed
+- [ ] Money fixture validation passed (if iOS tests changed)
 
 ### Manual
 - [ ] Core bookkeeping flow checked (income/expense/transfer)

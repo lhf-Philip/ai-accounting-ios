@@ -125,7 +125,7 @@ final class TransferEditRoutingServiceTests: XCTestCase {
     func testAdvanceSelfExpenseRoutesToAdvanceEditor() {
         let wallet = Account(name: "Wallet", currency: "HKD", type: .cash, baseBalance: 0)
         let expense = FinancialTransaction(
-            amount: -35.59,
+            amount: exactDecimal("-35.59"),
             currencyCode: "HKD",
             type: .expense,
             account: wallet
