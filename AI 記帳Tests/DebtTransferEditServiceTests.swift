@@ -28,7 +28,7 @@ final class DebtTransferEditServiceTests: XCTestCase {
             DebtTransferEditDraft(
                 debtAccount: debtAccount,
                 ownAccount: wallet,
-                amount: 35.59,
+                amount: exactDecimal("35.59"),
                 currencyCode: "HKD",
                 date: Date(timeIntervalSince1970: 10),
                 note: "LUUP",
@@ -43,8 +43,8 @@ final class DebtTransferEditServiceTests: XCTestCase {
         XCTAssertEqual(groupID, ownTransaction.transferGroupID)
         XCTAssertEqual("HKD", debtTransaction.currencyCode)
         XCTAssertEqual("HKD", ownTransaction.currencyCode)
-        XCTAssertEqual(Decimal(string: "-35.59"), debtTransaction.amount)
-        XCTAssertEqual(Decimal(string: "35.59"), ownTransaction.amount)
+        XCTAssertEqual(exactDecimal("-35.59"), debtTransaction.amount)
+        XCTAssertEqual(exactDecimal("35.59"), ownTransaction.amount)
         XCTAssertEqual("JPY", wallet.currency)
     }
 

@@ -18,7 +18,7 @@ final class TransactionEditServiceTests: XCTestCase {
             account: account
         )
         let draft = OrdinaryTransactionEditDraft(
-            amount: 35.59,
+            amount: exactDecimal("35.59"),
             currencyCode: "HKD",
             date: transaction.date,
             note: transaction.note,
@@ -32,7 +32,7 @@ final class TransactionEditServiceTests: XCTestCase {
 
         XCTAssertEqual("HKD", transaction.currencyCode)
         XCTAssertEqual("JPY", account.currency)
-        XCTAssertEqual(Decimal(string: "-35.59")!, transaction.amount)
+        XCTAssertEqual(exactDecimal("-35.59"), transaction.amount)
     }
 
     func testOrdinaryTransactionRequiresAnAccount() {

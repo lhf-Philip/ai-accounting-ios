@@ -18,6 +18,9 @@ jobs:
       - name: Show Xcode Version
         run: xcodebuild -version
 
+      - name: Validate Money Fixtures
+        run: python3 scripts/check-money-fixtures.py
+
       - name: Validate String Catalog
         run: |
           python3 -m json.tool Localizable.xcstrings > /dev/null
