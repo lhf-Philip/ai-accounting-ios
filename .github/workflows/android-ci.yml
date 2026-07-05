@@ -6,11 +6,31 @@ on:
     paths:
       - 'android/**'
       - '.github/workflows/android-ci.yml'
+      - '.github/scripts/run-android-instrumentation.sh'
+      - 'scripts/run-android-regression.sh'
+      - 'scripts/check-docs.py'
+      - 'scripts/check-money-fixtures.py'
+      - 'docs/TESTING.md'
+      - 'docs/CI_CHECKLIST.md'
+      - 'docs/DEVELOPMENT_GUIDE.md'
+      - 'docs/RELEASING.md'
+      - 'docs/specs/parity-test-vectors.md'
+      - 'docs/specs/data-model.md'
   pull_request:
     branches: [main]
     paths:
       - 'android/**'
       - '.github/workflows/android-ci.yml'
+      - '.github/scripts/run-android-instrumentation.sh'
+      - 'scripts/run-android-regression.sh'
+      - 'scripts/check-docs.py'
+      - 'scripts/check-money-fixtures.py'
+      - 'docs/TESTING.md'
+      - 'docs/CI_CHECKLIST.md'
+      - 'docs/DEVELOPMENT_GUIDE.md'
+      - 'docs/RELEASING.md'
+      - 'docs/specs/parity-test-vectors.md'
+      - 'docs/specs/data-model.md'
 
 jobs:
   build:

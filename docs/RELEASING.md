@@ -1,7 +1,7 @@
 # Releasing
 
 Status: Active
-Last reviewed: 2026-06-20
+Last reviewed: 2026-07-05
 Applies to: iOS, Android, GitHub releases
 Sources of truth: [Testing Guide](./TESTING.md), [Data Migration And Recovery](./DATA_MIGRATION_AND_RECOVERY.md), [Deployment Guide](./DEPLOYMENT.md), [Changelog](../CHANGELOG.md)
 
@@ -39,7 +39,7 @@ Current platform versions are not yet aligned. Before the next coordinated relea
 - Worktree is clean except intentional release changes.
 - Release starts from up-to-date `main`.
 - Open PR count is zero or every remaining PR is explicitly excluded.
-- Required GitHub checks are green.
+- Required GitHub checks are green and were not skipped by path filters.
 - `python3 scripts/check-docs.py` passes.
 - Changelog is complete.
 - Version/build numbers are correct.
@@ -68,6 +68,8 @@ Run the commands in [Testing Guide](./TESTING.md):
 - Android unit tests and debug assembly;
 - Android instrumentation;
 - documentation checks.
+
+If the release PR changes workflow, script, or regression-runner files, additionally verify that the affected GitHub checks triggered because of those files rather than being skipped by path filters.
 
 ### Backup roundtrip
 

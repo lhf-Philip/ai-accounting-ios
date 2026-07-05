@@ -1,7 +1,7 @@
 # Testing Guide
 
 Status: Active
-Last reviewed: 2026-06-20
+Last reviewed: 2026-07-05
 Applies to: iOS, Android, shared backup and accounting semantics
 Sources of truth: [CI workflows](../.github/workflows/), [validation matrix](./VALIDATION_MATRIX.md), [parity vectors](./specs/parity-test-vectors.md), [data contract](./specs/data-model.md)
 
@@ -15,6 +15,7 @@ This guide defines what each test layer is responsible for and the minimum evide
 - Shared semantics require matching iOS and Android coverage.
 - UI automation proves navigation and wiring; unit and integration tests prove balances and invariants.
 - A retry may classify a flaky test, but it does not erase the original failure.
+- Test infrastructure changes must update the matching workflow trigger paths and this guide in the same PR.
 
 ## Test Layers
 
@@ -160,11 +161,15 @@ Do not fix instrumentation flakiness by disabling the test, ignoring
 `connectedDebugAndroidTest`, or only increasing timeouts. First make the
 Compose gate and diagnostics precise enough to prove where the wait is stuck.
 
+Changing test infrastructure requires the same discipline as product code: prefer precise readiness gates and diagnostics over sleeps; never merge a workflow/script change until the relevant local runner and GitHub check have both been observed or a documented environment block explains why not.
+
 ### Full Android regression runner
 
 Use the runner when validating Android locally. It runs documentation checks,
 money-fixture checks, unit tests, debug APK assembly, and connected
 instrumentation while storing logs under `build/regression/`.
+
+The local runner is the source of truth for full Android regression scope. GitHub CI uses the narrower workflow stages plus `.github/scripts/run-android-instrumentation.sh`; when either runner or wrapper changes, update `.github/workflows/android-ci.yml` path filters so Android CI cannot be skipped by a scripts-only PR.
 
 ```bash
 scripts/run-android-regression.sh
@@ -184,6 +189,16 @@ ANDROID_AVD_NAME=Medium_Phone_API_36.1 \
 ANDROID_HOME="$HOME/Library/Android/sdk" \
 scripts/run-android-regression.sh
 ```
+
+### CI and regression infrastructure changes
+
+When changing `.github/workflows/**`, `.github/scripts/**`, or `scripts/run-*regression.sh`:
+
+- update workflow path filters in the same PR when a path-filtered check depends on the changed file;
+- run `python3 scripts/check-docs.py` and `python3 scripts/check-money-fixtures.py`;
+- run the affected local regression runner, or record a concrete environment-blocked reason such as missing Simulator or emulator;
+- confirm the opened PR triggers the intended GitHub checks;
+- do not mark Android instrumentation as optional because unit tests passed.
 
 ### Documentation checks
 
