@@ -2,7 +2,10 @@ package org.duckdns.lhfser.aiaccounting
 
 import android.content.Context
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -10,12 +13,15 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.room.Room
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -62,6 +68,7 @@ class AdvanceStructuralEditingUiTest {
 
     @Before
     fun setUp() = runBlocking {
+        resetComposeHost()
         val context = ApplicationProvider.getApplicationContext<Context>()
         database = Room.inMemoryDatabaseBuilder(context, AIAccountingDatabase::class.java)
             .allowMainThreadQueries()
@@ -110,10 +117,7 @@ class AdvanceStructuralEditingUiTest {
 
     @After
     fun tearDown() {
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            composeRule.activity.setContent {}
-        }
-        composeRule.waitForIdle()
+        resetComposeHost()
         database.close()
     }
 
@@ -203,29 +207,52 @@ class AdvanceStructuralEditingUiTest {
 
     private fun showEditor(): AtomicBoolean {
         val applied = AtomicBoolean(false)
-        composeRule.setContent {
-            AIAccountingTheme {
-                CompositionLocalProvider(LocalRepository provides repository) {
-                    AdvanceStructuralEditorDialog(
-                        advanceCase = advanceCase,
-                        accounts = listOf(wallet, bank, friend),
-                        categories = listOf(food, repaymentCategory),
-                        tags = listOf(tag),
-                        preloadedTagIds = listOf(tag.id),
-                        onDismiss = {},
-                        onApplied = { applied.set(true) }
-                    )
+        resetComposeHost()
+        waitForActivityResumed("before-setContent")
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            composeRule.activity.setContent {
+                AIAccountingTheme {
+                    CompositionLocalProvider(LocalRepository provides repository) {
+                        AdvanceStructuralEditorDialog(
+                            advanceCase = advanceCase,
+                            accounts = listOf(wallet, bank, friend),
+                            categories = listOf(food, repaymentCategory),
+                            tags = listOf(tag),
+                            preloadedTagIds = listOf(tag.id),
+                            onDismiss = {},
+                            onApplied = { applied.set(true) }
+                        )
+                    }
                 }
             }
         }
         composeRule.waitForIdle()
-        waitForGate("editor-loaded", timeoutMillis = 30_000) {
-            composeRule.onAllNodes(
-                hasTestTag("advance.structural.list") and
-                    androidx.compose.ui.test.hasStateDescription("advance.structural.ready")
-            ).fetchSemanticsNodes().isNotEmpty()
+        waitForActivityResumed("after-setContent")
+        waitForGate("editor-root", timeoutMillis = 45_000) {
+            hasNode("advance.structural.editor")
+        }
+        waitForGate("editor-ready", timeoutMillis = 45_000) {
+            hasNodeWithReadyState("advance.structural.editor")
+        }
+        waitForGate("list-mounted", timeoutMillis = 45_000) {
+            hasNode("advance.structural.list")
+        }
+        waitForGate("title-ready", timeoutMillis = 45_000) {
+            hasNode("advance.structural.title")
         }
         return applied
+    }
+
+    private fun resetComposeHost() {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            composeRule.activity.setContent {
+                Box(Modifier.testTag("advance.structural.emptyHost"))
+            }
+        }
+        composeRule.waitForIdle()
+        waitForGate("editor-disposed", timeoutMillis = 20_000) {
+            !hasNode("advance.structural.editor") && !hasNode("advance.structural.list")
+        }
     }
 
     private fun previewAndApply() {
@@ -265,8 +292,77 @@ class AdvanceStructuralEditingUiTest {
         try {
             composeRule.waitUntil(timeoutMillis = timeoutMillis, condition = condition)
         } catch (error: androidx.compose.ui.test.ComposeTimeoutException) {
-            throw AssertionError("Compose gate '$gate' timed out after ${timeoutMillis}ms", error)
+            throw AssertionError(
+                "Compose gate '$gate' timed out after ${timeoutMillis}ms.\n" +
+                    "Activity state: ${activityStateDescription()}\n" +
+                    "Semantics at timeout:\n${dumpSemanticsTree()}",
+                error
+            )
         }
+    }
+
+    private fun waitForActivityResumed(stage: String) {
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        waitForGate("activity-resumed:$stage", timeoutMillis = 30_000) {
+            composeRule.activityRule.scenario.state == Lifecycle.State.RESUMED
+        }
+    }
+
+    private fun hasNode(tag: String): Boolean {
+        return composeRule.onAllNodes(hasTestTag(tag), useUnmergedTree = true)
+            .fetchSemanticsNodes().isNotEmpty()
+    }
+
+    private fun hasNodeWithReadyState(tag: String): Boolean {
+        return composeRule.onAllNodes(
+            hasTestTag(tag) and androidx.compose.ui.test.hasStateDescription(
+                "advance.structural.ready"
+            ),
+            useUnmergedTree = true
+        ).fetchSemanticsNodes().isNotEmpty()
+    }
+
+    private fun dumpSemanticsTree(): String {
+        val merged = runCatching {
+            composeRule.onAllNodes(
+                androidx.compose.ui.test.isRoot(),
+                useUnmergedTree = false
+            ).fetchSemanticsNodes()
+        }.getOrElse { emptyList() }
+        val unmerged = runCatching {
+            composeRule.onAllNodes(
+                androidx.compose.ui.test.isRoot(),
+                useUnmergedTree = true
+            ).fetchSemanticsNodes()
+        }.getOrElse { emptyList() }
+        val singleRootDump = if (merged.size == 1) {
+            runCatching {
+                composeRule.onRoot(useUnmergedTree = true).printToString(maxDepth = 60)
+            }.getOrElse { dumpError ->
+                "<unable to print single root: ${dumpError.message}>"
+            }
+        } else {
+            "<single-root print skipped; merged root count=${merged.size}>"
+        }
+        fun describeNodes(nodes: List<androidx.compose.ui.semantics.SemanticsNode>): String {
+            return nodes.joinToString(separator = "\n") { node ->
+                "id=${node.id} bounds=${node.boundsInRoot} config=${node.config}"
+            }
+        }
+        return buildString {
+            appendLine("mergedRootCount=${merged.size}")
+            appendLine("unmergedRootCount=${unmerged.size}")
+            appendLine("mergedRoots=${describeNodes(merged)}")
+            appendLine("unmergedRoots=${describeNodes(unmerged)}")
+            appendLine(singleRootDump)
+        }
+    }
+
+    private fun activityStateDescription(): String {
+        return runCatching {
+            "scenario=${composeRule.activityRule.scenario.state}, " +
+                "activity=${composeRule.activity::class.java.name}"
+        }.getOrElse { "unavailable: ${it.message}" }
     }
 
     private fun scrollToTag(tag: String) {
