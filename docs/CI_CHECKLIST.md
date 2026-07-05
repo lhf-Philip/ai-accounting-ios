@@ -1,7 +1,7 @@
 # CI Checklist (iOS + Android)
 
 Status: Active  
-Last reviewed: 2026-06-20
+Last reviewed: 2026-07-05
 Applies to: iOS, Android, developer documentation
 Sources of truth: [Testing Guide](./TESTING.md), [GitHub workflows](../.github/workflows/)
 
@@ -15,6 +15,7 @@ This checklist is the baseline for PR quality gates for dual-platform delivery. 
 
 ## 2. Pull Request Gate (Must Pass)
 
+- Required checks must run; a path-filtered skip is not equivalent to a pass.
 - Build success on every affected platform.
 - No sensitive data committed (keys, tokens, real personal backup data).
 - Data contract impact evaluated against `docs/specs/data-model.md`.
@@ -59,6 +60,10 @@ cd android
 ```bash
 python3 scripts/check-docs.py
 ```
+
+
+### Regression infrastructure
+When touching `.github/workflows/**`, `.github/scripts/**`, or `scripts/run-*regression.sh`, also confirm workflow path filters include the changed dependency and the intended GitHub checks appear on the PR.
 
 ## 4. Manual Validation (Minimum)
 

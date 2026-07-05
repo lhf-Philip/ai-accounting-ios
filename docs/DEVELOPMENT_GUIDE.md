@@ -1,7 +1,7 @@
 # Development Guide
 
 Status: Active
-Last reviewed: 2026-06-20
+Last reviewed: 2026-07-05
 Applies to: iOS, Android
 Required reading: [`ARCHITECTURE.md`](./ARCHITECTURE.md), [`CONTEXT.md`](../CONTEXT.md), [`specs/data-model.md`](./specs/data-model.md)
 
@@ -166,9 +166,17 @@ These rules must remain true:
 | Accounting meaning | `CONTEXT.md` + ADR + parity vectors |
 | Persisted/backup field | data model + migration/recovery |
 | Screen hierarchy or parity | Android/iOS parity spec + in-app guide if user-facing |
-| Build/test command | testing/CI docs |
+| Build/test command or regression script | testing/CI docs + workflow trigger paths |
 | Release or compatibility policy | releasing + changelog |
 | New external service/failure mode | architecture + troubleshooting/security |
+
+## Changing CI Or Regression Scripts
+
+- Treat workflows, wrapper scripts, and local regression runners as product infrastructure.
+- Keep local runner scope, GitHub workflow steps, and documentation aligned.
+- If a GitHub workflow uses `paths`, every script/doc/fixture that can affect that workflow must be included in the filter.
+- Prefer deterministic readiness checks and captured diagnostics over longer sleeps or skipped tests.
+- A PR that changes CI infrastructure is not done until the intended GitHub checks are visibly triggered.
 
 ## Definition Of Done
 
