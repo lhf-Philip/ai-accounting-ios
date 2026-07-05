@@ -107,6 +107,21 @@ xcodebuild \
   test
 ```
 
+### Full iOS regression runner
+
+Use the runner when validating a PR locally. It runs documentation checks,
+money-fixture checks, simulator build, unit tests, and focused structural UI
+automation while storing logs and result bundles under `build/regression/`.
+
+```bash
+scripts/run-ios-regression.sh
+```
+
+If `xctrunner` fails to launch with a Simulator `Busy` or preflight error, the
+runner terminates stale app/test-runner processes and retries once. A second
+runner-launch failure exits with code `69` and should be reported as
+environment-blocked, not as a product regression.
+
 ### Android unit tests and debug APK
 
 ```bash
@@ -124,6 +139,31 @@ cd android
 ```
 
 CI uses `.github/scripts/run-android-instrumentation.sh` to add timeout handling and collect diagnostics.
+
+### Full Android regression runner
+
+Use the runner when validating Android locally. It runs documentation checks,
+money-fixture checks, unit tests, debug APK assembly, and connected
+instrumentation while storing logs under `build/regression/`.
+
+```bash
+scripts/run-android-regression.sh
+```
+
+If no Android device is connected, the runner exits with code `69`. To launch
+the default local AVD and clean it up afterwards:
+
+```bash
+START_ANDROID_EMULATOR=1 scripts/run-android-regression.sh
+```
+
+Override the AVD or SDK paths when needed:
+
+```bash
+ANDROID_AVD_NAME=Medium_Phone_API_36.1 \
+ANDROID_HOME="$HOME/Library/Android/sdk" \
+scripts/run-android-regression.sh
+```
 
 ### Documentation checks
 
@@ -229,6 +269,19 @@ Do not attach real backups or unredacted financial screenshots to public issues.
 3. If intermittent, record the suspected source and make the test deterministic or quarantine it with an owner and follow-up issue.
 4. Do not merge solely because a retry passed.
 5. Never add arbitrary sleeps when a state-based wait or deterministic clock can solve the problem.
+
+## Environment-Blocked Runs
+
+Use `environment-blocked` only when the runner or device infrastructure prevents
+the test from starting or collecting a meaningful assertion result. Examples:
+
+- iOS Simulator refuses to launch `xctrunner` with `Application failed preflight checks`.
+- Android has no connected device and no local AVD was requested.
+- Android Emulator itself cannot boot or ADB never reports `sys.boot_completed=1`.
+
+Do not use `environment-blocked` for product crashes, failed assertions, missing
+UI nodes after the app is running, data mismatches, or migration failures. Those
+are regressions until proven otherwise.
 
 ## Pull Request Evidence
 

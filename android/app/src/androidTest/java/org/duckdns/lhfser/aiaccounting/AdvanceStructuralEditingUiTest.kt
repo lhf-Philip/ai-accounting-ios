@@ -10,6 +10,8 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
@@ -219,11 +221,11 @@ class AdvanceStructuralEditingUiTest {
             }
         }
         composeRule.waitForIdle()
-        waitForGate("editor-loaded", timeoutMillis = 30_000) {
-            composeRule.onAllNodes(
-                hasTestTag("advance.structural.list") and
-                    androidx.compose.ui.test.hasStateDescription("advance.structural.ready")
-            ).fetchSemanticsNodes().isNotEmpty()
+        waitForGate("editor-loaded", timeoutMillis = 45_000) {
+            hasNode("advance.structural.editor") &&
+                hasNodeWithReadyState("advance.structural.editor") &&
+                hasNodeWithReadyState("advance.structural.list") &&
+                hasNode("advance.structural.title")
         }
         return applied
     }
@@ -265,7 +267,33 @@ class AdvanceStructuralEditingUiTest {
         try {
             composeRule.waitUntil(timeoutMillis = timeoutMillis, condition = condition)
         } catch (error: androidx.compose.ui.test.ComposeTimeoutException) {
-            throw AssertionError("Compose gate '$gate' timed out after ${timeoutMillis}ms", error)
+            throw AssertionError(
+                "Compose gate '$gate' timed out after ${timeoutMillis}ms.\n" +
+                    "Semantics tree at timeout:\n${dumpSemanticsTree()}",
+                error
+            )
+        }
+    }
+
+    private fun hasNode(tag: String): Boolean {
+        return composeRule.onAllNodes(hasTestTag(tag), useUnmergedTree = true)
+            .fetchSemanticsNodes().isNotEmpty()
+    }
+
+    private fun hasNodeWithReadyState(tag: String): Boolean {
+        return composeRule.onAllNodes(
+            hasTestTag(tag) and androidx.compose.ui.test.hasStateDescription(
+                "advance.structural.ready"
+            ),
+            useUnmergedTree = true
+        ).fetchSemanticsNodes().isNotEmpty()
+    }
+
+    private fun dumpSemanticsTree(): String {
+        return runCatching {
+            composeRule.onRoot(useUnmergedTree = true).printToString(maxDepth = 60)
+        }.getOrElse { dumpError ->
+            "<unable to dump semantics tree: ${dumpError.message}>"
         }
     }
 

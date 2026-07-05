@@ -246,6 +246,13 @@ fun AdvanceStructuralEditorDialog(
                 .heightIn(max = 760.dp)
                 .imePadding()
                 .testTag("advance.structural.editor")
+                .semantics {
+                    stateDescription = if (loaded) {
+                        "advance.structural.ready"
+                    } else {
+                        "advance.structural.loading"
+                    }
+                }
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
