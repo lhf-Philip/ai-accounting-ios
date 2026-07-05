@@ -139,6 +139,26 @@ cd android
 ```
 
 CI uses `.github/scripts/run-android-instrumentation.sh` to add timeout handling and collect diagnostics.
+The CI wrapper also waits for `sys.boot_completed`, wakes and unlocks the
+emulator, disables animations, and captures activity/window/UI diagnostics on
+failure. Treat a first-test timeout differently from a product assertion:
+
+- download the `android-instrumentation-failure-*` artifact from the failing run;
+- inspect `TEST-*.xml` first for the failing gate or assertion;
+- inspect `activity.txt`, `window.txt`, `uiautomator.xml`, and `failure.png` to
+  confirm whether the app, test activity, or launcher was foregrounded;
+- inspect `logcat.txt` for app crashes before changing test timeouts.
+
+If `gh run view --log` cannot write to the default cache on a restricted
+machine, use a writable cache directory:
+
+```bash
+XDG_CACHE_HOME=/private/tmp/codex-gh-cache gh run view <run-id> --log
+```
+
+Do not fix instrumentation flakiness by disabling the test, ignoring
+`connectedDebugAndroidTest`, or only increasing timeouts. First make the
+Compose gate and diagnostics precise enough to prove where the wait is stuck.
 
 ### Full Android regression runner
 
