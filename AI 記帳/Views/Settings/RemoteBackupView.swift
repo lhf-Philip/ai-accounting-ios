@@ -288,8 +288,11 @@ struct RemoteBackupView: View {
     private func restorePendingBackup() {
         guard let pendingRestoreBackup else { return }
         do {
-            try BackupManager.shared.restoreBackupData(pendingRestoreBackup, modelContext: modelContext, replaceExisting: true)
-            message = "已完成遠端備份還原。"
+            let summary = try BackupManager.shared.restoreBackupData(pendingRestoreBackup, modelContext: modelContext, replaceExisting: true)
+            message = """
+            已完成遠端備份還原。
+            \(summary.localizedSummary)
+            """
         } catch {
             message = "還原失敗：\(error.localizedDescription)"
         }

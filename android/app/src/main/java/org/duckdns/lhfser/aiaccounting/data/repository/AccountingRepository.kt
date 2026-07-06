@@ -40,6 +40,10 @@ import org.duckdns.lhfser.aiaccounting.data.db.TransactionWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.AdvanceCaseWithDetails
 import org.duckdns.lhfser.aiaccounting.data.db.ShortcutWithDetails
 import org.duckdns.lhfser.aiaccounting.data.backup.BackupJsonAdapter
+import org.duckdns.lhfser.aiaccounting.data.backup.BackupRecordCounts
+import org.duckdns.lhfser.aiaccounting.data.backup.BackupRestoreMode
+import org.duckdns.lhfser.aiaccounting.data.backup.BackupRestoreSummary
+import org.duckdns.lhfser.aiaccounting.data.backup.BackupRestoreVerificationException
 import org.duckdns.lhfser.aiaccounting.data.backup.FullBackupData
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -3083,8 +3087,9 @@ class AccountingRepository(
         return BackupJsonAdapter.gson.toJson(data)
     }
 
-    suspend fun importBackupJson(json: String, replaceExisting: Boolean = true) {
+    suspend fun importBackupJson(json: String, replaceExisting: Boolean = true): BackupRestoreSummary {
         val data = BackupJsonAdapter.gson.fromJson(json, FullBackupData::class.java)
+        val backupCounts = BackupRecordCounts.fromBackup(data)
 
         val accountEntities = data.accounts.map {
             AccountEntity(
@@ -3292,9 +3297,14 @@ class AccountingRepository(
             )
         }.orEmpty()
 
+        var summary: BackupRestoreSummary? = null
         database.withTransaction {
+            val beforeCounts = countBackupRecords()
+            var afterClearCounts: BackupRecordCounts? = null
             if (replaceExisting) {
                 clearAllData()
+                afterClearCounts = countBackupRecords()
+                verifyClearState(afterClearCounts)
             }
 
             accountDao.upsertAll(accountEntities)
@@ -3334,7 +3344,37 @@ class AccountingRepository(
             repaymentEntities.forEach { advanceDao.upsertRepayment(it) }
             backfillAdvanceLinksLocked()
             syncAllBudgetHistory()
+            val afterRestoreCounts = countBackupRecords()
+            if (replaceExisting) {
+                verifyRestoredState(data, afterRestoreCounts)
+            }
+            summary = BackupRestoreSummary(
+                mode = if (replaceExisting) BackupRestoreMode.Replace else BackupRestoreMode.Merge,
+                beforeCounts = beforeCounts,
+                backupCounts = backupCounts,
+                afterClearCounts = afterClearCounts,
+                afterRestoreCounts = afterRestoreCounts
+            )
         }
+        return checkNotNull(summary)
+    }
+
+    suspend fun clearBackupData(): BackupRestoreSummary {
+        var summary: BackupRestoreSummary? = null
+        database.withTransaction {
+            val beforeCounts = countBackupRecords()
+            clearAllData()
+            val afterCounts = countBackupRecords()
+            verifyClearState(afterCounts)
+            summary = BackupRestoreSummary(
+                mode = BackupRestoreMode.ClearOnly,
+                beforeCounts = beforeCounts,
+                backupCounts = BackupRecordCounts.Zero,
+                afterClearCounts = afterCounts,
+                afterRestoreCounts = afterCounts
+            )
+        }
+        return checkNotNull(summary)
     }
 
     suspend fun backfillAdvanceLinks() {
@@ -3506,6 +3546,58 @@ class AccountingRepository(
         tagDao.deleteAll()
         categoryDao.deleteAll()
         accountDao.deleteAll()
+    }
+
+    private suspend fun countBackupRecords(): BackupRecordCounts = BackupRecordCounts(
+        accounts = accountDao.getAll().size,
+        categories = categoryDao.getAll().size,
+        tags = tagDao.getAll().size,
+        transactions = transactionDao.getAll().size,
+        shortcuts = shortcutDao.getAll().size,
+        recurringRules = recurringDao.getAllRules().size,
+        recurringOccurrences = recurringDao.getAllOccurrences().size,
+        budgets = budgetDao.getAll().size,
+        budgetHistory = budgetDao.getAllHistory().size,
+        budgetSettings = listOfNotNull(budgetDao.getSettings()).size,
+        advanceCases = advanceDao.getAllCases().size,
+        advanceParticipants = advanceDao.getAllParticipants().size,
+        advanceRepayments = advanceDao.getAllRepayments().size
+    )
+
+    private fun verifyClearState(actualCounts: BackupRecordCounts) {
+        if (actualCounts != BackupRecordCounts.Zero) {
+            throw BackupRestoreVerificationException(
+                listOf("清除後仍有 ${actualCounts.total} 筆帳務資料：${actualCounts.summaryText()}")
+            )
+        }
+    }
+
+    private fun verifyRestoredState(data: FullBackupData, actualCounts: BackupRecordCounts) {
+        val mismatches = mutableListOf<String>()
+
+        fun requireCount(label: String, expected: Int, actual: Int) {
+            if (expected != actual) {
+                mismatches += "$label：預期 $expected，實際 $actual"
+            }
+        }
+
+        requireCount("帳戶", data.accounts.size, actualCounts.accounts)
+        requireCount("分類", data.categories.size, actualCounts.categories)
+        requireCount("標籤", data.tags.size, actualCounts.tags)
+        requireCount("交易", data.transactions.size, actualCounts.transactions)
+        requireCount("捷徑", data.shortcuts.size, actualCounts.shortcuts)
+        data.recurringRules?.let { requireCount("定期記帳", it.size, actualCounts.recurringRules) }
+        data.recurringOccurrences?.let { requireCount("定期項目", it.size, actualCounts.recurringOccurrences) }
+        data.budgets?.let { requireCount("預算", it.size, actualCounts.budgets) }
+        data.budgetHistory?.let { requireCount("預算歷史", it.size, actualCounts.budgetHistory) }
+        data.budgetSettings?.let { requireCount("預算設定", it.size, actualCounts.budgetSettings) }
+        data.advanceCases?.let { requireCount("代墊案件", it.size, actualCounts.advanceCases) }
+        data.advanceParticipants?.let { requireCount("代墊對象", it.size, actualCounts.advanceParticipants) }
+        data.advanceRepayments?.let { requireCount("代墊還款", it.size, actualCounts.advanceRepayments) }
+
+        if (mismatches.isNotEmpty()) {
+            throw BackupRestoreVerificationException(mismatches)
+        }
     }
 
     private suspend fun buildAccountDeletionTargets(accountId: UUID): AccountDeletionTargets? {

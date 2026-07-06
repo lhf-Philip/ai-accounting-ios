@@ -351,8 +351,8 @@ fun RemoteBackupScreen() {
                                     org.duckdns.lhfser.aiaccounting.data.backup.BackupJsonAdapter.gson.toJson(backup),
                                     replaceExisting = true
                                 )
-                            }.onSuccess {
-                                message = "已完成遠端備份還原。"
+                            }.onSuccess { summary ->
+                                message = "已完成遠端備份還原。\n${summary.localizedSummary()}"
                             }.onFailure {
                                 message = "還原失敗：${it.localizedMessage ?: "未知錯誤"}"
                             }

@@ -36,6 +36,7 @@ struct SettingsView: View {
     @State private var jsonImportMode: JSONImportMode = .merge
     @State private var pendingReplaceBackup: FullBackupData?
     @State private var pendingReplaceFileName = ""
+    @State private var lastImportSummaryMessage = ""
     @State private var apiKey: String = ""
 
     let currencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
@@ -329,21 +330,29 @@ struct SettingsView: View {
             }
             .alert("匯入完成", isPresented: $showingImportRepairPrompt) {
                 Button("稍後") {
-                    alertMessage = "匯入成功！可稍後到「資料健康檢查」執行修復工具。"
+                    alertMessage = """
+                    \(lastImportSummaryMessage)
+
+                    可稍後到「資料健康檢查」執行修復工具。
+                    """
                     showingAlert = true
                 }
                 Button("立即修復") {
                     repairLegacyAdvanceLinksAfterImport()
                 }
             } message: {
-                Text("是否立即修復舊代墊資料連結？建議匯入舊版 JSON 後執行一次。")
+                Text("""
+                \(lastImportSummaryMessage)
+
+                是否立即修復舊代墊資料連結？建議匯入舊版 JSON 後執行一次。
+                """)
             }
             .alert("確定清除所有資料？", isPresented: $showingDeleteAlert) {
                 Button("取消", role: .cancel) {}
                 Button("確定", role: .destructive) {
                     do {
-                        try BackupManager.shared.clearAllBackupData(modelContext: modelContext)
-                        alertMessage = "資料已清除"
+                        let summary = try BackupManager.shared.clearAllBackupData(modelContext: modelContext)
+                        alertMessage = summary.localizedSummary
                     } catch {
                         alertMessage = "清除失敗：\(error.localizedDescription)"
                     }
@@ -422,10 +431,11 @@ struct SettingsView: View {
                         pendingReplaceFileName = url.lastPathComponent
                         showingReplaceImportAlert = true
                     } else {
-                        try BackupManager.shared.restoreBackupData(
+                        let summary = try BackupManager.shared.restoreBackupData(
                             backup,
                             modelContext: modelContext
                         )
+                        lastImportSummaryMessage = summary.localizedSummary
                         showingImportRepairPrompt = true
                     }
                 } catch {
@@ -470,11 +480,12 @@ struct SettingsView: View {
             }
 
             do {
-                try BackupManager.shared.restoreBackupData(
+                let summary = try BackupManager.shared.restoreBackupData(
                     backup,
                     modelContext: modelContext,
                     replaceExisting: true
                 )
+                lastImportSummaryMessage = summary.localizedSummary
                 showingImportRepairPrompt = true
             } catch {
                 alertMessage = "覆蓋匯入失敗：\(error.localizedDescription)"
@@ -488,7 +499,9 @@ struct SettingsView: View {
             let result = try AdvanceService.repairLegacyLinks(modelContext: modelContext)
             _ = try AdvanceService.backfillExplicitLinks(modelContext: modelContext)
             alertMessage = """
-            匯入成功並完成修復。
+            \(lastImportSummaryMessage)
+
+            已完成舊資料修復。
             已更新 \(result.totalUpdated) 筆連結。
             - 代墊主檔：修復 \(result.updatedCaseLinkCount) / 未修復 \(result.unresolvedCaseLinkCount)
             - 代墊對象：修復 \(result.updatedParticipantLinkCount) / 未修復 \(result.unresolvedParticipantLinkCount)

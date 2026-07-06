@@ -29,6 +29,46 @@ final class BackupCompatibilityTests: XCTestCase {
             participant: participant,
             receivedAccount: account
         )
+        let shortcut = Shortcut(
+            name: "Old shortcut",
+            icon: "bolt",
+            amount: 12,
+            type: .expense,
+            note: "old",
+            account: account,
+            category: category,
+            tags: [tag]
+        )
+        let recurringRule = RecurringRule(
+            title: "Old recurring",
+            amount: 8,
+            type: .expense,
+            account: account,
+            category: category,
+            tags: [tag]
+        )
+        let recurringOccurrence = RecurringOccurrence(
+            dueDate: Date(),
+            rule: recurringRule
+        )
+        let budget = CategoryMonthlyBudget(
+            monthKey: "2026-06",
+            amount: 500,
+            category: category
+        )
+        let budgetHistory = BudgetMonthlyHistory(
+            historyKey: "2026-06-\(category.id.uuidString)",
+            monthKey: "2026-06",
+            categoryID: category.id,
+            categoryNameSnapshot: category.name,
+            budgetAmount: 500,
+            spentAmount: 50,
+            remainingAmount: 450,
+            usageRatio: 0.1,
+            isOverBudget: false,
+            currencyCode: "HKD"
+        )
+        let budgetSettings = BudgetSettings()
         let transaction = FinancialTransaction(
             amount: -50,
             account: account,
@@ -41,11 +81,25 @@ final class BackupCompatibilityTests: XCTestCase {
         modelContext.insert(advanceCase)
         modelContext.insert(participant)
         modelContext.insert(repayment)
+        modelContext.insert(shortcut)
+        modelContext.insert(recurringRule)
+        modelContext.insert(recurringOccurrence)
+        modelContext.insert(budget)
+        modelContext.insert(budgetHistory)
+        modelContext.insert(budgetSettings)
         modelContext.insert(transaction)
         try modelContext.save()
 
-        try BackupManager.shared.clearAllBackupData(modelContext: modelContext)
+        let summary = try BackupManager.shared.clearAllBackupData(modelContext: modelContext)
 
+        XCTAssertEqual(1, summary.beforeCounts.accounts)
+        XCTAssertEqual(1, summary.beforeCounts.shortcuts)
+        XCTAssertEqual(1, summary.beforeCounts.recurringRules)
+        XCTAssertEqual(1, summary.beforeCounts.recurringOccurrences)
+        XCTAssertEqual(1, summary.beforeCounts.budgets)
+        XCTAssertEqual(1, summary.beforeCounts.budgetHistory)
+        XCTAssertEqual(1, summary.beforeCounts.budgetSettings)
+        XCTAssertEqual(.zero, summary.afterRestoreCounts)
         XCTAssertTrue(try modelContext.fetch(FetchDescriptor<Account>()).isEmpty)
         let backup = BackupManager.shared.createBackupData(modelContext: modelContext)
         XCTAssertTrue(backup.categories.isEmpty)
@@ -98,7 +152,7 @@ final class BackupCompatibilityTests: XCTestCase {
         targetContext.insert(oldTransaction)
         try targetContext.save()
 
-        try BackupManager.shared.restoreBackupData(
+        let summary = try BackupManager.shared.restoreBackupData(
             backup,
             modelContext: targetContext,
             replaceExisting: true
@@ -110,6 +164,11 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertEqual([replacementTransaction.id], restoredTransactions.map(\.id))
         XCTAssertFalse(restoredAccounts.contains { $0.id == oldAccount.id })
         XCTAssertFalse(restoredTransactions.contains { $0.id == oldTransaction.id })
+        XCTAssertEqual(1, summary.backupCounts.accounts)
+        XCTAssertEqual(1, summary.backupCounts.transactions)
+        XCTAssertEqual(.zero, summary.afterClearCounts)
+        XCTAssertEqual(summary.backupCounts.accounts, summary.afterRestoreCounts.accounts)
+        XCTAssertEqual(summary.backupCounts.transactions, summary.afterRestoreCounts.transactions)
     }
 
     func testReplaceExistingBackup_overwritesRecordsThatReuseExistingIDs() throws {
@@ -159,7 +218,7 @@ final class BackupCompatibilityTests: XCTestCase {
         targetContext.insert(staleTransaction)
         try targetContext.save()
 
-        try BackupManager.shared.restoreBackupData(
+        let summary = try BackupManager.shared.restoreBackupData(
             correctedBackup,
             modelContext: targetContext,
             replaceExisting: true
@@ -176,6 +235,7 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertEqual(sharedTransactionID, restoredTransaction.id)
         XCTAssertEqual(43, restoredTransaction.amount)
         XCTAssertEqual("[資產調整] Reconciled balance", restoredTransaction.note)
+        XCTAssertEqual(summary.backupCounts, summary.afterRestoreCounts)
     }
 
     func testAdvanceCaseTagIDs_nilIsBackfilledAndExportedAsEmptyArray() throws {

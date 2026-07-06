@@ -9,6 +9,7 @@ import org.duckdns.lhfser.aiaccounting.core.model.AccountType
 import org.duckdns.lhfser.aiaccounting.core.model.CategoryKind
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
 import org.duckdns.lhfser.aiaccounting.data.backup.BackupJsonAdapter
+import org.duckdns.lhfser.aiaccounting.data.backup.BackupRecordCounts
 import org.duckdns.lhfser.aiaccounting.data.backup.FullBackupData
 import org.duckdns.lhfser.aiaccounting.data.db.AccountEntity
 import org.duckdns.lhfser.aiaccounting.data.db.AIAccountingDatabase
@@ -118,6 +119,118 @@ class BackupRoundTripTest {
         } finally {
             secondDatabase.close()
         }
+    }
+
+    @Test
+    fun clearBackupData_removesImportedRecordsAndReportsZeroCounts() = runBlocking {
+        val fixtureJson = loadFixture("fixtures/legacy_bidirectional_advances.json")
+        repository.importBackupJson(fixtureJson, replaceExisting = true)
+
+        val summary = repository.clearBackupData()
+
+        assertTrue(summary.beforeCounts.total > 0)
+        assertEquals(BackupRecordCounts.Zero, summary.afterRestoreCounts)
+        assertTrue(repository.exportBackup().accounts.isEmpty())
+        assertTrue(repository.exportBackup().transactions.isEmpty())
+        assertTrue(repository.exportBackup().advanceCases.orEmpty().isEmpty())
+    }
+
+    @Test
+    fun replaceExistingBackup_overwritesStaleRowsThatReuseExistingIds() = runBlocking {
+        val sharedAccountId = UUID.randomUUID()
+        val sharedTransactionId = UUID.randomUUID()
+        val timestamp = Instant.parse("2026-06-15T12:00:00Z")
+
+        database.accountDao().upsertAll(
+            listOf(
+                AccountEntity(
+                    id = sharedAccountId,
+                    name = "HSBC JPY",
+                    currency = "JPY",
+                    type = AccountType.Bank,
+                    baseBalance = BigDecimal("-221"),
+                    sortOrder = 0,
+                    isArchived = false
+                )
+            )
+        )
+        database.transactionDao().upsert(
+            TransactionEntity(
+                id = sharedTransactionId,
+                amount = BigDecimal("-221"),
+                currencyCode = "JPY",
+                date = timestamp,
+                note = "Stale value",
+                photoPath = null,
+                type = TransactionType.Expense,
+                linkedTransactionId = null,
+                transferGroupId = null,
+                transferSide = null,
+                createdAt = timestamp,
+                updatedAt = timestamp,
+                accountId = sharedAccountId,
+                categoryId = null
+            )
+        )
+
+        val correctedBackup = FullBackupData(
+            version = "1.9",
+            timestamp = timestamp,
+            accounts = listOf(
+                FullBackupData.AccountCodable(
+                    id = sharedAccountId,
+                    name = "HSBC JPY",
+                    currency = "JPY",
+                    type = AccountType.Bank.rawValue,
+                    baseBalance = BigDecimal("629"),
+                    sortOrder = 0,
+                    isArchived = false
+                )
+            ),
+            categories = emptyList(),
+            tags = emptyList(),
+            transactions = listOf(
+                FullBackupData.TransactionCodable(
+                    id = sharedTransactionId,
+                    amount = BigDecimal("43"),
+                    currencyCode = "JPY",
+                    date = timestamp,
+                    note = "[資產調整] Reconciled balance",
+                    type = TransactionType.Transfer.rawValue,
+                    linkedTransactionID = null,
+                    transferGroupID = null,
+                    transferSide = null,
+                    photoPath = null,
+                    createdAt = timestamp,
+                    updatedAt = timestamp,
+                    accountID = sharedAccountId,
+                    categoryID = null,
+                    tagIDs = emptyList()
+                )
+            ),
+            shortcuts = emptyList(),
+            recurringRules = emptyList(),
+            recurringOccurrences = emptyList(),
+            budgets = emptyList(),
+            budgetHistory = emptyList(),
+            budgetSettings = emptyList(),
+            advanceCases = emptyList(),
+            advanceParticipants = emptyList(),
+            advanceRepayments = emptyList()
+        )
+
+        val summary = repository.importBackupJson(
+            BackupJsonAdapter.gson.toJson(correctedBackup),
+            replaceExisting = true
+        )
+
+        val restoredAccount = database.accountDao().getAccount(sharedAccountId)
+        val restoredTransaction = database.transactionDao().getTransaction(sharedTransactionId)?.transaction
+        assertEquals(BigDecimal("629"), restoredAccount?.baseBalance)
+        assertEquals(BigDecimal("43"), restoredTransaction?.amount)
+        assertEquals("[資產調整] Reconciled balance", restoredTransaction?.note)
+        assertEquals(BackupRecordCounts.fromBackup(correctedBackup), summary.afterRestoreCounts)
+        assertEquals(BackupRecordCounts.Zero, summary.afterClearCounts)
     }
 
     @Test
