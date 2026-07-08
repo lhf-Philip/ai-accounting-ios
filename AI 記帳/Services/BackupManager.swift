@@ -154,18 +154,124 @@ struct FullBackupData: Codable {
 
 enum BackupRestoreError: LocalizedError {
     case clearVerificationFailed
+    case restoreVerificationFailed([String])
     case restoreFailedAndRecoveryFailed(importError: Error, recoveryError: Error)
 
     var errorDescription: String? {
         switch self {
         case .clearVerificationFailed:
             return "資料庫清除後仍然留有資料，已停止後續操作。"
+        case .restoreVerificationFailed(let mismatches):
+            return "資料還原後的數量驗證失敗：\n\(mismatches.joined(separator: "\n"))"
         case .restoreFailedAndRecoveryFailed(let importError, let recoveryError):
             return """
             覆蓋匯入失敗，而且無法自動恢復匯入前資料。
             匯入錯誤：\(importError.localizedDescription)
             恢復錯誤：\(recoveryError.localizedDescription)
             請保留 App，不要繼續修改資料，並使用最近的 JSON 備份恢復。
+            """
+        }
+    }
+}
+
+enum BackupRestoreMode {
+    case merge
+    case replace
+    case clearOnly
+}
+
+struct BackupRecordCounts: Equatable {
+    var accounts: Int
+    var categories: Int
+    var tags: Int
+    var transactions: Int
+    var shortcuts: Int
+    var recurringRules: Int
+    var recurringOccurrences: Int
+    var budgets: Int
+    var budgetHistory: Int
+    var budgetSettings: Int
+    var advanceCases: Int
+    var advanceParticipants: Int
+    var advanceRepayments: Int
+
+    static let zero = BackupRecordCounts(
+        accounts: 0,
+        categories: 0,
+        tags: 0,
+        transactions: 0,
+        shortcuts: 0,
+        recurringRules: 0,
+        recurringOccurrences: 0,
+        budgets: 0,
+        budgetHistory: 0,
+        budgetSettings: 0,
+        advanceCases: 0,
+        advanceParticipants: 0,
+        advanceRepayments: 0
+    )
+
+    var total: Int {
+        accounts + categories + tags + transactions + shortcuts + recurringRules + recurringOccurrences
+            + budgets + budgetHistory + budgetSettings + advanceCases + advanceParticipants + advanceRepayments
+    }
+
+    var summaryText: String {
+        """
+        帳戶 \(accounts)、分類 \(categories)、標籤 \(tags)、交易 \(transactions)、捷徑 \(shortcuts)
+        定期記帳 \(recurringRules)、定期項目 \(recurringOccurrences)、預算 \(budgets)、預算歷史 \(budgetHistory)、預算設定 \(budgetSettings)
+        代墊案件 \(advanceCases)、代墊對象 \(advanceParticipants)、代墊還款 \(advanceRepayments)
+        """
+    }
+
+    static func fromBackup(_ backup: FullBackupData) -> BackupRecordCounts {
+        BackupRecordCounts(
+            accounts: backup.accounts.count,
+            categories: backup.categories.count,
+            tags: backup.tags.count,
+            transactions: backup.transactions.count,
+            shortcuts: backup.shortcuts.count,
+            recurringRules: backup.recurringRules?.count ?? 0,
+            recurringOccurrences: backup.recurringOccurrences?.count ?? 0,
+            budgets: backup.budgets?.count ?? 0,
+            budgetHistory: backup.budgetHistory?.count ?? 0,
+            budgetSettings: backup.budgetSettings?.count ?? 0,
+            advanceCases: backup.advanceCases?.count ?? 0,
+            advanceParticipants: backup.advanceParticipants?.count ?? 0,
+            advanceRepayments: backup.advanceRepayments?.count ?? 0
+        )
+    }
+}
+
+struct BackupRestoreSummary {
+    let mode: BackupRestoreMode
+    let beforeCounts: BackupRecordCounts
+    let backupCounts: BackupRecordCounts
+    let afterClearCounts: BackupRecordCounts?
+    let afterRestoreCounts: BackupRecordCounts
+
+    var localizedSummary: String {
+        switch mode {
+        case .clearOnly:
+            return """
+            資料已清除並完成驗證。
+            清除前共有 \(beforeCounts.total) 筆帳務資料；清除後共有 \(afterRestoreCounts.total) 筆。
+            """
+        case .merge:
+            return """
+            合併匯入完成並完成基本驗證。
+            匯入檔案內容：
+            \(backupCounts.summaryText)
+            匯入後資料庫：
+            \(afterRestoreCounts.summaryText)
+            """
+        case .replace:
+            return """
+            覆蓋匯入完成並完成驗證，舊帳務資料已清除。
+            匯入檔案內容：
+            \(backupCounts.summaryText)
+            匯入後資料庫：
+            \(afterRestoreCounts.summaryText)
             """
         }
     }
@@ -411,22 +517,45 @@ class BackupManager: NSObject, ObservableObject {
         return try decoder.decode(FullBackupData.self, from: data)
     }
 
+    @discardableResult
     @MainActor
-    func restoreBackupData(_ backup: FullBackupData, modelContext: ModelContext, replaceExisting: Bool = false) throws {
+    func restoreBackupData(_ backup: FullBackupData, modelContext: ModelContext, replaceExisting: Bool = false) throws -> BackupRestoreSummary {
+        let beforeCounts = try backupRecordCounts(modelContext: modelContext)
+        let backupCounts = BackupRecordCounts.fromBackup(backup)
+
         guard replaceExisting else {
             try restoreDecodedBackup(backup, modelContext: modelContext)
-            return
+            let afterCounts = try backupRecordCounts(modelContext: modelContext)
+            return BackupRestoreSummary(
+                mode: .merge,
+                beforeCounts: beforeCounts,
+                backupCounts: backupCounts,
+                afterClearCounts: nil,
+                afterRestoreCounts: afterCounts
+            )
         }
 
         let recoveryBackup = createBackupData(modelContext: modelContext)
         do {
-            try clearAllBackupData(modelContext: modelContext)
+            let clearSummary = try clearAllBackupData(modelContext: modelContext)
             try restoreDecodedBackup(backup, modelContext: modelContext)
+            let afterCounts = try backupRecordCounts(modelContext: modelContext)
+            try verifyRestoredState(backup, actualCounts: afterCounts)
+            return BackupRestoreSummary(
+                mode: .replace,
+                beforeCounts: beforeCounts,
+                backupCounts: backupCounts,
+                afterClearCounts: clearSummary.afterRestoreCounts,
+                afterRestoreCounts: afterCounts
+            )
         } catch {
             let importError = error
             do {
+                modelContext.rollback()
                 try clearAllBackupData(modelContext: modelContext)
                 try restoreDecodedBackup(recoveryBackup, modelContext: modelContext)
+                let recoveredCounts = try backupRecordCounts(modelContext: modelContext)
+                try verifyRestoredState(recoveryBackup, actualCounts: recoveredCounts)
             } catch {
                 throw BackupRestoreError.restoreFailedAndRecoveryFailed(
                     importError: importError,
@@ -437,8 +566,10 @@ class BackupManager: NSObject, ObservableObject {
         }
     }
 
+    @discardableResult
     @MainActor
-    func clearAllBackupData(modelContext: ModelContext) throws {
+    func clearAllBackupData(modelContext: ModelContext) throws -> BackupRestoreSummary {
+        let beforeCounts = try backupRecordCounts(modelContext: modelContext)
         try deleteEach(FinancialTransaction.self, modelContext: modelContext)
         try deleteEach(Shortcut.self, modelContext: modelContext)
         try deleteEach(RecurringOccurrence.self, modelContext: modelContext)
@@ -454,25 +585,18 @@ class BackupManager: NSObject, ObservableObject {
         try deleteEach(Tag.self, modelContext: modelContext)
         try modelContext.save()
 
-        let remainingRecordCounts = [
-            try modelContext.fetch(FetchDescriptor<FinancialTransaction>()).count,
-            try modelContext.fetch(FetchDescriptor<Shortcut>()).count,
-            try modelContext.fetch(FetchDescriptor<RecurringOccurrence>()).count,
-            try modelContext.fetch(FetchDescriptor<RecurringRule>()).count,
-            try modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>()).count,
-            try modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>()).count,
-            try modelContext.fetch(FetchDescriptor<BudgetSettings>()).count,
-            try modelContext.fetch(FetchDescriptor<AdvanceRepayment>()).count,
-            try modelContext.fetch(FetchDescriptor<AdvanceParticipant>()).count,
-            try modelContext.fetch(FetchDescriptor<AdvanceCase>()).count,
-            try modelContext.fetch(FetchDescriptor<Account>()).count,
-            try modelContext.fetch(FetchDescriptor<Category>()).count,
-            try modelContext.fetch(FetchDescriptor<Tag>()).count,
-        ]
-
-        guard remainingRecordCounts.allSatisfy({ $0 == 0 }) else {
+        let afterCounts = try backupRecordCounts(modelContext: modelContext)
+        guard afterCounts == .zero else {
             throw BackupRestoreError.clearVerificationFailed
         }
+
+        return BackupRestoreSummary(
+            mode: .clearOnly,
+            beforeCounts: beforeCounts,
+            backupCounts: .zero,
+            afterClearCounts: afterCounts,
+            afterRestoreCounts: afterCounts
+        )
     }
 
     @MainActor
@@ -482,6 +606,69 @@ class BackupManager: NSObject, ObservableObject {
     ) throws {
         for model in try modelContext.fetch(FetchDescriptor<Model>()) {
             modelContext.delete(model)
+        }
+    }
+
+    @MainActor
+    private func backupRecordCounts(modelContext: ModelContext) throws -> BackupRecordCounts {
+        BackupRecordCounts(
+            accounts: try modelContext.fetch(FetchDescriptor<Account>()).count,
+            categories: try modelContext.fetch(FetchDescriptor<Category>()).count,
+            tags: try modelContext.fetch(FetchDescriptor<Tag>()).count,
+            transactions: try modelContext.fetch(FetchDescriptor<FinancialTransaction>()).count,
+            shortcuts: try modelContext.fetch(FetchDescriptor<Shortcut>()).count,
+            recurringRules: try modelContext.fetch(FetchDescriptor<RecurringRule>()).count,
+            recurringOccurrences: try modelContext.fetch(FetchDescriptor<RecurringOccurrence>()).count,
+            budgets: try modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>()).count,
+            budgetHistory: try modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>()).count,
+            budgetSettings: try modelContext.fetch(FetchDescriptor<BudgetSettings>()).count,
+            advanceCases: try modelContext.fetch(FetchDescriptor<AdvanceCase>()).count,
+            advanceParticipants: try modelContext.fetch(FetchDescriptor<AdvanceParticipant>()).count,
+            advanceRepayments: try modelContext.fetch(FetchDescriptor<AdvanceRepayment>()).count
+        )
+    }
+
+    private func verifyRestoredState(_ backup: FullBackupData, actualCounts: BackupRecordCounts) throws {
+        var mismatches: [String] = []
+
+        func require(_ label: String, _ expected: Int, _ actual: Int) {
+            if expected != actual {
+                mismatches.append("\(label)：預期 \(expected)，實際 \(actual)")
+            }
+        }
+
+        require("帳戶", backup.accounts.count, actualCounts.accounts)
+        require("分類", backup.categories.count, actualCounts.categories)
+        require("標籤", backup.tags.count, actualCounts.tags)
+        require("交易", backup.transactions.count, actualCounts.transactions)
+        require("捷徑", backup.shortcuts.count, actualCounts.shortcuts)
+        if let recurringRules = backup.recurringRules {
+            require("定期記帳", recurringRules.count, actualCounts.recurringRules)
+        }
+        if let recurringOccurrences = backup.recurringOccurrences {
+            require("定期項目", recurringOccurrences.count, actualCounts.recurringOccurrences)
+        }
+        if let budgets = backup.budgets {
+            require("預算", budgets.count, actualCounts.budgets)
+        }
+        if let budgetHistory = backup.budgetHistory {
+            require("預算歷史", budgetHistory.count, actualCounts.budgetHistory)
+        }
+        if let budgetSettings = backup.budgetSettings {
+            require("預算設定", budgetSettings.count, actualCounts.budgetSettings)
+        }
+        if let advanceCases = backup.advanceCases {
+            require("代墊案件", advanceCases.count, actualCounts.advanceCases)
+        }
+        if let advanceParticipants = backup.advanceParticipants {
+            require("代墊對象", advanceParticipants.count, actualCounts.advanceParticipants)
+        }
+        if let advanceRepayments = backup.advanceRepayments {
+            require("代墊還款", advanceRepayments.count, actualCounts.advanceRepayments)
+        }
+
+        guard mismatches.isEmpty else {
+            throw BackupRestoreError.restoreVerificationFailed(mismatches)
         }
     }
 

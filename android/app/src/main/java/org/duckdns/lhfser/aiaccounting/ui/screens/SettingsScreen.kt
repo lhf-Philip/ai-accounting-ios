@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -23,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,6 +45,9 @@ import org.duckdns.lhfser.aiaccounting.core.ai.GeminiSettingsStore
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.LocalUiPreferences
+import org.duckdns.lhfser.aiaccounting.data.backup.BackupJsonAdapter
+import org.duckdns.lhfser.aiaccounting.data.backup.BackupRecordCounts
+import org.duckdns.lhfser.aiaccounting.data.backup.FullBackupData
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySettingRow
 import org.duckdns.lhfser.aiaccounting.ui.components.ParityTokens
@@ -75,7 +80,22 @@ fun SettingsScreen(
     var mainCurrency by remember { mutableStateOf(currencyService.mainCurrency) }
     var currencyMenuExpanded by remember { mutableStateOf(false) }
     var apiKey by remember { mutableStateOf(geminiSettingsStore.apiKey) }
+    var pendingReplaceImportText by remember { mutableStateOf<String?>(null) }
+    var pendingReplaceImportPreview by remember { mutableStateOf("") }
+    var showReplaceImportConfirm by remember { mutableStateOf(false) }
     val uiPreferences by uiPreferencesStore.state.collectAsState()
+
+    fun runImport(text: String, shouldReplaceExisting: Boolean) {
+        scope.launch {
+            runCatching {
+                repository.importBackupJson(text, replaceExisting = shouldReplaceExisting)
+            }.onSuccess { summary ->
+                message = summary.localizedSummary()
+            }.onFailure {
+                message = "匯入失敗：${it.localizedMessage ?: "未知錯誤"}"
+            }
+        }
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -106,13 +126,60 @@ fun SettingsScreen(
                 return@launch
             }
             runCatching {
-                repository.importBackupJson(text, replaceExisting = replaceExisting)
-            }.onSuccess {
-                message = "匯入完成。"
+                BackupJsonAdapter.gson.fromJson(text, FullBackupData::class.java)
+            }.onSuccess { backup ->
+                if (replaceExisting) {
+                    val counts = BackupRecordCounts.fromBackup(backup)
+                    pendingReplaceImportText = text
+                    pendingReplaceImportPreview = """
+                        已驗證所選備份：
+                        ${counts.summaryText()}
+
+                        確認後會先清除目前所有帳務資料，再完整還原此備份。
+                    """.trimIndent()
+                    showReplaceImportConfirm = true
+                } else {
+                    runImport(text, shouldReplaceExisting = false)
+                }
             }.onFailure {
                 message = "匯入失敗：${it.localizedMessage ?: "未知錯誤"}"
             }
         }
+    }
+
+    if (showReplaceImportConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                showReplaceImportConfirm = false
+                pendingReplaceImportText = null
+            },
+            title = { Text("確認覆蓋目前所有資料？") },
+            text = { Text(pendingReplaceImportPreview) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val text = pendingReplaceImportText
+                        showReplaceImportConfirm = false
+                        pendingReplaceImportText = null
+                        if (text != null) {
+                            runImport(text, shouldReplaceExisting = true)
+                        }
+                    }
+                ) {
+                    Text("覆蓋並還原")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showReplaceImportConfirm = false
+                        pendingReplaceImportText = null
+                    }
+                ) {
+                    Text("取消")
+                }
+            }
+        )
     }
 
     Column(
