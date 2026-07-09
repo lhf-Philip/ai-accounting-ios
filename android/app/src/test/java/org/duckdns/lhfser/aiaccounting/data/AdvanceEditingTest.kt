@@ -896,6 +896,53 @@ class AdvanceEditingTest {
         assertEquals(BigDecimal("40"), unchanged.participants.single().repaidAmount)
     }
 
+    @Test
+    fun structuralEditPreview_doesNotMutateStoredCase() = runBlocking {
+        val caseId = repository.createAdvanceCase(
+            title = "Dinner",
+            date = Instant.parse("2026-06-01T10:00:00Z"),
+            currencyCode = "HKD",
+            myShareAmount = BigDecimal.ZERO,
+            note = "",
+            payerAccount = wallet,
+            expenseCategory = null,
+            tagIds = emptyList(),
+            participants = listOf(AdvanceParticipantInput(friend, BigDecimal("100")))
+        )
+        val current = requireNotNull(repository.getAdvanceCase(caseId))
+        val participant = current.participants.single()
+
+        repository.previewAdvanceCaseStructuralEdit(
+            AdvanceCaseStructuralEditDraft(
+                caseId = caseId,
+                title = "Changed",
+                date = current.advanceCase.date,
+                direction = org.duckdns.lhfser.aiaccounting.data.repository.AdvanceSettlementDirection.OthersAdvancedMe,
+                currencyCode = "HKD",
+                note = "Preview only",
+                categoryId = expenseCategory.id,
+                tagIds = listOf(editedTag.id),
+                share = null,
+                participants = listOf(
+                    AdvanceParticipantStructuralDraft(
+                        participantId = participant.id,
+                        name = participant.name,
+                        debtAccountId = friend.id,
+                        owedAmount = BigDecimal("120"),
+                        paymentLegs = emptyList()
+                    )
+                ),
+                repayments = emptyList()
+            )
+        )
+
+        val unchanged = requireNotNull(repository.getAdvanceCase(caseId))
+        assertEquals("Dinner", unchanged.advanceCase.title)
+        assertEquals("HKD", unchanged.advanceCase.currencyCode)
+        assertEquals("IAdvancedOthers", unchanged.advanceCase.direction)
+        assertEquals(BigDecimal("100"), unchanged.participants.single().owedAmount)
+    }
+
     private fun account(name: String, type: AccountType, order: Int): AccountEntity {
         return AccountEntity(
             id = UUID.randomUUID(),

@@ -6,6 +6,7 @@ struct SettingsView: View {
     private enum JSONImportMode {
         case merge
         case replace
+        case validate
     }
 
     @Environment(\.modelContext) private var modelContext
@@ -35,7 +36,9 @@ struct SettingsView: View {
     @State private var showingImportRepairPrompt = false
     @State private var jsonImportMode: JSONImportMode = .merge
     @State private var pendingReplaceBackup: FullBackupData?
+    @State private var pendingReplaceValidationReport: BackupValidationReport?
     @State private var pendingReplaceFileName = ""
+    @State private var validationSheet: BackupValidationSheetState?
     @State private var lastImportSummaryMessage = ""
     @State private var apiKey: String = ""
 
@@ -207,6 +210,18 @@ struct SettingsView: View {
                     ) { _ in }
 
                     Button {
+                        jsonImportMode = .validate
+                        isImportingJSON = true
+                    } label: {
+                        if isProcessingImport {
+                            Label("驗證中...", systemImage: "hourglass")
+                        } else {
+                            Label("驗證 JSON 備份", systemImage: "checkmark.shield")
+                        }
+                    }
+                    .disabled(isProcessingImport)
+
+                    Button {
                         jsonImportMode = .merge
                         isImportingJSON = true
                     } label: {
@@ -323,6 +338,19 @@ struct SettingsView: View {
             .fileImporter(isPresented: $isImportingJSON, allowedContentTypes: [.json]) { result in
                 handleImport(result: result)
             }
+            .sheet(item: $validationSheet) { state in
+                BackupValidationReportView(
+                    fileName: state.fileName,
+                    report: state.report,
+                    onReplaceImport: state.report.hasBlockingIssues ? nil : {
+                        validationSheet = nil
+                        pendingReplaceBackup = state.backup
+                        pendingReplaceValidationReport = state.report
+                        pendingReplaceFileName = state.fileName
+                        showingReplaceImportAlert = true
+                    }
+                )
+            }
             .alert("提示", isPresented: $showingAlert) {
                 Button("好") {}
             } message: {
@@ -364,6 +392,7 @@ struct SettingsView: View {
             .alert("確認覆蓋目前所有資料？", isPresented: $showingReplaceImportAlert) {
                 Button("取消", role: .cancel) {
                     pendingReplaceBackup = nil
+                    pendingReplaceValidationReport = nil
                     pendingReplaceFileName = ""
                 }
                 Button("覆蓋並還原", role: .destructive) {
@@ -426,8 +455,16 @@ struct SettingsView: View {
                 }
                 do {
                     let backup = try await BackupManager.shared.decodeBackup(from: url)
-                    if jsonImportMode == .replace {
+                    let report = BackupValidationService.validate(backup)
+                    if jsonImportMode == .validate {
+                        validationSheet = BackupValidationSheetState(
+                            fileName: url.lastPathComponent,
+                            backup: backup,
+                            report: report
+                        )
+                    } else if jsonImportMode == .replace {
                         pendingReplaceBackup = backup
+                        pendingReplaceValidationReport = report
                         pendingReplaceFileName = url.lastPathComponent
                         showingReplaceImportAlert = true
                     } else {
@@ -453,10 +490,25 @@ struct SettingsView: View {
         guard let backup = pendingReplaceBackup else {
             return "未能讀取所選備份，請重新選擇檔案。"
         }
+        let report = pendingReplaceValidationReport ?? BackupValidationService.validate(backup)
+        let issueSummary = report.issues.prefix(6).map { issue in
+            let prefix: String
+            switch issue.severity {
+            case .error: prefix = "錯誤"
+            case .warning: prefix = "警告"
+            case .info: prefix = "資訊"
+            }
+            return "・[\(prefix)] \(issue.title)：\(issue.detail)"
+        }.joined(separator: "\n")
 
         return """
         已驗證「\(pendingReplaceFileName)」：
-        \(backup.accounts.count) 個帳戶、\(backup.transactions.count) 筆交易、\(backup.advanceCases?.count ?? 0) 個代墊案件。
+        \(report.counts.summaryText)
+
+        狀態：\(report.statusTitle)
+        \(report.statusDetail)
+
+        \(issueSummary)
 
         確認後會先清除目前所有資料，再完整還原此備份。若匯入失敗，App 會嘗試自動恢復匯入前資料。
         """
@@ -475,6 +527,7 @@ struct SettingsView: View {
         Task {
             defer {
                 pendingReplaceBackup = nil
+                pendingReplaceValidationReport = nil
                 pendingReplaceFileName = ""
                 isProcessingImport = false
             }
@@ -512,6 +565,127 @@ struct SettingsView: View {
         showingAlert = true
     }
 
+}
+
+private struct BackupValidationSheetState: Identifiable {
+    let id = UUID()
+    let fileName: String
+    let backup: FullBackupData
+    let report: BackupValidationReport
+}
+
+private struct BackupValidationReportView: View {
+    @Environment(\.dismiss) private var dismiss
+    let fileName: String
+    let report: BackupValidationReport
+    let onReplaceImport: (() -> Void)?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(report.statusTitle)
+                            .font(.headline)
+                        Text(report.statusDetail)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 12) {
+                            validationBadge("錯誤", count: report.errorCount, color: .red)
+                            validationBadge("警告", count: report.warningCount, color: .orange)
+                            validationBadge("資訊", count: report.infoCount, color: .blue)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } header: {
+                    Text(fileName)
+                }
+
+                Section("備份內容") {
+                    LabeledContent("版本", value: report.version)
+                    LabeledContent("備份時間", value: report.timestamp.formatted(date: .abbreviated, time: .shortened))
+                    Text(report.counts.summaryText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("帳戶分幣種餘額") {
+                    ForEach(report.accountBalances) { account in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(account.accountName)
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer()
+                                Text(account.accountType)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            ForEach(account.balances) { balance in
+                                HStack {
+                                    Text(balance.currencyCode)
+                                    Spacer()
+                                    Text(BackupValidationService.formatDecimal(balance.amount))
+                                        .monospacedDigit()
+                                }
+                                .font(.caption)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                Section("檢查結果") {
+                    ForEach(report.issues) { issue in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Circle()
+                                    .fill(color(for: issue.severity))
+                                    .frame(width: 8, height: 8)
+                                Text(issue.title)
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            Text(issue.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                if let onReplaceImport {
+                    Section {
+                        Button(role: .destructive) {
+                            onReplaceImport()
+                        } label: {
+                            Label("使用此備份覆蓋匯入", systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
+                        }
+                    } footer: {
+                        Text("下一步仍會要求二次確認，驗證本身不會修改資料。")
+                    }
+                }
+            }
+            .navigationTitle("備份驗證")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func validationBadge(_ label: String, count: Int, color: Color) -> some View {
+        Label("\(label) \(count)", systemImage: "circle.fill")
+            .font(.caption)
+            .foregroundStyle(color)
+    }
+
+    private func color(for severity: BackupValidationIssue.Severity) -> Color {
+        switch severity {
+        case .error: return .red
+        case .warning: return .orange
+        case .info: return .blue
+        }
+    }
 }
 
 struct JSONDocument: FileDocument {

@@ -46,7 +46,10 @@ import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.LocalUiPreferences
 import org.duckdns.lhfser.aiaccounting.data.backup.BackupJsonAdapter
-import org.duckdns.lhfser.aiaccounting.data.backup.BackupRecordCounts
+import org.duckdns.lhfser.aiaccounting.data.backup.BackupValidationIssue
+import org.duckdns.lhfser.aiaccounting.data.backup.BackupValidationReport
+import org.duckdns.lhfser.aiaccounting.data.backup.BackupValidationService
+import org.duckdns.lhfser.aiaccounting.data.backup.BackupValidationSeverity
 import org.duckdns.lhfser.aiaccounting.data.backup.FullBackupData
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySectionHeader
 import org.duckdns.lhfser.aiaccounting.ui.components.ParitySettingRow
@@ -83,6 +86,9 @@ fun SettingsScreen(
     var pendingReplaceImportText by remember { mutableStateOf<String?>(null) }
     var pendingReplaceImportPreview by remember { mutableStateOf("") }
     var showReplaceImportConfirm by remember { mutableStateOf(false) }
+    var pendingValidationImportText by remember { mutableStateOf<String?>(null) }
+    var validationReport by remember { mutableStateOf<BackupValidationReport?>(null) }
+    var showValidationReport by remember { mutableStateOf(false) }
     val uiPreferences by uiPreferencesStore.state.collectAsState()
 
     fun runImport(text: String, shouldReplaceExisting: Boolean) {
@@ -116,7 +122,9 @@ fun SettingsScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
         scope.launch {
             val text = withContext(Dispatchers.IO) {
                 context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
@@ -128,15 +136,10 @@ fun SettingsScreen(
             runCatching {
                 BackupJsonAdapter.gson.fromJson(text, FullBackupData::class.java)
             }.onSuccess { backup ->
+                val report = BackupValidationService.validate(backup)
                 if (replaceExisting) {
-                    val counts = BackupRecordCounts.fromBackup(backup)
                     pendingReplaceImportText = text
-                    pendingReplaceImportPreview = """
-                        已驗證所選備份：
-                        ${counts.summaryText()}
-
-                        確認後會先清除目前所有帳務資料，再完整還原此備份。
-                    """.trimIndent()
+                    pendingReplaceImportPreview = buildReplaceImportPreview(report)
                     showReplaceImportConfirm = true
                 } else {
                     runImport(text, shouldReplaceExisting = false)
@@ -145,6 +148,57 @@ fun SettingsScreen(
                 message = "匯入失敗：${it.localizedMessage ?: "未知錯誤"}"
             }
         }
+    }
+
+    val validationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        scope.launch {
+            val text = withContext(Dispatchers.IO) {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }
+            if (text.isNullOrBlank()) {
+                message = "驗證失敗：檔案內容為空。"
+                return@launch
+            }
+            runCatching {
+                val backup = BackupJsonAdapter.gson.fromJson(text, FullBackupData::class.java)
+                BackupValidationService.validate(backup)
+            }.onSuccess { report ->
+                pendingValidationImportText = text
+                validationReport = report
+                showValidationReport = true
+            }.onFailure {
+                message = "驗證失敗：${it.localizedMessage ?: "未知錯誤"}"
+            }
+        }
+    }
+
+    if (showValidationReport && validationReport != null) {
+        BackupValidationReportDialog(
+            report = validationReport!!,
+            onDismiss = {
+                showValidationReport = false
+                validationReport = null
+                pendingValidationImportText = null
+            },
+            onReplaceImport = if (validationReport!!.hasBlockingIssues) {
+                null
+            } else {
+                {
+                    pendingReplaceImportText = pendingValidationImportText
+                    pendingReplaceImportPreview = buildReplaceImportPreview(validationReport!!)
+                    showValidationReport = false
+                    validationReport = null
+                    pendingValidationImportText = null
+                    showReplaceImportConfirm = true
+                }
+            }
+        )
     }
 
     if (showReplaceImportConfirm) {
@@ -323,6 +377,14 @@ fun SettingsScreen(
                     Text("匯出 JSON 備份")
                 }
                 Button(
+                    onClick = { validationLauncher.launch(arrayOf("application/json")) },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                ) {
+                    Text("驗證 JSON 備份")
+                }
+                Button(
                     onClick = { importLauncher.launch(arrayOf("application/json")) },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(18.dp),
@@ -375,4 +437,104 @@ private fun openSystemLanguageSettings(context: android.content.Context) {
             }
             runCatching { context.startActivity(fallbackIntent) }
         }
+}
+
+@Composable
+private fun BackupValidationReportDialog(
+    report: BackupValidationReport,
+    onDismiss: () -> Unit,
+    onReplaceImport: (() -> Unit)?
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("備份驗證") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(520.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(report.statusTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(report.statusDetail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "錯誤 ${report.errorCount} ・ 警告 ${report.warningCount} ・ 資訊 ${report.infoCount}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (report.hasBlockingIssues) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Text("備份內容", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    "版本：${report.version}\n備份時間：${report.timestamp}\n${report.counts.summaryText()}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+                Text("帳戶分幣種餘額", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                report.accountBalances.forEach { account ->
+                    Text(
+                        buildString {
+                            append(account.accountName)
+                            append("（")
+                            append(account.accountType)
+                            append("）\n")
+                            account.balances.forEach { balance ->
+                                append("  ")
+                                append(balance.currencyCode)
+                                append(" ")
+                                append(BackupValidationService.formatDecimal(balance.amount))
+                                append("\n")
+                            }
+                        }.trimEnd(),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                Text("檢查結果", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                report.issues.forEach { issue ->
+                    Text(
+                        "[${issue.label()}] ${issue.title}\n${issue.detail}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = when (issue.severity) {
+                            BackupValidationSeverity.Error -> MaterialTheme.colorScheme.error
+                            BackupValidationSeverity.Warning -> MaterialTheme.colorScheme.onSurface
+                            BackupValidationSeverity.Info -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (onReplaceImport != null) {
+                TextButton(onClick = onReplaceImport) {
+                    Text("覆蓋匯入此備份")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("完成")
+            }
+        }
+    )
+}
+
+private fun buildReplaceImportPreview(report: BackupValidationReport): String {
+    return """
+        已驗證所選備份：
+        ${report.counts.summaryText()}
+
+        狀態：${report.statusTitle}
+        ${report.statusDetail}
+
+        ${report.issues.take(6).joinToString("\n") { issue -> "・[${issue.label()}] ${issue.title}：${issue.detail}" }}
+
+        確認後會先清除目前所有帳務資料，再完整還原此備份。
+    """.trimIndent()
+}
+
+private fun BackupValidationIssue.label(): String = when (severity) {
+    BackupValidationSeverity.Error -> "錯誤"
+    BackupValidationSeverity.Warning -> "警告"
+    BackupValidationSeverity.Info -> "資訊"
 }
