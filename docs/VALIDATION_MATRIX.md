@@ -27,6 +27,11 @@ cd android
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
+The connected suite is a deterministic Room/repository smoke test for emulator
+and device wiring. Structural advance-editing and accounting invariants are
+validated by the JVM tests above; UI automation is added only for stable,
+user-visible interactions that cannot be proven at a lower layer.
+
 ### iOS
 ```bash
 xcodebuild -project 'AI 記帳.xcodeproj' \
@@ -49,7 +54,8 @@ The full unit/UI command set and failure-artifact policy are maintained in
 | iOS | Simulator | Advance: others advanced me | Create -> edit -> repayment -> delete stays consistent |
 | iOS | Physical device | Backup export/import | Exported JSON re-imports cleanly |
 | Android | Emulator | Import fixture JSON | Data imports successfully with no crash |
-| Android | Emulator | Main tabs parity smoke | Overview, Ledger, Reports, Accounts, and Settings open with the expected controls |
+| Android | Emulator | Instrumented persistence smoke | Room/repository wiring can create and reload a minimal advance case |
+| Android | Emulator or Samsung A53 | Main tabs parity smoke | Overview, Ledger, Reports, Accounts, and Settings open with the expected controls |
 | Android | Emulator | Account delete | Predictable result with and without linked transactions |
 | Android | Samsung A53 | Advance split repayment | Two receive accounts can be recorded and shown correctly |
 | Android | Samsung A53 | Advance merge repayment | Two source accounts can be recorded and shown correctly |

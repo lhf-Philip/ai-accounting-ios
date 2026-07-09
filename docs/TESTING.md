@@ -55,11 +55,12 @@ This guide defines what each test layer is responsible for and the minimum evide
   - report/refund semantics;
   - shared parity vectors.
 - `android/app/src/androidTest/`
-  - structural advance editing UI flow.
+  - deterministic emulator/device smoke covering Room and repository wiring;
+  - app launch and a minimal advance-case persistence roundtrip.
 - `.github/workflows/android-ci.yml`
   - debug APK assembly;
   - unit tests;
-  - API 35 emulator instrumentation;
+  - API 35 emulator instrumentation smoke;
   - failure diagnostics upload.
 
 ## Local Commands
@@ -157,11 +158,36 @@ machine, use a writable cache directory:
 XDG_CACHE_HOME=/private/tmp/codex-gh-cache gh run view <run-id> --log
 ```
 
+The required instrumentation suite is intentionally a small environment and
+data-wiring smoke test. Business semantics and structural advance editing
+belong in JVM repository/service tests, where they are deterministic. Add a
+Compose UI test only when it proves a user-visible interaction that cannot be
+covered at a lower layer, and give it a stable semantic readiness condition.
+
 Do not fix instrumentation flakiness by disabling the test, ignoring
-`connectedDebugAndroidTest`, or only increasing timeouts. First make the
-Compose gate and diagnostics precise enough to prove where the wait is stuck.
+`connectedDebugAndroidTest`, or only increasing timeouts. First classify the
+failure using the captured artifacts:
+
+- product failure: the app is foregrounded and a business assertion fails;
+- test-harness failure: the test activity or Compose content is not mounted;
+- emulator/infrastructure failure: the launcher, system process, or device is
+  unhealthy.
+
+Keep the original failing artifact when retrying. A retry may establish that a
+failure is flaky, but it does not turn the first failure into a pass. Fix the
+lowest-cost layer that owns the problem and add a regression check before
+restoring broader UI coverage.
 
 Changing test infrastructure requires the same discipline as product code: prefer precise readiness gates and diagnostics over sleeps; never merge a workflow/script change until the relevant local runner and GitHub check have both been observed or a documented environment block explains why not.
+
+### Required-check interpretation
+
+For a pull request, a required check is evidence only when it completed for
+the latest commit or merge test commit. A skipped workflow caused by path
+filters is not equivalent to running the check. If a workflow or runner path
+changes, verify that the pull request triggers the intended check and record
+any environment block explicitly. Administrative review bypasses do not waive
+build, test, or data-safety checks.
 
 ### Full Android regression runner
 

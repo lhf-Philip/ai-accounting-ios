@@ -16,10 +16,14 @@ This checklist is the baseline for PR quality gates for dual-platform delivery. 
 ## 2. Pull Request Gate (Must Pass)
 
 - Required checks must run; a path-filtered skip is not equivalent to a pass.
+- Required checks must be successful for the latest pull request commit or
+  merge test commit; an older successful run is not sufficient evidence.
 - Build success on every affected platform.
 - No sensitive data committed (keys, tokens, real personal backup data).
 - Data contract impact evaluated against `docs/specs/data-model.md`.
 - If data contract changed: migration/compatibility section completed in PR template.
+- If review requirements are bypassed administratively, all required build,
+  test, and data-safety checks still must be green.
 
 ## 3. Local Pre-PR Commands
 
@@ -55,6 +59,11 @@ cd android
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 ./gradlew :app:connectedDebugAndroidTest
 ```
+
+The connected Android suite is an emulator/device smoke test for Room and
+repository wiring. Keep accounting semantics and structural editor behavior
+in deterministic JVM tests unless a stable user-visible UI assertion is
+required.
 
 ### Developer documentation
 ```bash
