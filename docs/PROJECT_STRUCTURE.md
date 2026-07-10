@@ -1,7 +1,7 @@
 # Project Structure
 
 Status: Active
-Last reviewed: 2026-06-20
+Last reviewed: 2026-07-10
 Applies to: iOS, Android
 
 This document describes the current file layout for `AI 記帳`.
@@ -12,6 +12,7 @@ This document describes the current file layout for `AI 記帳`.
 - `AI 記帳/ContentView.swift`: root tab shell (`Overview/Ledger/Reports/Accounts/Settings`).
 - `AI 記帳/Models/`: SwiftData models.
 - `AI 記帳/Services/`: domain services (backup, budget, currency, health check, advances).
+- `AI 記帳/Services/Advances/`: cohesive advance semantics and maintenance modules; lifecycle and settlement extraction follows ADR 0005.
 - `AI 記帳/Extensions/`: shared extensions.
 
 ## iOS Views
@@ -37,7 +38,9 @@ This document describes the current file layout for `AI 記帳`.
 - `android/app/build.gradle.kts`: app module config.
 - `android/app/src/main/java/.../MainActivity.kt`: Compose entry activity.
 - `android/app/src/main/java/.../core/`: Android domain models and pure parity logic.
+- `android/app/src/main/java/.../core/advance/`: persistence-free advance semantics shared by repository and UI callers.
 - `android/app/src/main/java/.../data/`: Room database, repositories, import/export, secure settings, and WebDAV support.
+- `android/app/src/main/java/.../data/advance/`: transaction-owning advance maintenance operations.
 - `android/app/src/main/java/.../ui/`: Compose screens, navigation, and parity UI components.
 - `android/app/src/main/java/.../widget/`: Android-only summary widget provider.
 - `android/app/src/test/`: Android unit tests and parity fixtures.

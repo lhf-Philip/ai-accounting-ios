@@ -141,8 +141,8 @@ struct SettlementCenterView: View {
 
     private var activeCaseSummaries: [AdvanceCase] {
         advanceCases.sorted {
-            let lhsOutstanding = AdvanceService.outstandingAmount(for: $0)
-            let rhsOutstanding = AdvanceService.outstandingAmount(for: $1)
+            let lhsOutstanding = AdvanceSemantics.outstanding(participantRemainingAmounts: $0.participants.map(\.remainingAmount))
+            let rhsOutstanding = AdvanceSemantics.outstanding(participantRemainingAmounts: $1.participants.map(\.remainingAmount))
             if lhsOutstanding == rhsOutstanding {
                 return $0.date > $1.date
             }
@@ -161,8 +161,8 @@ struct SettlementCenterView: View {
                 relatedAccountID: nil,
                 date: advanceCase.date,
                 title: "建立代墊：\(advanceCase.title)",
-                subtitle: "\(advanceCase.participants.count) 位對象，未清 \(AdvanceService.outstandingAmount(for: advanceCase).formatted(.currency(code: advanceCase.currencyCode)))",
-                amount: AdvanceService.totalAdvanced(for: advanceCase),
+                subtitle: "\(advanceCase.participants.count) 位對象，未清 \(AdvanceSemantics.outstanding(participantRemainingAmounts: advanceCase.participants.map(\.remainingAmount)).formatted(.currency(code: advanceCase.currencyCode)))",
+                amount: AdvanceSemantics.totalAdvanced(myShareAmount: advanceCase.myShareAmount, participantOwedAmounts: advanceCase.participants.map(\.owedAmount)),
                 currencyCode: advanceCase.currencyCode,
                 tint: .orange
             )
@@ -170,8 +170,8 @@ struct SettlementCenterView: View {
 
         let allRepayments = advanceCases.flatMap(\.repayments)
         items += allRepayments.filter {
-            !AdvanceService.isMutualDebtOffset(note: $0.note)
-                && !AdvanceService.isManualDebtSettlement(note: $0.note)
+            !AdvanceSemantics.isMutualDebtOffset(note: $0.note)
+                && !AdvanceSemantics.isManualDebtSettlement(note: $0.note)
         }.map { repayment in
             SettlementTimelineItem(
                 id: "repayment-\(repayment.id.uuidString)",
@@ -186,7 +186,7 @@ struct SettlementCenterView: View {
         }
 
         let manualRepaymentsByID = Dictionary(grouping: allRepayments.compactMap { repayment -> (UUID, AdvanceRepayment)? in
-            guard let settlementID = AdvanceService.manualDebtSettlementID(from: repayment.note) else { return nil }
+            guard let settlementID = AdvanceSemantics.manualDebtSettlementID(from: repayment.note) else { return nil }
             return (settlementID, repayment)
         }) { $0.0 }
         items += manualRepaymentsByID.compactMap { settlementID, entries in
@@ -206,7 +206,7 @@ struct SettlementCenterView: View {
         }
 
         let offsetRepaymentsByID = Dictionary(grouping: allRepayments.compactMap { repayment -> (UUID, AdvanceRepayment)? in
-            guard let offsetID = AdvanceService.mutualDebtOffsetID(from: repayment.note) else { return nil }
+            guard let offsetID = AdvanceSemantics.mutualDebtOffsetID(from: repayment.note) else { return nil }
             return (offsetID, repayment)
         }) { $0.0 }
         items += offsetRepaymentsByID.compactMap { offsetID, entries in
@@ -529,16 +529,16 @@ struct SettlementCenterView: View {
                                 Text(advanceCase.title)
                                     .font(.headline)
                                 Spacer()
-                                Text(AdvanceService.outstandingAmount(for: advanceCase).formatted(.currency(code: advanceCase.currencyCode)))
+                                Text(AdvanceSemantics.outstanding(participantRemainingAmounts: advanceCase.participants.map(\.remainingAmount)).formatted(.currency(code: advanceCase.currencyCode)))
                                     .font(.headline)
-                                    .foregroundStyle(AdvanceService.outstandingAmount(for: advanceCase) > 0 ? .orange : .secondary)
+                                    .foregroundStyle(AdvanceSemantics.outstanding(participantRemainingAmounts: advanceCase.participants.map(\.remainingAmount)) > 0 ? .orange : .secondary)
                             }
-                            Text("\(advanceCase.participants.count) 位對象，總額 \(AdvanceService.totalAdvanced(for: advanceCase).formatted(.currency(code: advanceCase.currencyCode)))")
+                            Text("\(advanceCase.participants.count) 位對象，總額 \(AdvanceSemantics.totalAdvanced(myShareAmount: advanceCase.myShareAmount, participantOwedAmounts: advanceCase.participants.map(\.owedAmount)).formatted(.currency(code: advanceCase.currencyCode)))")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Text(caseProgressText(for: advanceCase))
                                 .font(.caption)
-                                .foregroundStyle(AdvanceService.outstandingAmount(for: advanceCase) > 0 ? .orange : .secondary)
+                                .foregroundStyle(AdvanceSemantics.outstanding(participantRemainingAmounts: advanceCase.participants.map(\.remainingAmount)) > 0 ? .orange : .secondary)
                             if let top = topOutstandingParticipant(for: advanceCase) {
                                 Text("主要未清：\(top.name) \(max(top.owedAmount - top.repaidAmount, 0).formatted(.currency(code: advanceCase.currencyCode)))")
                                     .font(.caption2)
@@ -632,8 +632,8 @@ struct SettlementCenterView: View {
     }
 
     private func caseProgressText(for advanceCase: AdvanceCase) -> String {
-        let total = AdvanceService.totalAdvanced(for: advanceCase)
-        let outstanding = AdvanceService.outstandingAmount(for: advanceCase)
+        let total = AdvanceSemantics.totalAdvanced(myShareAmount: advanceCase.myShareAmount, participantOwedAmounts: advanceCase.participants.map(\.owedAmount))
+        let outstanding = AdvanceSemantics.outstanding(participantRemainingAmounts: advanceCase.participants.map(\.remainingAmount))
         guard total > 0 else { return "未清比例 0%" }
         let percent = NSDecimalNumber(decimal: outstanding / total * 100).doubleValue
         return String(format: "未清比例 %.0f%%", percent)

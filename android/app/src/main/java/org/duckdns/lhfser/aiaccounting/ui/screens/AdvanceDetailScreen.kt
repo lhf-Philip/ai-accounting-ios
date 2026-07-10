@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import org.duckdns.lhfser.aiaccounting.core.advance.AdvanceSemantics
 import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.AccountType
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
@@ -990,15 +991,13 @@ fun AdvanceDetailScreen(caseId: String?) {
                                     repository.rollbackAdvanceRepayment(repayment.id)
                                 RepaymentRecordKind.MutualDebtOffset -> {
                                     val offsetId = requireNotNull(
-                                        org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
-                                            .mutualDebtOffsetId(repayment.note)
+                                        AdvanceSemantics.mutualDebtOffsetId(repayment.note)
                                     )
                                     repository.rollbackMutualDebtOffset(offsetId)
                                 }
                                 RepaymentRecordKind.ManualDebtSettlement -> {
                                     val settlementId = requireNotNull(
-                                        org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
-                                            .manualDebtSettlementId(repayment.note)
+                                        AdvanceSemantics.manualDebtSettlementId(repayment.note)
                                     )
                                     repository.rollbackManualDebtSettlement(settlementId)
                                 }
@@ -1158,10 +1157,8 @@ fun AdvanceDetailScreen(caseId: String?) {
 
 private fun repaymentRecordKind(note: String): RepaymentRecordKind {
     return when {
-        org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
-            .isMutualDebtOffset(note) -> RepaymentRecordKind.MutualDebtOffset
-        org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
-            .isManualDebtSettlement(note) -> RepaymentRecordKind.ManualDebtSettlement
+        AdvanceSemantics.isMutualDebtOffset(note) -> RepaymentRecordKind.MutualDebtOffset
+        AdvanceSemantics.isManualDebtSettlement(note) -> RepaymentRecordKind.ManualDebtSettlement
         else -> RepaymentRecordKind.Ordinary
     }
 }

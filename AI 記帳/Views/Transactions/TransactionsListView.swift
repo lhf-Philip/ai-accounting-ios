@@ -762,7 +762,7 @@ struct AdvanceCaseLedgerSummary {
     }
 
     var outstandingAmount: Decimal {
-        AdvanceService.outstandingAmount(for: advanceCase)
+        AdvanceSemantics.outstanding(participantRemainingAmounts: advanceCase.participants.map(\.remainingAmount))
     }
 
     var isSettled: Bool {
@@ -776,8 +776,8 @@ struct AdvanceCaseLedgerSummary {
     var paymentSummary: String {
         if paymentTotals.isEmpty {
             return advanceCase.direction == .othersAdvancedMe
-                ? "\(AdvanceService.totalAdvanced(for: advanceCase).formatted(.currency(code: advanceCase.currencyCode)))（他人代付）"
-                : AdvanceService.totalAdvanced(for: advanceCase)
+                ? "\(AdvanceSemantics.totalAdvanced(myShareAmount: advanceCase.myShareAmount, participantOwedAmounts: advanceCase.participants.map(\.owedAmount)).formatted(.currency(code: advanceCase.currencyCode)))（他人代付）"
+                : AdvanceSemantics.totalAdvanced(myShareAmount: advanceCase.myShareAmount, participantOwedAmounts: advanceCase.participants.map(\.owedAmount))
                     .formatted(.currency(code: advanceCase.currencyCode))
         }
         return paymentTotals.map {

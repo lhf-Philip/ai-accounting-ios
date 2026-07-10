@@ -16,7 +16,7 @@ struct EditAdvanceTransferView: View {
     @Query private var repayments: [AdvanceRepayment]
 
     @State private var linkKind: LinkKind = .unknown
-    @State private var settlementDirection: AdvanceService.SettlementDirection = .iAdvancedOthers
+    @State private var settlementDirection: AdvanceSemantics.SettlementDirection = .iAdvancedOthers
     @State private var selectedAccount: Account?
     @State private var amountString = ""
     @State private var currencyCode = "HKD"

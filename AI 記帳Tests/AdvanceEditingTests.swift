@@ -532,7 +532,7 @@ final class AdvanceEditingTests: XCTestCase {
         advanceCase.direction = nil
         try context.save()
 
-        let result = try AdvanceService.backfillExplicitLinks(modelContext: context)
+        let result = try AdvanceMaintenance.backfillExplicitLinks(modelContext: context)
 
         XCTAssertEqual(2, result.linkedTransactionCount)
         XCTAssertEqual(.iAdvancedOthers, advanceCase.direction)

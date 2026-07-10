@@ -213,7 +213,7 @@ struct DataHealthCheckView: View {
         isRunning = true
         
         do {
-            let result = try AdvanceService.repairLegacyLinks(modelContext: modelContext)
+            let result = try AdvanceMaintenance.repairLegacyLinks(modelContext: modelContext)
             report = DataHealthCheckService.run(modelContext: modelContext)
             
             alertMessage = """
@@ -233,7 +233,7 @@ struct DataHealthCheckView: View {
         isRunning = true
 
         do {
-            let result = try AdvanceService.repairLegacyBorrowedAdvanceAccountInflation(modelContext: modelContext)
+            let result = try AdvanceMaintenance.repairLegacyBorrowedAdvanceAccountInflation(modelContext: modelContext)
             report = DataHealthCheckService.run(modelContext: modelContext)
             alertMessage = """
             已修復 \(result.repairedParticipantCount) 位代墊對象。
@@ -250,7 +250,7 @@ struct DataHealthCheckView: View {
     private func repairAdvanceRepaymentTotals() {
         isRunning = true
         do {
-            let result = try AdvanceService.reconcileUnderstatedRepaymentTotals(modelContext: modelContext)
+            let result = try AdvanceMaintenance.reconcileUnderstatedRepaymentTotals(modelContext: modelContext)
             report = DataHealthCheckService.run(modelContext: modelContext)
             alertMessage = "已檢查 \(result.checkedParticipantCount) 位有還款紀錄的對象，修復 \(result.updatedParticipantCount) 位。"
         } catch {

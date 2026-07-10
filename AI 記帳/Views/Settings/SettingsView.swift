@@ -549,8 +549,8 @@ struct SettingsView: View {
 
     private func repairLegacyAdvanceLinksAfterImport() {
         do {
-            let result = try AdvanceService.repairLegacyLinks(modelContext: modelContext)
-            _ = try AdvanceService.backfillExplicitLinks(modelContext: modelContext)
+            let result = try AdvanceMaintenance.repairLegacyLinks(modelContext: modelContext)
+            _ = try AdvanceMaintenance.backfillExplicitLinks(modelContext: modelContext)
             alertMessage = """
             \(lastImportSummaryMessage)
 

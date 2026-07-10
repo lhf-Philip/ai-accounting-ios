@@ -822,7 +822,7 @@ final class BackupCompatibilityTests: XCTestCase {
 
         let repayments = try modelContext.fetch(FetchDescriptor<AdvanceRepayment>())
         XCTAssertEqual(2, repayments.count)
-        XCTAssertTrue(repayments.allSatisfy { AdvanceService.mutualDebtOffsetID(from: $0.note) == result.offsetGroupID })
+        XCTAssertTrue(repayments.allSatisfy { AdvanceSemantics.mutualDebtOffsetID(from: $0.note) == result.offsetGroupID })
         XCTAssertThrowsError(
             try AdvanceService.rollbackRepayment(
                 advanceCase: try XCTUnwrap(repayments.first?.advanceCase),
@@ -888,7 +888,7 @@ final class BackupCompatibilityTests: XCTestCase {
 
         let repayments = try modelContext.fetch(FetchDescriptor<AdvanceRepayment>())
         XCTAssertEqual(1, repayments.count)
-        XCTAssertTrue(AdvanceService.isManualDebtSettlement(note: try XCTUnwrap(repayments.first?.note)))
+        XCTAssertTrue(AdvanceSemantics.isManualDebtSettlement(note: try XCTUnwrap(repayments.first?.note)))
         XCTAssertNil(repayments.first?.linkedTransferGroupID)
         XCTAssertNil(repayments.first?.receivedAccount)
 
@@ -958,7 +958,7 @@ final class BackupCompatibilityTests: XCTestCase {
         let reportBeforeRepair = DataHealthCheckService.run(modelContext: modelContext)
         XCTAssertTrue(reportBeforeRepair.issues.contains { $0.title == "代墊還款累計偏低" })
 
-        let result = try AdvanceService.reconcileUnderstatedRepaymentTotals(modelContext: modelContext)
+        let result = try AdvanceMaintenance.reconcileUnderstatedRepaymentTotals(modelContext: modelContext)
 
         XCTAssertEqual(1, result.checkedParticipantCount)
         XCTAssertEqual(1, result.updatedParticipantCount)
@@ -1240,7 +1240,7 @@ final class BackupCompatibilityTests: XCTestCase {
         let initialReport = DataHealthCheckService.run(modelContext: modelContext)
         XCTAssertTrue(initialReport.issues.contains { $0.title == "他人代墊我舊資料會虛增自己帳戶" })
 
-        let result = try AdvanceService.repairLegacyBorrowedAdvanceAccountInflation(modelContext: modelContext)
+        let result = try AdvanceMaintenance.repairLegacyBorrowedAdvanceAccountInflation(modelContext: modelContext)
 
         XCTAssertEqual(1, result.repairedParticipantCount)
         XCTAssertEqual(1, result.removedInflatedAccountTransactionCount)
