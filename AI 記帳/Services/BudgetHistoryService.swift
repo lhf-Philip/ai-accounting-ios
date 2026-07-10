@@ -88,18 +88,19 @@ final class BudgetHistoryService {
             }
 
             let monthRange = Self.dateRange(forMonthKey: key.monthKey)
-            let expenseType = TransactionType.expense
             let startDate = monthRange.start
             let endDate = monthRange.end
             let descriptor = FetchDescriptor<FinancialTransaction>(
                 predicate: #Predicate { transaction in
-                    transaction.type == expenseType &&
                     transaction.date >= startDate &&
                     transaction.date < endDate
                 }
             )
             let monthTransactions = try modelContext.fetch(descriptor)
-            let categoryTransactions = monthTransactions.filter { $0.category?.id == key.categoryID }
+            // SwiftData does not support predicates that capture persisted enum values.
+            let categoryTransactions = monthTransactions.filter {
+                $0.type == .expense && $0.category?.id == key.categoryID
+            }
 
             let snapshot = makeSnapshot(
                 for: budget,

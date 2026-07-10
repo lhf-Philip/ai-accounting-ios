@@ -298,6 +298,24 @@ Expected:
 - No financial transaction is created or deleted by these marker-only rollbacks.
 - The advance detail UI labels these records as offset/settlement rather than ordinary repayment.
 
+## Vector 20: Advance Lifecycle And Budget History Consistency
+
+Input:
+- Expense budget: `500 HKD` for category `Dining` in `2026-06`.
+- `他人代墊我` case: participant pays `150 HKD` on `2026-06-10`.
+- The case is later deleted together with its linked bookkeeping.
+
+Expected after creation:
+- One advance case and one linked debt-account expense exist.
+- Budget history spent amount: `150 HKD`.
+- Budget history remaining amount: `350 HKD`.
+
+Expected after deletion:
+- The advance case and linked expense no longer exist.
+- Budget history spent amount: `0 HKD`.
+- Budget history remaining amount: `500 HKD`.
+- A failed lifecycle mutation must leave the case, linked bookkeeping, and budget history at their pre-operation values.
+
 ## Automated Coverage
 
 | Vector | iOS | Android |
@@ -313,6 +331,7 @@ Expected:
 | 17 | `AdvanceEditingTests.testCrossCurrencyRepaymentEditPreservesExplicitNormalizedAmountAndIncomingMetadata`, `AdvanceEditingTests.testOthersAdvancedMeEditTagsOutgoingOwnLegAndRollbackRestoresParticipant` | `AdvanceEditingTest.crossCurrencyRepaymentEdit_preservesExplicitSettlementAndMovesMetadataToIncomingOwnLeg`, `AdvanceEditingTest.othersAdvancedMeRepaymentEdit_tagsOutgoingOwnLegAndRollbackRestoresParticipant` |
 | 18 | `AdvanceEditingTests.testSelfExpenseEditPreservesActualCurrencyAndNormalisedCaseShare`, `AdvanceEditingTests.testParticipantCorrectionUpdatesBorrowedInitialExpense`, `AdvanceEditingTests.testInitialEntryEditUpdatesCaseMetadataAcrossEveryParticipant` | `AdvanceEditingTest.selfExpenseEdit_preservesActualCurrencyAndNormalizedCaseShare`, `AdvanceEditingTest.participantCorrection_updatesBorrowedInitialExpenseAtomically`, `AdvanceEditingTest.initialMetadataEdit_updatesEveryParticipantGroup` |
 | 19 | `BackupCompatibilityTests.testMutualDebtOffset_settlesBidirectionalAdvancesWithoutTransactions`, `BackupCompatibilityTests.testManualDebtSettlement_closesSingleCurrencyAdvanceWithoutTransactions` | `BackupRoundTripTest.mutualDebtOffset_settlesBidirectionalAdvancesWithoutTransactions`, `BackupRoundTripTest.manualDebtSettlement_closesSingleCurrencyAdvanceWithoutTransactions` |
+| 20 | `AdvanceLifecycleCharacterisationTests.testBorrowedAdvanceLifecycleKeepsBudgetHistoryConsistent` | `AdvanceLifecycleCharacterisationTest.borrowedAdvanceLifecycle_keepsBudgetHistoryConsistent` |
 
 ## CI Gate Recommendation
 

@@ -1,7 +1,7 @@
 # AI Accounting Domain Context
 
 Status: Active
-Last updated: 2026-06-05
+Last updated: 2026-07-10
 
 This file is the shared domain glossary for the iOS and Android apps. It explains the accounting language that agents should use when changing code, docs, tests, or GitHub issues.
 
@@ -42,6 +42,7 @@ The app is not a double-entry accounting system. It still needs strict semantic 
 - **Cross-currency advance repayment**: The amount actually received or paid can use a different currency from the advance case. The repayment stores the actual currency amount and a normalized amount in the case currency for remaining-balance calculations.
 - **Mutual debt offset (`債務抵銷`)**: Ledger-only settlement between opposing advance balances for the same person and currency. It is not repayment by cash and not debt forgiveness.
 - **Refund on an advance (`退款`)**: A merchant or provider returns value related to a prior expense or advance. It reduces net expense for the linked category/tag up to the remaining original expense amount. Any excess is settlement-only, not income.
+- **Advance case lifecycle**: The atomic set of operations that creates, structurally edits, repays, rolls back, or deletes an advance case together with its linked bookkeeping and derived budget history.
 
 ## Debt Management
 
@@ -71,6 +72,7 @@ The app is not a double-entry accounting system. It still needs strict semantic 
 - iOS remains the product source of truth for screen structure and flow semantics.
 - Android should match iOS semantics and user-facing flow unless `docs/specs/android-ios-parity.md` explicitly allows a difference.
 - Domain logic should move toward small testable services/modules rather than screen-level recalculation.
+- Advance domain responsibilities are divided into four cohesive modules: `AdvanceSemantics`, `AdvanceCaseLifecycle`, `AdvanceSettlement`, and `AdvanceMaintenance`. Their ownership and transaction rules are defined by ADR 0005.
 - New agent work should prefer documented vocabulary from this file over ad-hoc synonyms.
 
 ## Architecture Decision Records
@@ -81,3 +83,4 @@ Current ADRs:
 - `docs/adr/0002-advance-and-debt-settlement.md`
 - `docs/adr/0003-report-currency-estimates.md`
 - `docs/adr/0004-refund-semantics.md`
+- `docs/adr/0005-advance-domain-modules.md`
