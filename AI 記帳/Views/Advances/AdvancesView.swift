@@ -22,11 +22,11 @@ struct AdvancesView: View {
     }
     
     private var activeCases: [AdvanceCase] {
-        advanceCases.filter { AdvanceService.outstandingAmount(for: $0) > 0 }
+        advanceCases.filter { AdvanceSemantics.outstanding(participantRemainingAmounts: $0.participants.map(\.remainingAmount)) > 0 }
     }
     
     private var settledCases: [AdvanceCase] {
-        advanceCases.filter { AdvanceService.outstandingAmount(for: $0) == 0 }
+        advanceCases.filter { AdvanceSemantics.outstanding(participantRemainingAmounts: $0.participants.map(\.remainingAmount)) == 0 }
     }
     
     private var participantAggregates: [ParticipantAggregate] {
@@ -153,7 +153,7 @@ struct AdvancesView: View {
     private func advanceCaseRow(_ advanceCase: AdvanceCase) -> some View {
         let receivable = advanceCase.participants.reduce(Decimal.zero) { $0 + $1.owedAmount }
         let repaid = advanceCase.participants.reduce(Decimal.zero) { $0 + $1.repaidAmount }
-        let outstanding = AdvanceService.outstandingAmount(for: advanceCase)
+        let outstanding = AdvanceSemantics.outstanding(participantRemainingAmounts: advanceCase.participants.map(\.remainingAmount))
         let progress: Double = receivable > 0
             ? min(max((NSDecimalNumber(decimal: repaid).doubleValue / NSDecimalNumber(decimal: receivable).doubleValue), 0), 1)
             : 1
@@ -239,7 +239,7 @@ struct AdvanceCaseDetailView: View {
     @State private var showingRollbackAlert = false
     @State private var showingError = false
     @State private var errorMessage = ""
-    @State private var settlementDirection: AdvanceService.SettlementDirection = .iAdvancedOthers
+    @State private var settlementDirection: AdvanceSemantics.SettlementDirection = .iAdvancedOthers
     
     private var sortedParticipants: [AdvanceParticipant] {
         advanceCase.participants.sorted {
@@ -297,7 +297,7 @@ struct AdvanceCaseDetailView: View {
             Section("摘要") {
                 summaryRow(
                     title: "代墊總額",
-                    value: AdvanceService.totalAdvanced(for: advanceCase).formatted(.currency(code: advanceCase.currencyCode))
+                    value: AdvanceSemantics.totalAdvanced(myShareAmount: advanceCase.myShareAmount, participantOwedAmounts: advanceCase.participants.map(\.owedAmount)).formatted(.currency(code: advanceCase.currencyCode))
                 )
                 summaryRow(
                     title: "自己的支出",
@@ -305,7 +305,7 @@ struct AdvanceCaseDetailView: View {
                 )
                 summaryRow(
                     title: settlementDirection == .iAdvancedOthers ? "待收總額" : "待還總額",
-                    value: AdvanceService.outstandingAmount(for: advanceCase).formatted(.currency(code: advanceCase.currencyCode))
+                    value: AdvanceSemantics.outstanding(participantRemainingAmounts: advanceCase.participants.map(\.remainingAmount)).formatted(.currency(code: advanceCase.currencyCode))
                 )
                 summaryRow(
                     title: settlementDirection == .iAdvancedOthers ? "付款帳戶" : "付款來源",
@@ -388,13 +388,13 @@ struct AdvanceCaseDetailView: View {
                         repaymentRow(repayment)
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                if AdvanceService.repaymentRecordKind(note: repayment.note) == .ordinary,
+                                if AdvanceSemantics.repaymentRecordKind(note: repayment.note) == .ordinary,
                                    repayment.linkedTransferGroupID != nil {
                                     selectedRepaymentForEdit = repayment
                                 }
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if AdvanceService.repaymentRecordKind(note: repayment.note) == .ordinary,
+                                if AdvanceSemantics.repaymentRecordKind(note: repayment.note) == .ordinary,
                                    repayment.linkedTransferGroupID != nil {
                                     Button {
                                         selectedRepaymentForEdit = repayment
@@ -555,7 +555,7 @@ struct AdvanceCaseDetailView: View {
     }
     
     private func repaymentRow(_ repayment: AdvanceRepayment) -> some View {
-        let recordKind = AdvanceService.repaymentRecordKind(note: repayment.note)
+        let recordKind = AdvanceSemantics.repaymentRecordKind(note: repayment.note)
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -602,7 +602,7 @@ struct AdvanceCaseDetailView: View {
     
     private func rollbackRepayment(_ repayment: AdvanceRepayment) {
         do {
-            switch AdvanceService.repaymentRecordKind(note: repayment.note) {
+            switch AdvanceSemantics.repaymentRecordKind(note: repayment.note) {
             case .ordinary:
                 try AdvanceService.rollbackRepayment(
                     advanceCase: advanceCase,
@@ -628,7 +628,7 @@ struct AdvanceCaseDetailView: View {
         }
     }
 
-    private func repaymentKindLabel(_ kind: AdvanceService.RepaymentRecordKind) -> String {
+    private func repaymentKindLabel(_ kind: AdvanceSemantics.RepaymentRecordKind) -> String {
         switch kind {
         case .ordinary:
             return "還款"
@@ -642,7 +642,7 @@ struct AdvanceCaseDetailView: View {
     }
 
     private func rollbackMessage(for repayment: AdvanceRepayment) -> String {
-        switch AdvanceService.repaymentRecordKind(note: repayment.note) {
+        switch AdvanceSemantics.repaymentRecordKind(note: repayment.note) {
         case .ordinary:
             return "將刪除 \(repayment.amount.formatted(.currency(code: repayment.currencyCode))) 的還款紀錄，並同步刪除對應借貸轉帳。"
         case .mutualDebtOffset:
@@ -684,7 +684,7 @@ struct EditAdvanceCaseView: View {
     @State private var note = ""
     @State private var selectedCategory: Category?
     @State private var selectedTags: Set<Tag> = []
-    @State private var direction: AdvanceService.SettlementDirection = .iAdvancedOthers
+    @State private var direction: AdvanceSemantics.SettlementDirection = .iAdvancedOthers
     @State private var showingError = false
     @State private var errorMessage = ""
 
@@ -1326,7 +1326,7 @@ struct AddAdvanceRepaymentView: View {
     @State private var settlementAmountManuallyEdited = false
     @State private var selectedCategory: Category?
     @State private var selectedTags: Set<Tag> = []
-    @State private var settlementDirection: AdvanceService.SettlementDirection = .iAdvancedOthers
+    @State private var settlementDirection: AdvanceSemantics.SettlementDirection = .iAdvancedOthers
     @State private var splitLegs: [SplitLeg] = [SplitLeg()]
     @State private var mergeLegs: [MergeLeg] = [MergeLeg()]
     @State private var showingAddTag = false
@@ -1919,7 +1919,7 @@ struct EditAdvanceParticipantView: View {
     @State private var selectedPaymentAccount: Account?
     @State private var paymentAmountString = ""
     @State private var paymentCurrency = "HKD"
-    @State private var direction: AdvanceService.SettlementDirection = .iAdvancedOthers
+    @State private var direction: AdvanceSemantics.SettlementDirection = .iAdvancedOthers
     @State private var showingError = false
     @State private var errorMessage = ""
 

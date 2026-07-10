@@ -119,7 +119,7 @@ struct AdvanceStructuralEditorView: View {
 
     private var hasSpecialRepayments: Bool {
         advanceCase.repayments.contains {
-            AdvanceService.repaymentRecordKind(note: $0.note) != .ordinary
+            AdvanceSemantics.repaymentRecordKind(note: $0.note) != .ordinary
         }
     }
 
@@ -423,7 +423,7 @@ struct AdvanceStructuralEditorView: View {
             }
 
         repayments = advanceCase.repayments
-            .filter { AdvanceService.repaymentRecordKind(note: $0.note) == .ordinary }
+            .filter { AdvanceSemantics.repaymentRecordKind(note: $0.note) == .ordinary }
             .sorted { $0.date < $1.date }
             .compactMap { repayment in
                 guard let participantID = repayment.participant?.id else { return nil }

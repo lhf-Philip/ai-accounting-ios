@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import org.duckdns.lhfser.aiaccounting.core.advance.AdvanceSemantics
 import androidx.compose.foundation.text.KeyboardOptions
 import org.duckdns.lhfser.aiaccounting.core.model.AccountType
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
@@ -698,8 +699,8 @@ private fun buildTimelineItems(
         )
         advanceCase.repayments
             .filter {
-                !AccountingRepository.isMutualDebtOffset(it.note) &&
-                    !AccountingRepository.isManualDebtSettlement(it.note)
+                !AdvanceSemantics.isMutualDebtOffset(it.note) &&
+                    !AdvanceSemantics.isManualDebtSettlement(it.note)
             }
             .forEach { repayment ->
             val participant = advanceCase.participants.firstOrNull { it.id == repayment.participantId }
@@ -719,7 +720,7 @@ private fun buildTimelineItems(
     advanceCases
         .flatMap { advanceCase -> advanceCase.repayments.map { repayment -> advanceCase to repayment } }
         .mapNotNull { (advanceCase, repayment) ->
-            AccountingRepository.manualDebtSettlementId(repayment.note)?.let { settlementId ->
+            AdvanceSemantics.manualDebtSettlementId(repayment.note)?.let { settlementId ->
                 settlementId to (advanceCase to repayment)
             }
         }
@@ -746,7 +747,7 @@ private fun buildTimelineItems(
     advanceCases
         .flatMap { advanceCase -> advanceCase.repayments.map { repayment -> advanceCase to repayment } }
         .mapNotNull { (advanceCase, repayment) ->
-            AccountingRepository.mutualDebtOffsetId(repayment.note)?.let { offsetId ->
+            AdvanceSemantics.mutualDebtOffsetId(repayment.note)?.let { offsetId ->
                 offsetId to (advanceCase to repayment)
             }
         }
@@ -803,15 +804,18 @@ private fun buildTimelineItems(
 }
 
 private fun outstandingAmount(advanceCase: AdvanceCaseWithDetails): BigDecimal {
-    return advanceCase.participants.fold(BigDecimal.ZERO) { acc, participant ->
-        acc + (participant.owedAmount - participant.repaidAmount).max(BigDecimal.ZERO)
-    }
+    return AdvanceSemantics.outstanding(
+        advanceCase.participants.map {
+            (it.owedAmount - it.repaidAmount).max(BigDecimal.ZERO)
+        }
+    )
 }
 
 private fun totalAdvanced(advanceCase: AdvanceCaseWithDetails): BigDecimal {
-    return advanceCase.advanceCase.myShareAmount + advanceCase.participants.fold(BigDecimal.ZERO) { acc, participant ->
-        acc + participant.owedAmount
-    }
+    return AdvanceSemantics.totalAdvanced(
+        myShareAmount = advanceCase.advanceCase.myShareAmount,
+        participantOwedAmounts = advanceCase.participants.map { it.owedAmount }
+    )
 }
 
 private fun caseProgressText(advanceCase: AdvanceCaseWithDetails): String {

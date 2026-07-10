@@ -49,7 +49,7 @@ struct HomeDashboardView: View {
     private var periodOutstandingAdvance: Decimal {
         filteredAdvanceCases
             .reduce(Decimal.zero) { partial, advanceCase in
-                let outstanding = AdvanceService.outstandingAmount(for: advanceCase)
+                let outstanding = AdvanceSemantics.outstanding(participantRemainingAmounts: advanceCase.participants.map(\.remainingAmount))
                 return partial + currencyService.convert(amount: outstanding, from: advanceCase.currencyCode)
             }
     }

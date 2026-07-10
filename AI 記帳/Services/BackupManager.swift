@@ -968,8 +968,8 @@ class BackupManager: NSObject, ObservableObject {
         }
 
         try modelContext.save()
-        _ = try AdvanceService.backfillExplicitLinks(modelContext: modelContext)
-        _ = try AdvanceService.reconcileUnderstatedRepaymentTotals(modelContext: modelContext)
+        _ = try AdvanceMaintenance.backfillExplicitLinks(modelContext: modelContext)
+        _ = try AdvanceMaintenance.reconcileUnderstatedRepaymentTotals(modelContext: modelContext)
         try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: CurrencyService.shared)
         try modelContext.save()
     }

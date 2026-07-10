@@ -384,7 +384,7 @@ enum AdvanceCaseEditingService {
             else {
                 throw AdvanceCaseEditingError.repaymentNotInCase
             }
-            guard AdvanceService.repaymentRecordKind(note: repaymentDraft.repayment.note) == .ordinary else {
+            guard AdvanceSemantics.repaymentRecordKind(note: repaymentDraft.repayment.note) == .ordinary else {
                 throw AdvanceCaseEditingError.specialRepaymentRequiresGroupRollback
             }
             guard repaymentDraft.amount > 0,
@@ -405,7 +405,7 @@ enum AdvanceCaseEditingService {
 
         let omittedSpecialRepayments = draft.advanceCase.repayments.filter {
             !repaymentIDs.contains($0.id) &&
-                AdvanceService.repaymentRecordKind(note: $0.note) != .ordinary
+                AdvanceSemantics.repaymentRecordKind(note: $0.note) != .ordinary
         }
         guard omittedSpecialRepayments.isEmpty else {
             throw AdvanceCaseEditingError.specialRepaymentRequiresGroupRollback

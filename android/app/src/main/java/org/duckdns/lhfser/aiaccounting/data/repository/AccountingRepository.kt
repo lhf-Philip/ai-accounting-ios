@@ -2,6 +2,9 @@ package org.duckdns.lhfser.aiaccounting.data.repository
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import org.duckdns.lhfser.aiaccounting.core.advance.AdvanceEntryRole
+import org.duckdns.lhfser.aiaccounting.core.advance.AdvanceSemantics
+import org.duckdns.lhfser.aiaccounting.core.advance.AdvanceSettlementDirection
 import org.duckdns.lhfser.aiaccounting.core.backup.BackupAccountInput
 import org.duckdns.lhfser.aiaccounting.core.backup.BackupAdvanceCaseInput
 import org.duckdns.lhfser.aiaccounting.core.backup.BackupAdvanceRepaymentInput
@@ -45,6 +48,8 @@ import org.duckdns.lhfser.aiaccounting.data.backup.BackupRestoreMode
 import org.duckdns.lhfser.aiaccounting.data.backup.BackupRestoreSummary
 import org.duckdns.lhfser.aiaccounting.data.backup.BackupRestoreVerificationException
 import org.duckdns.lhfser.aiaccounting.data.backup.FullBackupData
+import org.duckdns.lhfser.aiaccounting.data.advance.AdvanceMaintenance
+import org.duckdns.lhfser.aiaccounting.data.advance.LegacyBorrowedAdvanceRepairResult
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.ZoneId
@@ -119,19 +124,6 @@ data class TransferGroupReplacementDraft(
     val note: String,
     val legs: List<TransferReplacementLeg>
 )
-
-enum class AdvanceSettlementDirection {
-    IAdvancedOthers,
-    OthersAdvancedMe
-}
-
-enum class AdvanceEntryRole {
-    SelfExpense,
-    InitialAsset,
-    InitialDebt,
-    RepaymentAsset,
-    RepaymentDebt
-}
 
 data class AdvanceRepaymentEditDraft(
     val repaymentId: UUID,
@@ -238,11 +230,6 @@ data class AdvanceCaseStructuralImpact(
     val warnings: List<String>
 )
 
-data class LegacyBorrowedAdvanceRepairResult(
-    val repairedParticipantCount: Int,
-    val removedInflatedAccountTransactionCount: Int
-)
-
 data class MutualDebtOffsetCandidate(
     val debtAccount: AccountEntity,
     val currencyCode: String,
@@ -275,9 +262,6 @@ data class ManualDebtSettlementResult(
 private const val RECURRING_STATUS_PENDING = "Pending"
 private const val RECURRING_STATUS_CONFIRMED = "Confirmed"
 private const val RECURRING_STATUS_SKIPPED = "Skipped"
-const val MUTUAL_DEBT_OFFSET_MARKER_PREFIX = "[債務抵銷:"
-const val MANUAL_DEBT_SETTLEMENT_MARKER_PREFIX = "[跨幣種平賬:"
-
 class AccountingRepository(
     private val database: AIAccountingDatabase,
     private val currencyService: CurrencyService
@@ -290,6 +274,10 @@ class AccountingRepository(
     private val recurringDao = database.recurringDao()
     private val budgetDao: BudgetDao = database.budgetDao()
     private val advanceDao = database.advanceDao()
+    private val advanceMaintenance = AdvanceMaintenance(
+        database = database,
+        synchronizeBudgetHistory = { syncAllBudgetHistory() }
+    )
 
     val accounts: Flow<List<AccountEntity>> = accountDao.observeAccounts()
     val categories: Flow<List<CategoryEntity>> = categoryDao.observeCategories()
@@ -490,7 +478,7 @@ class AccountingRepository(
             val now = Instant.now()
             val offsetGroupId = UUID.randomUUID()
             val trimmedNote = note.trim()
-            val marker = "$MUTUAL_DEBT_OFFSET_MARKER_PREFIX$offsetGroupId]"
+            val marker = AdvanceSemantics.mutualDebtOffsetMarker(offsetGroupId)
             val finalNote = if (trimmedNote.isBlank()) {
                 "$marker 與 ${debtAccount.name} 互相代墊抵銷"
             } else {
@@ -512,7 +500,7 @@ class AccountingRepository(
     suspend fun rollbackMutualDebtOffset(offsetGroupId: UUID): Int {
         return database.withTransaction {
             val repayments = advanceDao.getAllRepayments()
-                .filter { mutualDebtOffsetId(it.note) == offsetGroupId }
+                .filter { AdvanceSemantics.mutualDebtOffsetId(it.note) == offsetGroupId }
             rollbackRepayments(repayments)
             repayments.size
         }
@@ -542,7 +530,7 @@ class AccountingRepository(
             val now = Instant.now()
             val settlementId = UUID.randomUUID()
             val trimmedNote = note.trim()
-            val marker = "$MANUAL_DEBT_SETTLEMENT_MARKER_PREFIX$settlementId]"
+            val marker = AdvanceSemantics.manualDebtSettlementMarker(settlementId)
             val defaultNote = when (direction) {
                 ManualDebtSettlementDirection.Receivable -> "手動結清 ${debtAccount.name} 欠你的 $currencyCode 代墊餘額"
                 ManualDebtSettlementDirection.Payable -> "手動結清你欠 ${debtAccount.name} 的 $currencyCode 代墊餘額"
@@ -562,7 +550,7 @@ class AccountingRepository(
     suspend fun rollbackManualDebtSettlement(settlementId: UUID): Int {
         return database.withTransaction {
             val repayments = advanceDao.getAllRepayments()
-                .filter { manualDebtSettlementId(it.note) == settlementId }
+                .filter { AdvanceSemantics.manualDebtSettlementId(it.note) == settlementId }
             rollbackRepayments(repayments)
             repayments.size
         }
@@ -653,36 +641,6 @@ class AccountingRepository(
         return count
     }
 
-    companion object {
-        fun isMutualDebtOffset(note: String): Boolean {
-            return note.trim().startsWith(MUTUAL_DEBT_OFFSET_MARKER_PREFIX)
-        }
-
-        fun mutualDebtOffsetId(note: String): UUID? {
-            val trimmed = note.trim()
-            if (!trimmed.startsWith(MUTUAL_DEBT_OFFSET_MARKER_PREFIX)) return null
-            val end = trimmed.indexOf(']')
-            if (end <= MUTUAL_DEBT_OFFSET_MARKER_PREFIX.length) return null
-            return runCatching {
-                UUID.fromString(trimmed.substring(MUTUAL_DEBT_OFFSET_MARKER_PREFIX.length, end))
-            }.getOrNull()
-        }
-
-        fun isManualDebtSettlement(note: String): Boolean {
-            return note.trim().startsWith(MANUAL_DEBT_SETTLEMENT_MARKER_PREFIX)
-        }
-
-        fun manualDebtSettlementId(note: String): UUID? {
-            val trimmed = note.trim()
-            if (!trimmed.startsWith(MANUAL_DEBT_SETTLEMENT_MARKER_PREFIX)) return null
-            val end = trimmed.indexOf(']')
-            if (end <= MANUAL_DEBT_SETTLEMENT_MARKER_PREFIX.length) return null
-            return runCatching {
-                UUID.fromString(trimmed.substring(MANUAL_DEBT_SETTLEMENT_MARKER_PREFIX.length, end))
-            }.getOrNull()
-        }
-    }
-
     suspend fun legacyDebtIncomeTransactions(): List<TransactionWithDetails> {
         return transactionDao.getAllWithDetails().filter(TransactionSemantics::isLegacyDebtIncome)
     }
@@ -758,67 +716,7 @@ class AccountingRepository(
     }
 
     suspend fun repairLegacyBorrowedAdvanceAccountInflation(): LegacyBorrowedAdvanceRepairResult {
-        return database.withTransaction {
-            val cases = advanceDao.getAllCasesWithDetails()
-            var repairedParticipantCount = 0
-            var removedInflatedAccountTransactionCount = 0
-
-            for (caseDetails in cases) {
-                for (participant in caseDetails.participants) {
-                    val groupId = participant.initialTransferGroupId ?: continue
-                    val debtAccountId = participant.debtAccountId ?: continue
-                    val group = transactionDao.getTransferGroup(groupId)
-                    val outgoing = group.firstOrNull { tx ->
-                        tx.transaction.accountId == debtAccountId &&
-                            (tx.transaction.transferSide == TransferSide.Outgoing || tx.transaction.amount < BigDecimal.ZERO)
-                    } ?: continue
-                    val inflatedIncoming = group.filter { tx ->
-                        tx.transaction.id != outgoing.transaction.id &&
-                            tx.transaction.amount > BigDecimal.ZERO &&
-                            tx.account?.type != org.duckdns.lhfser.aiaccounting.core.model.AccountType.Debt
-                    }
-                    if (inflatedIncoming.isEmpty()) continue
-
-                    val baseNote = caseDetails.advanceCase.note.ifBlank { caseDetails.advanceCase.title }
-                    transactionDao.upsert(
-                        outgoing.transaction.copy(
-                            amount = outgoing.transaction.amount.abs().negate(),
-                            note = "$baseNote (他人代墊我：${participant.name})",
-                            type = TransactionType.Expense,
-                            linkedTransactionId = null,
-                            transferSide = TransferSide.Outgoing,
-                            categoryId = caseDetails.advanceCase.expenseCategoryId,
-                            updatedAt = Instant.now()
-                        )
-                    )
-
-                    inflatedIncoming.forEach { tx ->
-                        transactionDao.clearTransactionTags(tx.transaction.id)
-                        transactionDao.delete(tx.transaction)
-                        removedInflatedAccountTransactionCount += 1
-                    }
-
-                    advanceDao.upsertCase(
-                        caseDetails.advanceCase.copy(
-                            payerAccountId = null,
-                            updatedAt = Instant.now()
-                        )
-                    )
-                    advanceDao.upsertParticipants(
-                        listOf(participant.copy(updatedAt = Instant.now()))
-                    )
-                    repairedParticipantCount += 1
-                }
-            }
-
-            if (repairedParticipantCount > 0) {
-                syncAllBudgetHistory()
-            }
-            LegacyBorrowedAdvanceRepairResult(
-                repairedParticipantCount = repairedParticipantCount,
-                removedInflatedAccountTransactionCount = removedInflatedAccountTransactionCount
-            )
-        }
+        return advanceMaintenance.repairLegacyBorrowedAdvanceAccountInflation()
     }
 
     suspend fun upsertAccount(account: AccountEntity) {
@@ -1889,8 +1787,8 @@ class AccountingRepository(
                 }
             ) { "找不到代墊案件。" }
             require(
-                !isMutualDebtOffset(repayment.note) &&
-                    !isManualDebtSettlement(repayment.note)
+                !AdvanceSemantics.isMutualDebtOffset(repayment.note) &&
+                    !AdvanceSemantics.isManualDebtSettlement(repayment.note)
             ) {
                 "債務抵銷或跨幣種平賬必須整組撤銷，不能當作普通還款編輯。"
             }
@@ -2030,8 +1928,8 @@ class AccountingRepository(
                 advanceDao.getAllRepayments().firstOrNull { it.id == repaymentId }
             ) { "找不到還款紀錄。" }
             require(
-                !isMutualDebtOffset(repayment.note) &&
-                    !isManualDebtSettlement(repayment.note)
+                !AdvanceSemantics.isMutualDebtOffset(repayment.note) &&
+                    !AdvanceSemantics.isManualDebtSettlement(repayment.note)
             ) {
                 "債務抵銷或跨幣種平賬必須整組撤銷，不能當作普通還款單筆沖銷。"
             }
@@ -2759,7 +2657,7 @@ class AccountingRepository(
         current.repayments
             .filter { it.id !in repaymentIds }
             .forEach {
-                require(!isMutualDebtOffset(it.note) && !isManualDebtSettlement(it.note)) {
+                require(!AdvanceSemantics.isMutualDebtOffset(it.note) && !AdvanceSemantics.isManualDebtSettlement(it.note)) {
                     "債務抵銷或跨幣種平賬必須先整組撤銷。"
                 }
             }
@@ -2775,8 +2673,8 @@ class AccountingRepository(
         draft.repayments.forEach { repayment ->
             val existing = currentRepaymentsById.getValue(repayment.repaymentId)
             require(
-                !isMutualDebtOffset(existing.note) &&
-                    !isManualDebtSettlement(existing.note)
+                !AdvanceSemantics.isMutualDebtOffset(existing.note) &&
+                    !AdvanceSemantics.isManualDebtSettlement(existing.note)
             ) { "債務抵銷或跨幣種平賬必須先整組撤銷。" }
             require(existing.participantId in retainedParticipantIds) {
                 "還款對象必須保留在案件中。"
@@ -3342,7 +3240,7 @@ class AccountingRepository(
                 advanceDao.upsertParticipants(participantEntities)
             }
             repaymentEntities.forEach { advanceDao.upsertRepayment(it) }
-            backfillAdvanceLinksLocked()
+            advanceMaintenance.backfillLinksInCurrentTransaction()
             syncAllBudgetHistory()
             val afterRestoreCounts = countBackupRecords()
             if (replaceExisting) {
@@ -3378,82 +3276,7 @@ class AccountingRepository(
     }
 
     suspend fun backfillAdvanceLinks() {
-        database.withTransaction {
-            backfillAdvanceLinksLocked()
-        }
-    }
-
-    private suspend fun backfillAdvanceLinksLocked() {
-        val cases = advanceDao.getAllCases()
-        val participants = advanceDao.getAllParticipants()
-        val repayments = advanceDao.getAllRepayments()
-        val participantsByCase = participants.groupBy { it.advanceCaseId }
-        val repaymentsByCase = repayments.groupBy { it.advanceCaseId }
-
-        cases.forEach { advanceCase ->
-            val caseParticipants = participantsByCase[advanceCase.id].orEmpty()
-            if (advanceCase.direction == null && caseParticipants.isNotEmpty()) {
-                val direction = advanceSettlementDirectionLocked(caseParticipants.first())
-                advanceDao.upsertCase(advanceCase.copy(direction = direction.name))
-            }
-
-            advanceCase.selfExpenseTransactionId?.let { transactionId ->
-                transactionDao.getTransaction(transactionId)?.transaction?.let { transaction ->
-                    if (transaction.advanceCaseId == null) {
-                        transactionDao.upsert(
-                            transaction.copy(
-                                advanceCaseId = advanceCase.id,
-                                advanceEntryRole = AdvanceEntryRole.SelfExpense.name
-                            )
-                        )
-                    }
-                }
-            }
-
-            caseParticipants.forEach { participant ->
-                participant.initialTransferGroupId?.let { groupId ->
-                    transactionDao.getTransferGroup(groupId).forEach { details ->
-                        val transaction = details.transaction
-                        if (transaction.advanceCaseId == null) {
-                            transactionDao.upsert(
-                                transaction.copy(
-                                    advanceCaseId = advanceCase.id,
-                                    advanceParticipantId = participant.id,
-                                    advanceEntryRole = if (transaction.accountId == participant.debtAccountId) {
-                                        AdvanceEntryRole.InitialDebt.name
-                                    } else {
-                                        AdvanceEntryRole.InitialAsset.name
-                                    }
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-
-            repaymentsByCase[advanceCase.id].orEmpty().forEach { repayment ->
-                repayment.linkedTransferGroupId?.let { groupId ->
-                    val participant = participants.firstOrNull { it.id == repayment.participantId }
-                    transactionDao.getTransferGroup(groupId).forEach { details ->
-                        val transaction = details.transaction
-                        if (transaction.advanceCaseId == null) {
-                            transactionDao.upsert(
-                                transaction.copy(
-                                    advanceCaseId = advanceCase.id,
-                                    advanceParticipantId = participant?.id,
-                                    advanceRepaymentId = repayment.id,
-                                    advanceEntryRole = if (transaction.accountId == participant?.debtAccountId) {
-                                        AdvanceEntryRole.RepaymentDebt.name
-                                    } else {
-                                        AdvanceEntryRole.RepaymentAsset.name
-                                    }
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        advanceMaintenance.backfillLinks()
     }
 
     private suspend fun syncAllBudgetHistory() {
@@ -3808,14 +3631,11 @@ class AccountingRepository(
             effectiveTransferSide(it.transaction) == TransferSide.Outgoing
         }?.transaction ?: return AdvanceSettlementDirection.IAdvancedOthers
 
-        return if (
-            outgoing.accountId == participant.debtAccountId ||
-            outgoing.note.replace(" ", "").contains("(他人代墊我")
-        ) {
-            AdvanceSettlementDirection.OthersAdvancedMe
-        } else {
-            AdvanceSettlementDirection.IAdvancedOthers
-        }
+        return AdvanceSemantics.settlementDirection(
+            debtAccountId = participant.debtAccountId,
+            outgoingAccountId = outgoing.accountId,
+            outgoingNote = outgoing.note
+        )
     }
 
     private fun transferReplacementNote(

@@ -22,7 +22,7 @@ import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceParticipantInput
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceCaseStructuralEditDraft
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceParticipantStructuralDraft
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvancePaymentLegStructuralDraft
-import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceSettlementDirection
+import org.duckdns.lhfser.aiaccounting.core.advance.AdvanceSettlementDirection
 import org.duckdns.lhfser.aiaccounting.data.repository.AccountingRepository
 import org.duckdns.lhfser.aiaccounting.data.repository.ManualDebtSettlementDirection
 import org.duckdns.lhfser.aiaccounting.data.settlement.DebtSettlementBalanceCalculator

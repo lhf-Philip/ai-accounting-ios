@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import org.duckdns.lhfser.aiaccounting.core.advance.AdvanceSemantics
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
 import org.duckdns.lhfser.aiaccounting.core.model.AccountType
@@ -46,7 +47,7 @@ import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceCaseStructuralImpa
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceParticipantStructuralDraft
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvancePaymentLegStructuralDraft
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceRepaymentStructuralDraft
-import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceSettlementDirection
+import org.duckdns.lhfser.aiaccounting.core.advance.AdvanceSettlementDirection
 import org.duckdns.lhfser.aiaccounting.data.repository.AdvanceShareStructuralDraft
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.components.CurrencyButtonStyle
@@ -152,8 +153,8 @@ fun AdvanceStructuralEditorDialog(
     var pendingImpact by remember { mutableStateOf<AdvanceCaseStructuralImpact?>(null) }
 
     val hasSpecialRepayments = advanceCase.repayments.any {
-        AccountingRepository.isMutualDebtOffset(it.note) ||
-            AccountingRepository.isManualDebtSettlement(it.note)
+        AdvanceSemantics.isMutualDebtOffset(it.note) ||
+            AdvanceSemantics.isManualDebtSettlement(it.note)
     }
 
     LaunchedEffect(advanceCase.advanceCase.id) {
@@ -210,8 +211,8 @@ fun AdvanceStructuralEditorDialog(
         }
         repayments = advanceCase.repayments
             .filter {
-                !AccountingRepository.isMutualDebtOffset(it.note) &&
-                    !AccountingRepository.isManualDebtSettlement(it.note)
+                !AdvanceSemantics.isMutualDebtOffset(it.note) &&
+                    !AdvanceSemantics.isManualDebtSettlement(it.note)
             }
             .mapNotNull { repayment ->
                 val participantId = repayment.participantId ?: return@mapNotNull null

@@ -124,6 +124,13 @@ flowchart LR
 - Modules use concrete implementations until a second real adapter justifies an interface.
 - UI-facing drafts use IDs and scalar values rather than transporting SwiftData or Room entities across the module boundary.
 
+Current extraction status:
+
+- `AdvanceSemantics` and `AdvanceMaintenance` are concrete modules on both platforms.
+- iOS implementations live in `AI 記帳/Services/Advances/`; Android implementations live in `core/advance/` and `data/advance/`.
+- `AdvanceService`, `AdvanceCaseEditingService`, and Android `AccountingRepository` remain compatibility seams for lifecycle and settlement operations until the later ADR 0005 slices migrate their callers.
+- The diagram above is the accepted target boundary, not a claim that every extraction slice is already complete.
+
 The staged extraction and compatibility rules are recorded in [`adr/0005-advance-domain-modules.md`](./adr/0005-advance-domain-modules.md).
 
 ## Source-Of-Truth Hierarchy

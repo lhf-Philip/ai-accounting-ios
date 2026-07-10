@@ -77,7 +77,7 @@ final class LedgerSemanticVectorsTests: XCTestCase {
         ]
 
         XCTAssertTrue(TransactionSemantics.isDebtForgiveness(note: forgivenessNote))
-        XCTAssertTrue(AdvanceService.isMutualDebtOffset(note: offsetNote))
+        XCTAssertTrue(AdvanceSemantics.isMutualDebtOffset(note: offsetNote))
         XCTAssertEqual(Decimal(20), total(for: .expense, transactions: transactions))
         XCTAssertEqual(Decimal.zero, total(for: .income, transactions: transactions))
     }
