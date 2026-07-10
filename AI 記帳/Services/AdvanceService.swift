@@ -1580,6 +1580,9 @@ enum AdvanceService {
                 let linkedTransfers = (try? modelContext.fetch(descriptor)) ?? []
                 deletedTransactionCount += linkedTransfers.count
                 for tx in linkedTransfers {
+                    if let key = BudgetHistoryService.affectedKey(for: tx) {
+                        affectedBudgetKeys.append(key)
+                    }
                     modelContext.delete(tx)
                 }
             }

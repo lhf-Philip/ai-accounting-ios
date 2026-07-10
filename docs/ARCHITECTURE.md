@@ -1,7 +1,7 @@
 # Architecture
 
 Status: Active
-Last reviewed: 2026-06-20
+Last reviewed: 2026-07-10
 Applies to: iOS, Android
 Source of truth: current application entry points, persistence models, services/repository, [`CONTEXT.md`](../CONTEXT.md), and accepted [`adr/`](./adr/)
 
@@ -93,6 +93,38 @@ flowchart TB
 - `AccountingRepository` is the application/persistence boundary for multi-record operations.
 - `data/db/` owns Room entities, DAOs, relations, converters, and explicit migrations.
 - Related writes use `RoomDatabase.withTransaction`. Screens must not write directly to DAOs.
+
+## Advance Domain Modules
+
+```mermaid
+flowchart LR
+    UI["SwiftUI / Compose advance flows"]
+    Lifecycle["AdvanceCaseLifecycle<br/>create, edit, repay, delete"]
+    Semantics["AdvanceSemantics<br/>pure direction and balance rules"]
+    Settlement["AdvanceSettlement<br/>offset and manual settlement"]
+    Maintenance["AdvanceMaintenance<br/>legacy repair and reconciliation"]
+    Persistence["SwiftData ModelContext / Room DAOs"]
+    Budget["Budget history"]
+
+    UI --> Lifecycle
+    UI --> Settlement
+    Lifecycle --> Semantics
+    Settlement --> Semantics
+    Maintenance --> Semantics
+    Lifecycle --> Persistence
+    Settlement --> Persistence
+    Maintenance --> Persistence
+    Lifecycle --> Budget
+```
+
+- `AdvanceSemantics` is pure and cannot read or write persistence.
+- `AdvanceCaseLifecycle` owns ordinary case mutations and keeps linked bookkeeping and budget history atomic.
+- `AdvanceSettlement` owns grouped ledger-only settlement operations and grouped rollback.
+- `AdvanceMaintenance` owns explicit repair/backfill operations; it is not part of normal user-entry flow.
+- Modules use concrete implementations until a second real adapter justifies an interface.
+- UI-facing drafts use IDs and scalar values rather than transporting SwiftData or Room entities across the module boundary.
+
+The staged extraction and compatibility rules are recorded in [`adr/0005-advance-domain-modules.md`](./adr/0005-advance-domain-modules.md).
 
 ## Source-Of-Truth Hierarchy
 
