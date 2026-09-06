@@ -34,6 +34,7 @@ This guide defines what each test layer is responsible for and the minimum evide
 - `AI 記帳Tests/`
   - backup compatibility;
   - transaction and transfer editing;
+  - ledger/budget atomicity, rollback of split entries and grouped deletion, and retry after injected synchronization failure;
   - advance structural editing;
   - report aggregation and refund semantics;
   - ledger semantic vectors.
@@ -354,3 +355,11 @@ The PR description should list:
 - manual devices/OS versions used;
 - accounting invariants checked;
 - failures, retries, or tests not run and why.
+
+## Ledger commit boundary (#166)
+
+Ordinary add, scan, shortcut, edit and ledger deletion stage their ledger and budget-history changes in one context, then save once. Nested budget synchronization uses `save: false`; standalone callers retain the default save behavior. The operation owns pending changes in that synchronous context and temporarily disables autosave. On error, inserted inverse relationships or retained editor values are repaired before rollback, then the error reaches the view. This does not introduce a schema or backup-format change.
+
+Apple documents [save](https://developer.apple.com/documentation/swiftdata/modelcontext/save()) as writing pending inserts, updates and deletes, and [includePendingChanges](https://developer.apple.com/documentation/swiftdata/fetchdescriptor/includependingchanges) as true by default. Integration tests verify that budget queries observe pending inserts, date/category moves and deletions before the commit. Failure tests inspect both the active context and a fresh reader, then retry to detect duplicate or leaked entries. UI tests cover ordinary, transfer and advance editing; physical-device upgrade/storage smoke remains a release check.
+
+The ledger UI regression navigates from an advance-case summary to its repayment record and scrolls to the editor note field. The prior test expected a standalone repayment ledger row; the captured failure showed the existing case grouping with its outstanding balance intact.

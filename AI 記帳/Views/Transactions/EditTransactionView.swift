@@ -19,7 +19,6 @@ struct EditTransactionView: View {
     @State private var selectedDate = Date()
     @State private var note = ""
     @State private var selectedTags: Set<Tag> = []
-    @State private var originalBudgetKey: BudgetHistoryAffectedKey?
     @State private var errorMessage: String?
     @State private var didLoadDraft = false
     
@@ -184,7 +183,6 @@ struct EditTransactionView: View {
                 return
             }
 
-            let previousKey = originalBudgetKey
             let draft = OrdinaryTransactionEditDraft(
                 amount: amount,
                 currencyCode: selectedCurrency,
@@ -195,17 +193,9 @@ struct EditTransactionView: View {
                 category: selectedCategory,
                 tags: Array(selectedTags)
             )
-            try TransactionEditService.apply(draft, to: transaction)
-            try modelContext.save()
-            let currentKey = BudgetHistoryService.affectedKey(for: transaction)
-            try BudgetHistoryService.shared.syncAffected(
-                keys: [previousKey, currentKey].compactMap { $0 },
-                modelContext: modelContext,
-                currencyService: currencyService
-            )
+            try LedgerMutationService.edit(transaction, draft: draft, modelContext: modelContext)
             dismiss()
         } catch {
-            modelContext.rollback()
             errorMessage = error.localizedDescription
         }
     }
@@ -223,7 +213,6 @@ struct EditTransactionView: View {
         note = transaction.note
         amountString = NSDecimalNumber(decimal: abs(transaction.amount)).stringValue
         selectedTags = Set(transaction.tags)
-        originalBudgetKey = BudgetHistoryService.affectedKey(for: transaction)
     }
 
     private var canSubmit: Bool {

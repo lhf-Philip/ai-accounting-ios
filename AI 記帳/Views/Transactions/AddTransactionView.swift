@@ -393,7 +393,7 @@ struct AddTransactionView: View {
     }
 
     private func saveTransactions() {
-        var insertedTransactions: [FinancialTransaction] = []
+        var drafts: [OrdinaryTransactionEditDraft] = []
 
         switch entryMode {
         case .normal:
@@ -404,7 +404,7 @@ struct AddTransactionView: View {
                 return
             }
 
-            insertedTransactions.append(insertTransaction(
+            drafts.append(makeDraft(
                 amount: amount,
                 currencyCode: selectedCurrency,
                 account: account,
@@ -424,7 +424,7 @@ struct AddTransactionView: View {
             }
 
             for (index, leg) in legs.enumerated() {
-                insertedTransactions.append(insertTransaction(
+                drafts.append(makeDraft(
                     amount: leg.amount,
                     currencyCode: leg.currency,
                     account: leg.account,
@@ -448,7 +448,7 @@ struct AddTransactionView: View {
             }
 
             for (index, item) in items.enumerated() {
-                insertedTransactions.append(insertTransaction(
+                drafts.append(makeDraft(
                     amount: item.amount,
                     currencyCode: item.currency,
                     account: account,
@@ -458,12 +458,7 @@ struct AddTransactionView: View {
         }
 
         do {
-            try modelContext.save()
-            try BudgetHistoryService.shared.syncAffected(
-                by: insertedTransactions,
-                modelContext: modelContext,
-                currencyService: currencyService
-            )
+            try LedgerMutationService.add(drafts, modelContext: modelContext)
         } catch {
             showValidation("儲存失敗：\(error.localizedDescription)")
             return
@@ -472,22 +467,11 @@ struct AddTransactionView: View {
         dismiss()
     }
 
-    private func insertTransaction(amount: Decimal, currencyCode: String, account: Account, note: String) -> FinancialTransaction {
-        let finalAmount = (selectedType == .expense) ? -abs(amount) : abs(amount)
-
-        let tx = FinancialTransaction(
-            amount: finalAmount,
-            currencyCode: currencyCode,
-            date: date,
-            note: note,
-            type: selectedType,
-            account: account,
-            category: selectedCategory,
-            tags: Array(selectedTags)
+    private func makeDraft(amount: Decimal, currencyCode: String, account: Account, note: String) -> OrdinaryTransactionEditDraft {
+        OrdinaryTransactionEditDraft(
+            amount: amount, currencyCode: currencyCode, date: date, note: note,
+            type: selectedType, account: account, category: selectedCategory, tags: Array(selectedTags)
         )
-
-        modelContext.insert(tx)
-        return tx
     }
 
     private func indexedNote(base: String, mode: EntryMode, index: Int, count: Int) -> String {
