@@ -44,7 +44,7 @@ This guide defines what each test layer is responsible for and the minimum evide
 - `.github/workflows/ios-ci.yml`
   - string catalog validation;
   - simulator build;
-  - unit tests on iPhone 13 Simulator;
+  - unit tests on an available iPhone Simulator selected by UDID;
   - focused structural advance UI tests.
 
 ### Android
@@ -74,7 +74,7 @@ For local simulator tests, select an installed iPhone runtime first:
 IOS_SIMULATOR_ID="$(python3 scripts/select-ios-simulator.py)"
 ```
 
-The helper prefers iPhone 13 when it is installed and otherwise selects another available iPhone. This avoids Xcode interpreting a device name as `OS=latest` when that model only exists on an older installed runtime.
+The helper prefers iPhone 13 when it is installed and otherwise selects another available iPhone. This avoids Xcode interpreting a device name as `OS=latest` when that model only exists on an older installed runtime. The iOS workflow uses the same selector and explicitly sets `shell: bash` so `pipefail` propagates an `xcodebuild` failure through `tee`. Failed runs upload the unit/UI result bundles. A green check without an executed-test summary is not sufficient evidence; the previous name-only destination and default shell combination masked unavailable-destination errors. See [GitHub shell semantics](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsshell).
 
 ### iOS simulator build
 

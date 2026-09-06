@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build-and-test:
     runs-on: macos-latest
@@ -32,6 +36,12 @@ jobs:
       - name: Resolve Package Dependencies
         run: xcodebuild -resolvePackageDependencies -project 'AI 記帳.xcodeproj'
 
+      - name: Select Available iOS Simulator
+        run: |
+          IOS_TEST_DEVICE_ID="$(python3 scripts/select-ios-simulator.py)"
+          echo "IOS_TEST_DEVICE_ID=$IOS_TEST_DEVICE_ID" >> "$GITHUB_ENV"
+          xcrun simctl bootstatus "$IOS_TEST_DEVICE_ID" -b
+
       - name: Build (iOS Simulator)
         run: |
           xcodebuild \
@@ -46,7 +56,9 @@ jobs:
           xcodebuild \
             -project 'AI 記帳.xcodeproj' \
             -scheme 'AI 記帳' \
-            -destination 'platform=iOS Simulator,name=iPhone 13' \
+            -destination "platform=iOS Simulator,id=$IOS_TEST_DEVICE_ID" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath unit-tests.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             test | tee xcodebuild-test.log
 
@@ -55,8 +67,11 @@ jobs:
           xcodebuild \
             -project 'AI 記帳.xcodeproj' \
             -scheme 'AI 記帳 UI Automation' \
-            -destination 'platform=iOS Simulator,name=iPhone 13' \
+            -destination "platform=iOS Simulator,id=$IOS_TEST_DEVICE_ID" \
+            -parallel-testing-enabled NO \
             -only-testing:'AI 記帳UITests/AdvanceStructuralEditingUITests' \
+            -resultBundlePath ui-tests.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
             test | tee xcodebuild-ui-test.log
 
       - name: Upload Build Log on Failure
@@ -68,3 +83,5 @@ jobs:
             xcodebuild.log
             xcodebuild-test.log
             xcodebuild-ui-test.log
+            unit-tests.xcresult
+            ui-tests.xcresult
