@@ -112,6 +112,26 @@ final class MissingFXMutationTests: XCTestCase {
         XCTAssertEqual(try fixture.context.fetch(FetchDescriptor<FinancialTransaction>()).count, 3)
     }
 
+    func testBackupRestoreWithoutFXPreservesImportedLedgerAndHistoricalSnapshot() async throws {
+        let fixture = try Fixture()
+        let rates = CurrencyService.shared.rates
+        defer { CurrencyService.shared.rates = rates }
+        CurrencyService.shared.rates["ZZZ"] = 2
+        let tx = FinancialTransaction(amount: -20, currencyCode: "ZZZ", date: fixture.date)
+        fixture.context.insert(tx)
+        tx.account = fixture.cash
+        tx.category = fixture.category
+        try BudgetHistoryService.shared.syncAll(modelContext: fixture.context, currencyService: .shared)
+        let backup = try BackupManager.shared.createBackupData(modelContext: fixture.context)
+        CurrencyService.shared.rates["ZZZ"] = nil
+        let target = try Fixture()
+        _ = try BackupManager.shared.restoreBackupData(backup, modelContext: target.context, replaceExisting: true)
+        XCTAssertEqual(try target.context.fetch(FetchDescriptor<FinancialTransaction>()).map(\.id), [tx.id])
+        XCTAssertEqual(try target.context.fetch(FetchDescriptor<FinancialTransaction>()).first?.amount, -20)
+        XCTAssertEqual(try target.context.fetch(FetchDescriptor<BudgetMonthlyHistory>()).first?.spentAmount, 10)
+        XCTAssertEqual(try target.context.fetch(FetchDescriptor<BudgetMonthlyHistory>()).first?.currencyCode, CurrencyService.shared.mainCurrency)
+    }
+
     private struct Fixture {
         let context: ModelContext
         let cash: Account
