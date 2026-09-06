@@ -13,6 +13,8 @@ struct CurrencyConversionEstimate {
 }
 
 class CurrencyService: ObservableObject {
+    private let defaults: UserDefaults
+    private let now: () -> Date
     private struct ExchangeRateCache: Codable {
         let base: String
         let rates: [String: Double]
@@ -24,20 +26,22 @@ class CurrencyService: ObservableObject {
     private var staleRates: [String: Double] = [:]
     
     var mainCurrency: String {
-        get { UserDefaults.standard.string(forKey: "mainCurrency") ?? "HKD" }
+        get { defaults.string(forKey: "mainCurrency") ?? "HKD" }
         set {
-            UserDefaults.standard.set(newValue, forKey: "mainCurrency")
+            defaults.set(newValue.uppercased(), forKey: "mainCurrency")
             loadRatesFromLocal()
         }
     }
     
-    static let shared = CurrencyService()
+    static let shared = CurrencyService(defaults: .standard)
     
     private let ratesCacheKey = "cachedExchangeRatesV2"
     private let legacyRatesKey = "cachedExchangeRates"
     private let cacheTTL: TimeInterval = 60 * 60 * 24 * 7 // 7 days
     
-    private init() {
+    init(defaults: UserDefaults, now: @escaping () -> Date = Date.init) {
+        self.defaults = defaults
+        self.now = now
         // 🔥 初始化時嘗試讀取本地緩存
         loadRatesFromLocal()
     }
@@ -75,9 +79,9 @@ class CurrencyService: ObservableObject {
     
     // MARK: - 緩存邏輯
     private func saveRatesToLocal(base: String, rates: [String: Double]) {
-        let payload = ExchangeRateCache(base: base, rates: rates, fetchedAt: Date())
+        let payload = ExchangeRateCache(base: base, rates: rates, fetchedAt: now())
         if let encoded = try? JSONEncoder().encode(payload) {
-            UserDefaults.standard.set(encoded, forKey: ratesCacheKey)
+            defaults.set(encoded, forKey: ratesCacheKey)
         }
     }
     
@@ -87,7 +91,7 @@ class CurrencyService: ObservableObject {
         self.staleRates = [:]
         self.rateSourceState = .unavailable
         
-        if let data = UserDefaults.standard.data(forKey: ratesCacheKey),
+        if let data = defaults.data(forKey: ratesCacheKey),
            let payload = try? JSONDecoder().decode(ExchangeRateCache.self, from: data) {
             guard payload.base.uppercased() == currentBase else {
                 // base 不一致時忽略，避免錯用他幣快取
@@ -96,7 +100,7 @@ class CurrencyService: ObservableObject {
             }
             
             self.staleRates = payload.rates
-            let age = Date().timeIntervalSince(payload.fetchedAt)
+            let age = now().timeIntervalSince(payload.fetchedAt)
             if age > cacheTTL {
                 self.rateSourceState = payload.rates.isEmpty ? .unavailable : .cached
                 print("⚠️ 匯率快取已過期，等待重新抓取")
@@ -110,66 +114,81 @@ class CurrencyService: ObservableObject {
         }
         
         // 舊版快取沒有 base 資訊，不能安全使用，避免錯算
-        if UserDefaults.standard.data(forKey: legacyRatesKey) != nil {
-            UserDefaults.standard.removeObject(forKey: legacyRatesKey)
+        if defaults.data(forKey: legacyRatesKey) != nil {
+            defaults.removeObject(forKey: legacyRatesKey)
             print("⚠️ 已清除舊版匯率快取（缺少 base 資訊）")
         }
     }
     
-    func convert(amount: Decimal, from currency: String) -> Decimal {
-        if currency == mainCurrency { return amount }
-        guard let rate = resolvedRates[currency.uppercased()], rate.isFinite, rate > 0 else { return amount } // 避免異常匯率造成非有限數值
-        return amount / Decimal(rate)
+    func convert(amount: Decimal, from currency: String) throws -> Decimal {
+        try convert(amount: amount, from: currency, to: mainCurrency)
     }
-    
-    func convert(amount: Decimal, from source: String, to target: String) -> Decimal {
-        if source == target { return amount }
-        
-        if source == mainCurrency {
-            guard let targetRate = resolvedRates[target.uppercased()], targetRate.isFinite, targetRate > 0 else { return amount }
-            return amount * Decimal(targetRate)
+
+    func convert(amount: Decimal, from source: String, to target: String) throws -> Decimal {
+        guard let result = estimate(amount: amount, from: source, to: target), !result.amount.isNaN else {
+            throw CurrencyConversionError.unavailable(source.uppercased(), target.uppercased())
         }
-        
-        if target == mainCurrency {
-            return convert(amount: amount, from: source)
+        return result.amount
+    }
+
+    func totalEstimate(_ amounts: [(amount: Decimal, currencyCode: String)], to target: String? = nil) -> CurrencyTotalEstimate {
+        let target = target ?? mainCurrency
+        var total = Decimal.zero
+        var status = ReportEstimateStatus.exact
+        var available = 0
+        var unavailable = 0
+        for item in amounts {
+            guard let value = estimate(amount: item.amount, from: item.currencyCode, to: target), !value.amount.isNaN else {
+                unavailable += 1
+                continue
+            }
+            total += value.amount
+            available += 1
+            if item.currencyCode.uppercased() != target.uppercased() {
+                if value.source == .cached { status = .cached }
+                else if status == .exact { status = .live }
+            }
         }
-        
-        guard let targetRate = resolvedRates[target.uppercased()], targetRate.isFinite, targetRate > 0 else { return amount }
-        let inMain = convert(amount: amount, from: source)
-        return inMain * Decimal(targetRate)
+        if unavailable > 0 || total.isNaN {
+            return CurrencyTotalEstimate(amount: nil, status: available > 0 ? .partial : .unavailable)
+        }
+        return CurrencyTotalEstimate(amount: total, status: status)
     }
 
     func estimate(amount: Decimal, from source: String, to target: String) -> CurrencyConversionEstimate? {
+        guard !amount.isNaN else { return nil }
         let sourceCode = source.uppercased()
         let targetCode = target.uppercased()
         if sourceCode == targetCode {
             return CurrencyConversionEstimate(amount: amount, source: resolvedRateSourceState)
         }
 
-        guard !resolvedRates.isEmpty else { return nil }
-
+        let converted: Decimal
         if sourceCode == mainCurrency.uppercased() {
-            guard let targetRate = resolvedRates[targetCode], targetRate.isFinite, targetRate > 0 else { return nil }
-            return CurrencyConversionEstimate(amount: amount * Decimal(targetRate), source: resolvedRateSourceState)
+            guard let rate = usableRate(for: targetCode) else { return nil }
+            converted = amount * rate
+        } else if targetCode == mainCurrency.uppercased() {
+            guard let rate = usableRate(for: sourceCode) else { return nil }
+            converted = amount / rate
+        } else {
+            guard let sourceRate = usableRate(for: sourceCode), let targetRate = usableRate(for: targetCode) else { return nil }
+            converted = amount / sourceRate * targetRate
         }
-
-        if targetCode == mainCurrency.uppercased() {
-            guard let sourceRate = resolvedRates[sourceCode], sourceRate.isFinite, sourceRate > 0 else { return nil }
-            return CurrencyConversionEstimate(amount: amount / Decimal(sourceRate), source: resolvedRateSourceState)
-        }
-
-        guard let sourceRate = resolvedRates[sourceCode], sourceRate.isFinite, sourceRate > 0,
-              let targetRate = resolvedRates[targetCode], targetRate.isFinite, targetRate > 0 else {
-            return nil
-        }
-        let inMain = amount / Decimal(sourceRate)
-        return CurrencyConversionEstimate(amount: inMain * Decimal(targetRate), source: resolvedRateSourceState)
+        guard !converted.isNaN else { return nil }
+        return CurrencyConversionEstimate(amount: converted, source: resolvedRateSourceState)
     }
-    
+
+    private func usableRate(for code: String) -> Decimal? {
+        guard let value = resolvedRates[code], value.isFinite, value > 0,
+              let decimal = Decimal(string: String(value), locale: Locale(identifier: "en_US_POSIX")),
+              !decimal.isNaN, decimal > 0 else { return nil }
+        return decimal
+    }
+
     func getMarketRate(from source: String, to target: String) -> Double? {
-        if source == target { return 1.0 }
-        guard let rateSource = resolvedRates[source.uppercased()], let rateTarget = resolvedRates[target.uppercased()] else { return nil }
-        return (1.0 / rateSource) * rateTarget
+        guard let estimate = estimate(amount: 1, from: source, to: target) else { return nil }
+        let rate = NSDecimalNumber(decimal: estimate.amount).doubleValue
+        return rate.isFinite && rate > 0 ? rate : nil
     }
 
     func previewInMainCurrency(amount: Decimal, from currency: String) -> (amount: Decimal, source: RateSourceState)? {
@@ -186,5 +205,29 @@ class CurrencyService: ObservableObject {
 
     private var resolvedRates: [String: Double] {
         rates.isEmpty ? staleRates : rates
+    }
+}
+
+
+enum CurrencyConversionError: LocalizedError {
+    case unavailable(String, String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable(let source, let target):
+            return String(localized: "無法換算 \(source) 至 \(target)：缺少有效匯率。請更新匯率後重試。")
+        }
+    }
+}
+
+struct CurrencyTotalEstimate {
+    let amount: Decimal?
+    let status: ReportEstimateStatus
+
+    func formatted(in currency: String) -> String {
+        guard let amount else { return String(localized: "無法估算（缺少匯率）") }
+        let value = amount.formatted(.currency(code: currency))
+        guard let label = status.label else { return value }
+        return "\(value) · \(label)"
     }
 }

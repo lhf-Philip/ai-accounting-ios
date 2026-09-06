@@ -56,18 +56,18 @@ enum BudgetService {
         budgets: [CategoryMonthlyBudget],
         transactions: [FinancialTransaction],
         currencyService: CurrencyService
-    ) -> [BudgetStatus] {
+    ) throws -> [BudgetStatus] {
         let activeBudgets = budgets.filter { $0.isEnabled && $0.monthKey == targetMonthKey }
         
-        let results: [BudgetStatus] = activeBudgets.map { budget in
-            let spent = transactions
+        let results: [BudgetStatus] = try activeBudgets.map { budget in
+            let spent = try transactions
                 .filter { tx in
                     tx.type == .expense &&
                     monthKey(from: tx.date) == targetMonthKey &&
                     tx.category?.id == budget.category?.id
                 }
                 .reduce(Decimal.zero) { partial, tx in
-                    partial + currencyService.convert(amount: abs(tx.amount), from: tx.currencyCode, to: budget.currencyCode)
+                    try partial + currencyService.convert(amount: abs(tx.amount), from: tx.currencyCode, to: budget.currencyCode)
                 }
             
             let remaining = budget.amount - spent

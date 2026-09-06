@@ -537,7 +537,7 @@ enum AdvanceService {
             throw AdvanceServiceError.invalidSettlementAccount
         }
         
-        let normalizedAmount = normalizedAmountOverride ?? currencyService.convert(
+        let normalizedAmount = try normalizedAmountOverride ?? currencyService.convert(
             amount: abs(amount),
             from: currencyCode,
             to: advanceCase.currencyCode

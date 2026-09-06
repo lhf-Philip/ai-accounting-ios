@@ -404,14 +404,9 @@ struct TransactionsListView: View {
     }
     
     func calculateTotalEstimate() -> String {
-        var total: Decimal = 0
-        for tx in makeRenderState().filteredTransactions {
-            if tx.type == .transfer { continue }
-            // 🔥 使用交易本身的 currencyCode
-            let converted = CurrencyService.shared.convert(amount: tx.amount, from: tx.currencyCode)
-            total += converted
-        }
-        return total.formatted(.currency(code: CurrencyService.shared.mainCurrency))
+        CurrencyService.shared.totalEstimate(makeRenderState().filteredTransactions.filter { $0.type != .transfer }.map {
+            ($0.amount, $0.currencyCode)
+        }).formatted(in: CurrencyService.shared.mainCurrency)
     }
     
     struct CurrencyTotal { let currency: String; let amount: Decimal }

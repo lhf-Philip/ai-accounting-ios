@@ -16,9 +16,9 @@ struct AdvancesView: View {
         let id: String
         let name: String
         let caseCount: Int
-        let totalOwedMain: Decimal
-        let totalRepaidMain: Decimal
-        let totalRemainingMain: Decimal
+        let totalOwedMain: CurrencyTotalEstimate
+        let totalRepaidMain: CurrencyTotalEstimate
+        let totalRemainingMain: CurrencyTotalEstimate
     }
     
     private var activeCases: [AdvanceCase] {
@@ -30,9 +30,9 @@ struct AdvancesView: View {
     }
     
     private var participantAggregates: [ParticipantAggregate] {
-        var owedTotals: [String: Decimal] = [:]
-        var repaidTotals: [String: Decimal] = [:]
-        var remainingTotals: [String: Decimal] = [:]
+        var owedTotals: [String: [(amount: Decimal, currencyCode: String)]] = [:]
+        var repaidTotals: [String: [(amount: Decimal, currencyCode: String)]] = [:]
+        var remainingTotals: [String: [(amount: Decimal, currencyCode: String)]] = [:]
         var names: [String: String] = [:]
         var caseSets: [String: Set<UUID>] = [:]
         
@@ -44,13 +44,9 @@ struct AdvancesView: View {
                 names[key] = name
                 caseSets[key, default: []].insert(advanceCase.id)
                 
-                let owed = currencyService.convert(amount: participant.owedAmount, from: advanceCase.currencyCode)
-                let repaid = currencyService.convert(amount: participant.repaidAmount, from: advanceCase.currencyCode)
-                let remaining = currencyService.convert(amount: participant.remainingAmount, from: advanceCase.currencyCode)
-                
-                owedTotals[key, default: 0] += owed
-                repaidTotals[key, default: 0] += repaid
-                remainingTotals[key, default: 0] += remaining
+                owedTotals[key, default: []].append((participant.owedAmount, advanceCase.currencyCode))
+                repaidTotals[key, default: []].append((participant.repaidAmount, advanceCase.currencyCode))
+                remainingTotals[key, default: []].append((participant.remainingAmount, advanceCase.currencyCode))
             }
         }
         
@@ -59,16 +55,16 @@ struct AdvancesView: View {
                 id: key,
                 name: names[key] ?? "未命名",
                 caseCount: caseSets[key]?.count ?? 0,
-                totalOwedMain: owedTotals[key, default: 0],
-                totalRepaidMain: repaidTotals[key, default: 0],
-                totalRemainingMain: remainingTotals[key, default: 0]
+                totalOwedMain: currencyService.totalEstimate(owedTotals[key, default: []]),
+                totalRepaidMain: currencyService.totalEstimate(repaidTotals[key, default: []]),
+                totalRemainingMain: currencyService.totalEstimate(remainingTotals[key, default: []])
             )
         }
         .sorted {
-            if $0.totalRemainingMain == $1.totalRemainingMain {
+            if $0.totalRemainingMain.amount == $1.totalRemainingMain.amount {
                 return $0.name < $1.name
             }
-            return $0.totalRemainingMain > $1.totalRemainingMain
+            return ($0.totalRemainingMain.amount ?? 0) > ($1.totalRemainingMain.amount ?? 0)
         }
     }
     
@@ -190,16 +186,16 @@ struct AdvancesView: View {
                 Text(item.name)
                     .font(.headline)
                 Spacer()
-                Text(item.totalRemainingMain.formatted(.currency(code: currencyService.mainCurrency)))
-                    .foregroundStyle(item.totalRemainingMain == 0 ? .green : .red)
+                Text(item.totalRemainingMain.formatted(in: currencyService.mainCurrency))
+                    .foregroundStyle(item.totalRemainingMain.amount.map { $0 == 0 ? Color.green : Color.red } ?? .secondary)
             }
             
             HStack {
-                Text("欠款 \(item.totalOwedMain.formatted(.currency(code: currencyService.mainCurrency)))")
+                Text("欠款 \(item.totalOwedMain.formatted(in: currencyService.mainCurrency))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text("已還 \(item.totalRepaidMain.formatted(.currency(code: currencyService.mainCurrency)))")
+                Text("已還 \(item.totalRepaidMain.formatted(in: currencyService.mainCurrency))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
