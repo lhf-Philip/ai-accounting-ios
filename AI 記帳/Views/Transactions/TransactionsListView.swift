@@ -26,7 +26,7 @@ struct TransactionsListView: View {
     @State private var showingShortcutConfirm = false
     @State private var shortcutToDelete: Shortcut?
     @State private var showingShortcutDeleteConfirm = false
-    @State private var deletionErrorMessage: String?
+    @State private var operationErrorMessage: String?
 
     enum LedgerItem: Identifiable {
         case transaction(FinancialTransaction)
@@ -103,13 +103,13 @@ struct TransactionsListView: View {
         } message: {
             Text(shortcutToDelete?.name ?? "")
         }
-        .alert("無法刪除", isPresented: Binding(
-            get: { deletionErrorMessage != nil },
-            set: { if !$0 { deletionErrorMessage = nil } }
+        .alert("操作失敗", isPresented: Binding(
+            get: { operationErrorMessage != nil },
+            set: { if !$0 { operationErrorMessage = nil } }
         )) {
-            Button("好", role: .cancel) { deletionErrorMessage = nil }
+            Button("好", role: .cancel) { operationErrorMessage = nil }
         } message: {
-            Text(deletionErrorMessage ?? "")
+            Text(operationErrorMessage ?? "")
         }
     }
 
@@ -341,27 +341,15 @@ struct TransactionsListView: View {
     }
     
     private func executeShortcut() {
-        guard let sc = pendingShortcut, let account = sc.account else { return }
-        
-        let finalAmount = (sc.type == .expense) ? -abs(sc.amount) : abs(sc.amount)
-        
-        // 🔥 修改：使用捷徑設定的幣種，而非帳戶預設幣種
-        let currency = sc.currencyCode
-        
-        let tx = FinancialTransaction(
-            amount: finalAmount,
-            currencyCode: currency, // 🔥 這裡
-            date: Date(),
-            note: sc.note.isEmpty ? sc.name : sc.note,
-            type: sc.type,
-            account: account,
-            category: sc.category,
-            tags: sc.tags
-        )
-        modelContext.insert(tx)
-        print("✅ 捷徑執行成功: \(sc.name) (\(currency))")
+        guard let shortcut = pendingShortcut else { return }
+        do {
+            try LedgerMutationService.executeShortcut(shortcut, modelContext: modelContext)
+            pendingShortcut = nil
+        } catch {
+            operationErrorMessage = error.localizedDescription
+        }
     }
-    
+
     var filterDisplayString: String {
         filterType.displayString(
             selectedDate: selectedDate,
@@ -441,7 +429,7 @@ struct TransactionsListView: View {
         do {
             try LedgerDeletionService.delete(transaction: tx, modelContext: modelContext)
         } catch {
-            deletionErrorMessage = error.localizedDescription
+            operationErrorMessage = error.localizedDescription
         }
     }
     
