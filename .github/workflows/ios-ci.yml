@@ -50,13 +50,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             test | tee xcodebuild-test.log
 
-      - name: Run Advance Structural UI Tests
+      - name: Run Advance and Startup Recovery UI Tests
         run: |
           xcodebuild \
             -project 'AI 記帳.xcodeproj' \
             -scheme 'AI 記帳 UI Automation' \
             -destination 'platform=iOS Simulator,name=iPhone 13' \
             -only-testing:'AI 記帳UITests/AdvanceStructuralEditingUITests' \
+            -only-testing:'AI 記帳UITests/StoreStartupRecoveryUITests' \
             test | tee xcodebuild-ui-test.log
 
       - name: Upload Build Log on Failure

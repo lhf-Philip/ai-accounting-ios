@@ -39,12 +39,13 @@ This guide defines what each test layer is responsible for and the minimum evide
   - ledger semantic vectors.
 - `AI 記帳UITests/`
   - structural advance editing;
-  - ledger edit performance flow.
+  - ledger edit performance flow;
+  - startup open/backup failure recovery and retry.
 - `.github/workflows/ios-ci.yml`
   - string catalog validation;
   - simulator build;
   - unit tests on iPhone 13 Simulator;
-  - focused structural advance UI tests.
+  - focused structural advance and startup-recovery UI tests.
 
 ### Android
 
