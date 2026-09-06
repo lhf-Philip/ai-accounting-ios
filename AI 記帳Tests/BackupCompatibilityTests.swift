@@ -5,6 +5,258 @@ import SQLite3
 
 @MainActor
 final class BackupCompatibilityTests: XCTestCase {
+    func testCreateBackupData_anyRequiredFetchFailureThrowsInsteadOfExportingPartialData() throws {
+        let container = try makeInMemoryContainer()
+        let context = ModelContext(container)
+        try seedCompleteBackupGraph(in: context)
+
+        for modelType in requiredBackupModelTypes {
+            let reader = FailingBackupReader(modelContext: context, failingType: modelType)
+            XCTAssertThrowsError(
+                try BackupManager.shared.createBackupData(modelContext: context, reader: reader),
+                "Must fail when \(modelType) cannot be read"
+            ) { error in
+                XCTAssertEqual(error as? BackupInjectedFailure, .read)
+            }
+            XCTAssertFalse(context.hasChanges)
+        }
+    }
+
+    func testReplaceBackup_recoveryCaptureFailurePreservesAllOriginalRecords() throws {
+        let sourceContainer = try makeInMemoryContainer()
+        let replacement = try BackupManager.shared.createBackupData(modelContext: ModelContext(sourceContainer))
+
+        for modelType in requiredBackupModelTypes {
+            let container = try makeInMemoryContainer()
+            let context = ModelContext(container)
+            try seedCompleteBackupGraph(in: context)
+            let before = try BackupManager.shared.createBackupData(modelContext: context)
+            let reader = FailingBackupReader(modelContext: context, failingType: modelType)
+
+            XCTAssertThrowsError(
+                try BackupManager.shared.restoreBackupData(
+                    replacement, modelContext: context, replaceExisting: true, reader: reader
+                ),
+                "Must stop before deletion when recovery cannot read \(modelType)"
+            ) { error in
+                XCTAssertEqual(error as? BackupInjectedFailure, .read)
+            }
+
+            let after = try BackupManager.shared.createBackupData(modelContext: context)
+            XCTAssertEqual(try backupPayload(before), try backupPayload(after))
+            XCTAssertFalse(context.hasChanges)
+        }
+    }
+
+    func testMergeBackup_existingRecordReadFailureStopsBeforeAnyMutation() throws {
+        let sourceContainer = try makeInMemoryContainer()
+        let sourceContext = ModelContext(sourceContainer)
+        try seedCompleteBackupGraph(in: sourceContext)
+        let incoming = try BackupManager.shared.createBackupData(modelContext: sourceContext)
+
+        for modelType in requiredBackupModelTypes {
+            let container = try makeInMemoryContainer()
+            let context = ModelContext(container)
+            let originalAccount = Account(name: "Keep existing", currency: "HKD", type: .cash, baseBalance: 321)
+            context.insert(originalAccount)
+            try context.save()
+            let before = try BackupManager.shared.createBackupData(modelContext: context)
+            let reader = FailingBackupReader(modelContext: context, failingType: modelType)
+
+            XCTAssertThrowsError(
+                try BackupManager.shared.restoreBackupData(incoming, modelContext: context, reader: reader),
+                "Must stop before inserts or updates when \(modelType) cannot be read"
+            ) { error in
+                XCTAssertEqual(error as? BackupInjectedFailure, .read)
+            }
+
+            let after = try BackupManager.shared.createBackupData(modelContext: context)
+            XCTAssertEqual(try backupPayload(before), try backupPayload(after))
+            XCTAssertFalse(context.hasChanges)
+        }
+    }
+
+    func testAutoBackup_readFailureDoesNotWriteOrAdvanceSuccessDate() throws {
+        let container = try makeInMemoryContainer()
+        let context = ModelContext(container)
+        let manager = BackupManager.shared
+        let savedDate = manager.lastBackupDate
+        defer { manager.lastBackupDate = savedDate }
+        manager.lastBackupDate = 123
+        var didWrite = false
+        let reader = FailingBackupReader(modelContext: context, failingType: AdvanceRepayment.self)
+
+        XCTAssertThrowsError(try manager.writeAutoBackup(
+            modelContext: context,
+            to: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
+            reader: reader,
+            write: { _, _, _ in didWrite = true }
+        )) { error in
+            XCTAssertEqual(error as? BackupInjectedFailure, .read)
+        }
+        XCTAssertFalse(didWrite)
+        XCTAssertEqual(123, manager.lastBackupDate)
+    }
+
+    func testAutoBackup_writeFailureRequestsAtomicReplacementAndPreservesPreviousBackup() throws {
+        let container = try makeInMemoryContainer()
+        let context = ModelContext(container)
+        try seedCompleteBackupGraph(in: context)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("backup-write-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let previous = Data("previous complete backup".utf8)
+        try previous.write(to: url, options: .atomic)
+        let manager = BackupManager.shared
+        let savedDate = manager.lastBackupDate
+        defer { manager.lastBackupDate = savedDate }
+        manager.lastBackupDate = 123
+        var attemptedWrite = false
+
+        XCTAssertThrowsError(try manager.writeAutoBackup(
+            modelContext: context,
+            to: url,
+            write: { _, destination, options in
+                attemptedWrite = true
+                XCTAssertEqual(url, destination)
+                XCTAssertTrue(options.contains(.atomic))
+                // Fail at the file-writing boundary, before Foundation replaces the destination.
+                throw BackupInjectedFailure.write
+            }
+        )) { error in
+            XCTAssertEqual(error as? BackupInjectedFailure, .write)
+        }
+        XCTAssertTrue(attemptedWrite)
+        XCTAssertEqual(previous, try Data(contentsOf: url))
+        XCTAssertEqual(123, manager.lastBackupDate)
+    }
+
+    func testAutoBackup_filesystemWriteFailurePreservesExistingBackup() throws {
+        let container = try makeInMemoryContainer()
+        let context = ModelContext(container)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let url = directory.appendingPathComponent("backup.json")
+        let manager = BackupManager.shared
+        let savedDate = manager.lastBackupDate
+        defer { manager.lastBackupDate = savedDate }
+        try manager.writeAutoBackup(modelContext: context, to: url)
+        let original = try Data(contentsOf: url)
+        let originalDate = manager.lastBackupDate
+        // A read-only directory prevents Foundation from creating/replacing its auxiliary file.
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        XCTAssertThrowsError(try manager.writeAutoBackup(modelContext: context, to: url))
+        XCTAssertEqual(original, try Data(contentsOf: url))
+        XCTAssertEqual(originalDate, manager.lastBackupDate)
+    }
+
+    func testAutoBackup_successProducesDecodableBackupAndAdvancesDate() throws {
+        let container = try makeInMemoryContainer()
+        let context = ModelContext(container)
+        try seedCompleteBackupGraph(in: context)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("backup-success-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data("old backup".utf8).write(to: url, options: .atomic)
+        let manager = BackupManager.shared
+        let savedDate = manager.lastBackupDate
+        defer { manager.lastBackupDate = savedDate }
+        manager.lastBackupDate = 123
+        let started = Date().timeIntervalSince1970
+
+        try manager.writeAutoBackup(modelContext: context, to: url)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let backup = try decoder.decode(FullBackupData.self, from: Data(contentsOf: url))
+        XCTAssertEqual("1.9", backup.version)
+        XCTAssertEqual(13, BackupRecordCounts.fromBackup(backup).total)
+        XCTAssertGreaterThanOrEqual(manager.lastBackupDate, started)
+    }
+
+    func testCompleteBackup_roundtripPreservesAllModelIDsCountsAndRelationships() throws {
+        let sourceContainer = try makeInMemoryContainer()
+        let sourceContext = ModelContext(sourceContainer)
+        try seedCompleteBackupGraph(in: sourceContext)
+        let original = try BackupManager.shared.createBackupData(modelContext: sourceContext)
+        let targetContainer = try makeInMemoryContainer()
+        let targetContext = ModelContext(targetContainer)
+
+        let summary = try BackupManager.shared.restoreBackupData(original, modelContext: targetContext, replaceExisting: true)
+        let restored = try BackupManager.shared.createBackupData(modelContext: targetContext)
+
+        XCTAssertEqual(BackupRecordCounts.fromBackup(original), summary.afterRestoreCounts)
+        XCTAssertEqual(13, summary.afterRestoreCounts.total)
+        // Restore intentionally refreshes timestamps on derived budget history.
+        XCTAssertEqual(try backupPayload(original, ignoringUpdatedAt: true), try backupPayload(restored, ignoringUpdatedAt: true))
+        let transaction = try XCTUnwrap(targetContext.fetch(FetchDescriptor<FinancialTransaction>()).first)
+        XCTAssertEqual(original.accounts.first?.id, transaction.account?.id)
+        XCTAssertEqual(original.categories.first?.id, transaction.category?.id)
+        XCTAssertEqual(original.tags.map(\.id), transaction.tags.map(\.id))
+        let repayment = try XCTUnwrap(targetContext.fetch(FetchDescriptor<AdvanceRepayment>()).first)
+        XCTAssertEqual(original.advanceCases?.first?.id, repayment.advanceCase?.id)
+        XCTAssertEqual(original.advanceParticipants?.first?.id, repayment.participant?.id)
+        XCTAssertEqual(original.accounts.first?.id, repayment.receivedAccount?.id)
+    }
+
+    private var requiredBackupModelTypes: [any PersistentModel.Type] {
+        [Account.self, Category.self, Tag.self, FinancialTransaction.self, Shortcut.self,
+         RecurringRule.self, RecurringOccurrence.self, CategoryMonthlyBudget.self,
+         BudgetMonthlyHistory.self, BudgetSettings.self, AdvanceCase.self,
+         AdvanceParticipant.self, AdvanceRepayment.self]
+    }
+
+    private func seedCompleteBackupGraph(in context: ModelContext) throws {
+        let date = Date(timeIntervalSince1970: 1_780_000_000)
+        let account = Account(name: "Wallet", currency: "HKD", type: .cash, baseBalance: 321)
+        let category = Category(name: "Food", icon: "fork.knife", colorHex: "FF8800", kind: .expense)
+        let tag = Tag(name: "Shared")
+        let advanceCase = AdvanceCase(title: "Lunch", date: date, currencyCode: "HKD", direction: .iAdvancedOthers, tagIDs: [tag.id], payerAccount: account, expenseCategory: category)
+        let participant = AdvanceParticipant(name: "Friend", owedAmount: 50, repaidAmount: 10, advanceCase: advanceCase, debtAccount: account)
+        let repayment = AdvanceRepayment(amount: 10, normalizedAmount: 10, date: date, advanceCase: advanceCase, participant: participant, receivedAccount: account)
+        let transaction = FinancialTransaction(amount: -50, date: date, advanceCaseID: advanceCase.id, advanceParticipantID: participant.id, advanceEntryRole: .selfExpense, account: account, category: category, tags: [tag])
+        let shortcut = Shortcut(name: "Lunch", icon: "bolt", amount: 50, type: .expense, note: "", account: account, category: category, tags: [tag])
+        let rule = RecurringRule(title: "Lunch", amount: 50, type: .expense, nextDueDate: date, account: account, category: category, tags: [tag])
+        let occurrence = RecurringOccurrence(dueDate: date, createdTransactionID: transaction.id, rule: rule)
+        let budget = CategoryMonthlyBudget(monthKey: BudgetService.monthKey(from: date), amount: 500, category: category)
+        let settings = BudgetSettings()
+        context.insert(account)
+        context.insert(category)
+        context.insert(tag)
+        context.insert(advanceCase)
+        context.insert(participant)
+        context.insert(repayment)
+        context.insert(transaction)
+        context.insert(shortcut)
+        context.insert(rule)
+        context.insert(occurrence)
+        context.insert(budget)
+        context.insert(settings)
+        try BudgetHistoryService.shared.syncAll(modelContext: context, currencyService: CurrencyService.shared)
+        try context.save()
+    }
+
+    private func backupPayload(_ backup: FullBackupData, ignoringUpdatedAt: Bool = false) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(backup)) as? [String: Any])
+        payload.removeValue(forKey: "timestamp")
+        for (key, value) in payload {
+            guard var rows = value as? [[String: Any]] else { continue }
+            if ignoringUpdatedAt {
+                rows = rows.map { row in
+                    var copy = row
+                    copy.removeValue(forKey: "updatedAt")
+                    return copy
+                }
+            }
+            payload[key] = rows.sorted { ($0["id"] as? String ?? "") < ($1["id"] as? String ?? "") }
+        }
+        return try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+    }
+
     func testClearAllBackupData_removesEveryPersistedRecord() throws {
         let container = try makeInMemoryContainer()
         let modelContext = ModelContext(container)
@@ -101,7 +353,7 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertEqual(1, summary.beforeCounts.budgetSettings)
         XCTAssertEqual(.zero, summary.afterRestoreCounts)
         XCTAssertTrue(try modelContext.fetch(FetchDescriptor<Account>()).isEmpty)
-        let backup = BackupManager.shared.createBackupData(modelContext: modelContext)
+        let backup = try BackupManager.shared.createBackupData(modelContext: modelContext)
         XCTAssertTrue(backup.categories.isEmpty)
         XCTAssertTrue(backup.tags.isEmpty)
         XCTAssertTrue(backup.transactions.isEmpty)
@@ -132,7 +384,7 @@ final class BackupCompatibilityTests: XCTestCase {
         sourceContext.insert(replacementAccount)
         sourceContext.insert(replacementTransaction)
         try sourceContext.save()
-        let backup = BackupManager.shared.createBackupData(modelContext: sourceContext)
+        let backup = try BackupManager.shared.createBackupData(modelContext: sourceContext)
 
         let targetContainer = try makeInMemoryContainer()
         let targetContext = ModelContext(targetContainer)
@@ -196,7 +448,7 @@ final class BackupCompatibilityTests: XCTestCase {
         sourceContext.insert(correctedAccount)
         sourceContext.insert(correctedTransaction)
         try sourceContext.save()
-        let correctedBackup = BackupManager.shared.createBackupData(modelContext: sourceContext)
+        let correctedBackup = try BackupManager.shared.createBackupData(modelContext: sourceContext)
 
         let targetContainer = try makeInMemoryContainer()
         let targetContext = ModelContext(targetContainer)
@@ -255,7 +507,7 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertEqual(1, repairedCount)
         XCTAssertEqual([], advanceCase.tagIDs)
 
-        let backup = BackupManager.shared.createBackupData(modelContext: modelContext)
+        let backup = try BackupManager.shared.createBackupData(modelContext: modelContext)
         XCTAssertEqual([], backup.advanceCases?.first?.tagIDs)
     }
 
@@ -402,7 +654,7 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertEqual(1, initialReport.warningCount)
         XCTAssertTrue(initialReport.issues.contains { $0.title == "他人代墊我舊資料會虛增自己帳戶" })
 
-        let exported = BackupManager.shared.createBackupData(modelContext: modelContext)
+        let exported = try BackupManager.shared.createBackupData(modelContext: modelContext)
         XCTAssertEqual(5, exported.accounts.count)
         XCTAssertEqual(2, exported.categories.count)
         XCTAssertEqual(16, exported.transactions.count)
@@ -454,7 +706,7 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertFalse(repairedReport.issues.contains(where: { $0.title == "收入記到了借貸帳戶" }))
         XCTAssertFalse(repairedReport.issues.contains(where: { $0.title == "收入捷徑綁到了借貸帳戶" }))
 
-        let exported = BackupManager.shared.createBackupData(modelContext: modelContext)
+        let exported = try BackupManager.shared.createBackupData(modelContext: modelContext)
         XCTAssertEqual("Both", exported.categories.first(where: { $0.name == "Salary" })?.kind)
         XCTAssertEqual(1, exported.budgetHistory?.count)
         XCTAssertNil(exported.shortcuts.first?.accountID)
@@ -576,7 +828,7 @@ final class BackupCompatibilityTests: XCTestCase {
         modelContext.insert(history)
         try modelContext.save()
 
-        let exported = BackupManager.shared.createBackupData(modelContext: modelContext)
+        let exported = try BackupManager.shared.createBackupData(modelContext: modelContext)
         XCTAssertEqual(3, exported.transactions.count)
         XCTAssertEqual(1, exported.budgetHistory?.count)
 
@@ -1023,7 +1275,7 @@ final class BackupCompatibilityTests: XCTestCase {
         XCTAssertEqual(Decimal(90), incoming.amount)
         XCTAssertEqual("CNY", incoming.currencyCode)
 
-        let exported = BackupManager.shared.createBackupData(modelContext: modelContext)
+        let exported = try BackupManager.shared.createBackupData(modelContext: modelContext)
         let exportedRepayment = try XCTUnwrap(exported.advanceRepayments?.first { $0.id == repayment.id })
         XCTAssertEqual(Decimal(90), exportedRepayment.amount)
         XCTAssertEqual("CNY", exportedRepayment.currencyCode)
@@ -1088,7 +1340,7 @@ final class BackupCompatibilityTests: XCTestCase {
             modelContext: modelContext
         )
 
-        let exported = BackupManager.shared.createBackupData(modelContext: modelContext)
+        let exported = try BackupManager.shared.createBackupData(modelContext: modelContext)
         let linked = exported.transactions.filter {
             $0.advanceCaseID == advanceCase.id &&
                 $0.advanceParticipantID == participant.id
@@ -1425,5 +1677,23 @@ final class TransferPresentationServiceTests: XCTestCase {
             transferGroupID: transferGroupID,
             transferSide: transferSide
         )
+    }
+}
+
+private enum BackupInjectedFailure: Error, Equatable {
+    case read
+    case write
+}
+
+@MainActor
+private struct FailingBackupReader: BackupModelReading {
+    let modelContext: ModelContext
+    let failingType: any PersistentModel.Type
+
+    func fetch<Model: PersistentModel>(_ descriptor: FetchDescriptor<Model>) throws -> [Model] {
+        if ObjectIdentifier(Model.self) == ObjectIdentifier(failingType) {
+            throw BackupInjectedFailure.read
+        }
+        return try modelContext.fetch(descriptor)
     }
 }

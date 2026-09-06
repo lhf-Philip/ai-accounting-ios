@@ -46,15 +46,12 @@ struct SettingsView: View {
     private let keychainServiceName = "org.duckdns.lhfser.AIMoney"
     private let keychainAccountName = "gemini_api_key"
 
+    private var monthlyBudgetStatuses: [BudgetStatus]? {
+        try? BudgetService.statuses(for: BudgetService.monthKey(from: Date()), budgets: budgets, transactions: transactions, currencyService: currencyService)
+    }
+
     private var monthlyBudgetAlerts: [BudgetStatus] {
-        let key = BudgetService.monthKey(from: Date())
-        return BudgetService.statuses(
-            for: key,
-            budgets: budgets,
-            transactions: transactions,
-            currencyService: currencyService
-        )
-        .filter { $0.ratio >= 1 }
+        (monthlyBudgetStatuses ?? []).filter { $0.ratio >= 1 }
     }
 
     struct TimeLeftInfo {
@@ -185,8 +182,8 @@ struct SettingsView: View {
                     }
 
                     Button {
-                        let data = BackupManager.shared.createBackupData(modelContext: modelContext)
                         do {
+                            let data = try BackupManager.shared.createBackupData(modelContext: modelContext)
                             let encoder = JSONEncoder()
                             encoder.outputFormatting = .prettyPrinted
                             encoder.dateEncodingStrategy = .iso8601
@@ -280,6 +277,9 @@ struct SettingsView: View {
                     }
                 }
 
+                if monthlyBudgetStatuses == nil {
+                    Section("本月預算提醒") { Text("預算估算暫不可用") }
+                }
                 if !monthlyBudgetAlerts.isEmpty {
                     Section("本月預算提醒") {
                         ForEach(monthlyBudgetAlerts) { status in

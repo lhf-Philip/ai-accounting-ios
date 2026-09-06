@@ -14,15 +14,21 @@ enum LedgerDeletionError: LocalizedError {
 
 @MainActor
 enum LedgerDeletionService {
-    static func delete(transaction: FinancialTransaction, modelContext: ModelContext) throws {
+    static func delete(transaction: FinancialTransaction, modelContext: ModelContext, synchronize: LedgerMutationService.BudgetSynchronization = LedgerMutationService.synchronizeBudget) throws {
+        try LedgerMutationService.atomic(modelContext: modelContext) {
+            try deleteStaged(transaction: transaction, modelContext: modelContext, synchronize: synchronize)
+        }
+    }
+
+    private static func deleteStaged(transaction: FinancialTransaction, modelContext: ModelContext, synchronize: LedgerMutationService.BudgetSynchronization) throws {
         if let groupID = transaction.transferGroupID {
-            try deleteTransferGroup(groupID, fallbackTransaction: transaction, modelContext: modelContext)
+            try deleteTransferGroup(groupID, fallbackTransaction: transaction, modelContext: modelContext, synchronize: synchronize)
             return
         }
 
         let affectedKeys = [BudgetHistoryService.affectedKey(for: transaction)].compactMap { $0 }
 
-        if isAdvanceSelfExpense(transaction, modelContext: modelContext) {
+        if try isAdvanceSelfExpense(transaction, modelContext: modelContext) {
             throw LedgerDeletionError.advanceInitialTransferRequiresCase
         }
 
@@ -36,25 +42,21 @@ enum LedgerDeletionService {
         }
 
         modelContext.delete(transaction)
-        try modelContext.save()
-        try BudgetHistoryService.shared.syncAffected(
-            keys: affectedKeys,
-            modelContext: modelContext,
-            currencyService: CurrencyService.shared
-        )
+        try synchronize(modelContext, affectedKeys)
     }
 
     private static func deleteTransferGroup(
         _ groupID: UUID,
         fallbackTransaction: FinancialTransaction,
-        modelContext: ModelContext
+        modelContext: ModelContext,
+        synchronize: LedgerMutationService.BudgetSynchronization
     ) throws {
         if let repayment = try repayment(for: groupID, modelContext: modelContext),
            let advanceCase = repayment.advanceCase {
             try AdvanceService.rollbackRepayment(
                 advanceCase: advanceCase,
                 repayment: repayment,
-                autosave: true,
+                autosave: false,
                 modelContext: modelContext
             )
             return
@@ -77,12 +79,7 @@ enum LedgerDeletionService {
                 modelContext.delete(transfer)
             }
         }
-        try modelContext.save()
-        try BudgetHistoryService.shared.syncAffected(
-            keys: affectedKeys,
-            modelContext: modelContext,
-            currencyService: CurrencyService.shared
-        )
+        try synchronize(modelContext, affectedKeys)
     }
 
     private static func repayment(for groupID: UUID, modelContext: ModelContext) throws -> AdvanceRepayment? {
@@ -99,11 +96,11 @@ enum LedgerDeletionService {
         return try modelContext.fetch(descriptor).first != nil
     }
 
-    private static func isAdvanceSelfExpense(_ transaction: FinancialTransaction, modelContext: ModelContext) -> Bool {
+    private static func isAdvanceSelfExpense(_ transaction: FinancialTransaction, modelContext: ModelContext) throws -> Bool {
         let transactionID: UUID? = transaction.id
         let descriptor = FetchDescriptor<AdvanceCase>(
             predicate: #Predicate { $0.selfExpenseTransactionID == transactionID }
         )
-        return ((try? modelContext.fetch(descriptor)) ?? []).isEmpty == false
+        return try modelContext.fetch(descriptor).isEmpty == false
     }
 }

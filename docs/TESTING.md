@@ -34,6 +34,7 @@ This guide defines what each test layer is responsible for and the minimum evide
 - `AI 記帳Tests/`
   - backup compatibility;
   - transaction and transfer editing;
+  - ledger/budget atomicity, rollback of split entries and grouped deletion, and retry after injected synchronization failure;
   - advance structural editing;
   - report aggregation and refund semantics;
   - ledger semantic vectors.
@@ -354,3 +355,22 @@ The PR description should list:
 - manual devices/OS versions used;
 - accounting invariants checked;
 - failures, retries, or tests not run and why.
+
+## Ledger commit boundary (#166)
+
+Ordinary add, scan, shortcut, edit and ledger deletion stage their ledger and budget-history changes in one context, then save once. Nested budget synchronization uses `save: false`; standalone callers retain the default save behavior. The operation owns pending changes in that synchronous context and temporarily disables autosave. On error, inserted inverse relationships or retained editor values are repaired before rollback, then the error reaches the view. This does not introduce a schema or backup-format change.
+
+Apple documents [save](https://developer.apple.com/documentation/swiftdata/modelcontext/save()) as writing pending inserts, updates and deletes, and [includePendingChanges](https://developer.apple.com/documentation/swiftdata/fetchdescriptor/includependingchanges) as true by default. Integration tests verify that budget queries observe pending inserts, date/category moves and deletions before the commit. Failure tests inspect both the active context and a fresh reader, then retry to detect duplicate or leaked entries. UI tests cover ordinary, transfer and advance editing; physical-device upgrade/storage smoke remains a release check.
+
+The ledger UI regression navigates from an advance-case summary to its repayment record and scrolls to the editor note field. The prior test expected a standalone repayment ledger row; the captured failure showed the existing case grouping with its outstanding balance intact.
+## Unavailable FX (#167)
+
+`CurrencyService.convert` delegates to the optional estimate path and throws when a required rate is missing, invalid, or outside Decimal's representable range. Same-currency values stay exact. Combined UI totals with any missing conversion expose partial/unavailable status and withhold the numeric total. Cached rates, including the existing stale-cache fallback, remain labeled as cached. No recorded transaction or explicit repayment conversion is re-priced.
+
+Both full and affected-key budget-history synchronization calculate every desired snapshot before changing the context. The fault test first persists valid HKD/USD history, removes the usable USD rate, then checks that both synchronization APIs throw without dirtying or overwriting any previous snapshot, including after a subsequent save and fresh-context read. Budget status and AI input preparation propagate missing rates instead of supplying fabricated numbers. Model schema and backup version are unchanged; historical snapshots already affected by the old fallback require recomputation with valid rates.
+
+Source of truth: [ADR 0003](./adr/0003-report-currency-estimates.md) and [CONTEXT](../CONTEXT.md). The production failure was reproduced with missing source/target rates. Currency tests are asynchronous because synchronous XCTest teardown on the installed Swift runtime hit the documented [Swift issue 87316](https://github.com/swiftlang/swift/issues/87316); no production runtime workaround was added.
+
+The FX caller audit also found save-before-history sequences in advance creation/deletion, recurring confirmation, account deletion, and legacy borrowed-advance maintenance. These now use the ledger commit owner with staged history synchronization. New failure tests cover advance/recurring retries, account/case deletion, and budget batch rollback. Budget editing, carryover, deletion and AI suggestions use a budget mutation boundary that restores retained values and removes failed inserts. This prevents a newly explicit FX error from being reported after a primary write already committed.
+
+Backup restore preserves imported ledger amounts and existing historical snapshots when current FX is unavailable; only optional history re-estimation is deferred. Other read/write errors still propagate through backup recovery. A combined #168/#167 regression imports a previously valid foreign-currency backup after removing its rate and verifies the original transaction IDs/amounts and snapshot value.

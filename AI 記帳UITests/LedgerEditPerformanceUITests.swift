@@ -31,7 +31,17 @@ final class LedgerEditPerformanceUITests: XCTestCase {
         openAndDismissDateFilter()
         editTransaction(named: "UITest 普通支出", noteFieldIdentifier: "transactionEditor.noteField", saveButtonIdentifier: "transactionEditor.saveButton")
         editTransaction(named: "UITest 轉帳", noteFieldIdentifier: "transferEditor.noteField", saveButtonIdentifier: "transferEditor.saveButton")
-        editTransaction(named: "UITest 代墊還款", noteFieldIdentifier: "advanceTransferEditor.noteField", saveButtonIdentifier: "advanceTransferEditor.saveButton")
+        // Advance entries are grouped into their case in the ledger.
+        let caseRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "UITest 代墊晚餐")).firstMatch
+        XCTAssertTrue(caseRow.waitForExistence(timeout: 10))
+        caseRow.tap()
+        let repayment = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "UITest 代墊還款")).firstMatch
+        for _ in 0..<6 {
+            if repayment.exists && repayment.isHittable { break }
+            app.swipeUp()
+        }
+        editTransaction(named: "UITest 代墊還款", noteFieldIdentifier: "advanceTransferEditor.noteField", saveButtonIdentifier: "advanceTransferEditor.saveButton", returnsToLedger: false)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "UITest 代墊還款 ui")).firstMatch.waitForExistence(timeout: 10))
     }
 
     private func openLedger() {
@@ -55,12 +65,16 @@ final class LedgerEditPerformanceUITests: XCTestCase {
         XCTAssertTrue(filterButton.waitForExistence(timeout: 10), "Ledger should be visible after closing date filter")
     }
 
-    private func editTransaction(named rowText: String, noteFieldIdentifier: String, saveButtonIdentifier: String) {
+    private func editTransaction(named rowText: String, noteFieldIdentifier: String, saveButtonIdentifier: String, returnsToLedger: Bool = true) {
         let rowLabel = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", rowText)).firstMatch
         XCTAssertTrue(rowLabel.waitForExistence(timeout: 10), "Expected ledger row containing \(rowText)")
         rowLabel.tap()
 
         let noteField = app.textFields[noteFieldIdentifier]
+        for _ in 0..<6 {
+            if noteField.exists && noteField.isHittable { break }
+            app.swipeUp()
+        }
         XCTAssertTrue(noteField.waitForExistence(timeout: 10), "Expected note field \(noteFieldIdentifier)")
         noteField.tap()
         noteField.typeText(" ui")
@@ -69,7 +83,9 @@ final class LedgerEditPerformanceUITests: XCTestCase {
         XCTAssertTrue(saveButton.waitForExistence(timeout: 10), "Expected save button \(saveButtonIdentifier)")
         saveButton.tap()
 
-        let ledgerList = app.collectionViews["ledger.list"]
-        XCTAssertTrue(ledgerList.waitForExistence(timeout: 10), "Ledger list should return after saving \(rowText)")
+        if returnsToLedger {
+            let ledgerList = app.collectionViews["ledger.list"]
+            XCTAssertTrue(ledgerList.waitForExistence(timeout: 10), "Ledger list should return after saving \(rowText)")
+        }
     }
 }

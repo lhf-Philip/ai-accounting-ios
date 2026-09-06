@@ -1,6 +1,108 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "預算估算暫不可用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget estimates are unavailable"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget estimates are unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予算の見積もりを利用できません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预算估算暂不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預算估算暫不可用"
+          }
+        }
+      }
+    },
+    "無法換算 %@ 至 %@：缺少有效匯率。請更新匯率後重試。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot convert %@ to %@: no valid exchange rate. Refresh rates and try again."
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot convert %@ to %@: no valid exchange rate. Refresh rates and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から %@ に換算できません。有効な為替レートを更新して再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法换算 %@ 至 %@：缺少有效汇率。请更新汇率后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法換算 %@ 至 %@：缺少有效匯率。請更新匯率後重試。"
+          }
+        }
+      }
+    },
+    "無法估算（缺少匯率）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable (missing exchange rate)"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable (missing exchange rate)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "換算できません（為替レートなし）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法估算（缺少汇率）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法估算（缺少匯率）"
+          }
+        }
+      }
+    },
     "": {
       "localizations": {
         "zh-Hant": {

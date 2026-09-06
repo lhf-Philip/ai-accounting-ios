@@ -15,7 +15,7 @@ private struct SettlementPersonSummary: Identifiable {
     let name: String
     let balances: [SettlementCurrencyBalance]
     let offsetCandidates: [AdvanceService.MutualDebtOffsetCandidate]
-    let netBalanceInMainCurrency: Decimal
+    let netBalanceInMainCurrency: CurrencyTotalEstimate
     let advanceCaseCount: Int
     let repaymentCount: Int
     let forgivenessCount: Int
@@ -114,13 +114,7 @@ struct SettlementCenterView: View {
                 .sorted { $0.currencyCode < $1.currencyCode }
             let caseCount = Set(participants.compactMap { $0.advanceCase?.id }).count
             let balances = balances(for: account)
-            let netInMainCurrency = balances.reduce(Decimal.zero) { partial, balance in
-                partial + currencyService.convert(
-                    amount: balance.amount,
-                    from: balance.currencyCode,
-                    to: mainCurrency
-                )
-            }
+            let netInMainCurrency = currencyService.totalEstimate(balances.map { ($0.amount, $0.currencyCode) }, to: mainCurrency)
 
             return SettlementPersonSummary(
                 id: account.id,
@@ -136,7 +130,7 @@ struct SettlementCenterView: View {
             )
         }
         .filter { !$0.balances.isEmpty || $0.advanceCaseCount > 0 || $0.repaymentCount > 0 || $0.forgivenessCount > 0 }
-        .sorted { abs($0.netBalanceInMainCurrency) > abs($1.netBalanceInMainCurrency) }
+        .sorted { abs($0.netBalanceInMainCurrency.amount ?? 0) > abs($1.netBalanceInMainCurrency.amount ?? 0) }
     }
 
     private var activeCaseSummaries: [AdvanceCase] {
@@ -265,14 +259,14 @@ struct SettlementCenterView: View {
         return timelineItems.filter { $0.relatedAccountID == timelineFilter.accountID }
     }
 
-    private var totalNetInMainCurrency: Decimal {
-        personSummaries.reduce(Decimal.zero) { $0 + $1.netBalanceInMainCurrency }
+    private var totalNetInMainCurrency: CurrencyTotalEstimate {
+        currencyService.totalEstimate(personSummaries.flatMap { $0.balances }.map { ($0.amount, $0.currencyCode) }, to: mainCurrency)
     }
 
     private var settlementSummaryText: String {
         var lines: [String] = [
             "結算中心摘要",
-            "淨額：\(totalNetInMainCurrency.formatted(.currency(code: mainCurrency)))",
+            "淨額：\(totalNetInMainCurrency.formatted(in: mainCurrency))",
             ""
         ]
         lines += personSummaries.map { summary in
@@ -292,9 +286,9 @@ struct SettlementCenterView: View {
                     Text("整體淨額 (\(mainCurrency))")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    Text(totalNetInMainCurrency.formatted(.currency(code: mainCurrency)))
+                    Text(totalNetInMainCurrency.formatted(in: mainCurrency))
                         .font(.system(size: 32, weight: .bold))
-                        .foregroundStyle(totalNetInMainCurrency >= 0 ? .green : .red)
+                        .foregroundStyle(totalNetInMainCurrency.amount.map { $0 >= 0 ? Color.green : Color.red } ?? .secondary)
                     Text("正數代表你待收；負數代表你待還。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -365,7 +359,7 @@ struct SettlementCenterView: View {
                     }
                 }
             }
-            if let summary = selectedPerson, summary.netBalanceInMainCurrency > 0 {
+            if let summary = selectedPerson, let amount = summary.netBalanceInMainCurrency.amount, amount > 0 {
                 Button("記錄對方還款") {
                     selectedPerson = nil
                     debtRoute = SettlementDebtRoute(
@@ -384,7 +378,7 @@ struct SettlementCenterView: View {
                         note: "免除對方欠款"
                     )
                 }
-            } else if let summary = selectedPerson, summary.netBalanceInMainCurrency < 0 {
+            } else if let summary = selectedPerson, let amount = summary.netBalanceInMainCurrency.amount, amount < 0 {
                 Button("記錄你還款") {
                     selectedPerson = nil
                     debtRoute = SettlementDebtRoute(
@@ -475,7 +469,7 @@ struct SettlementCenterView: View {
                                         .font(.headline)
                                         .foregroundStyle(primaryBalance.amount >= 0 ? .green : .red)
                                 }
-                                Text(summary.netBalanceInMainCurrency.formatted(.currency(code: mainCurrency)))
+                                Text(summary.netBalanceInMainCurrency.formatted(in: mainCurrency))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -601,7 +595,8 @@ struct SettlementCenterView: View {
         }
     }
 
-    private func directionText(for amount: Decimal) -> String {
+    private func directionText(for estimate: CurrencyTotalEstimate) -> String {
+        guard let amount = estimate.amount else { return "無法估算（缺少匯率）" }
         if amount > 0 { return "對方欠你" }
         if amount < 0 { return "你欠對方" }
         return "已結清"

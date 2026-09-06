@@ -22,36 +22,28 @@ struct HomeDashboardView: View {
         transactions.filter { matchesFilter(date: $0.date) }
     }
 
-    private var periodExpenseMain: Decimal {
-        filteredTransactions
-            .filter { $0.type == .expense }
-            .reduce(Decimal.zero) { partial, tx in
-                partial + currencyService.convert(amount: abs(tx.amount), from: tx.currencyCode)
-            }
+    private var periodExpenseMain: CurrencyTotalEstimate {
+        currencyService.totalEstimate(filteredTransactions.filter { $0.type == .expense }.map { (abs($0.amount), $0.currencyCode) })
     }
 
-    private var periodIncomeMain: Decimal {
-        filteredTransactions
-            .filter { $0.type == .income }
-            .reduce(Decimal.zero) { partial, tx in
-                partial + currencyService.convert(amount: abs(tx.amount), from: tx.currencyCode)
-            }
+    private var periodIncomeMain: CurrencyTotalEstimate {
+        currencyService.totalEstimate(filteredTransactions.filter { $0.type == .income }.map { (abs($0.amount), $0.currencyCode) })
     }
 
-    private var periodNetMain: Decimal {
-        periodIncomeMain - periodExpenseMain
+    private var periodNetMain: CurrencyTotalEstimate {
+        currencyService.totalEstimate(filteredTransactions.filter { $0.type != .transfer }.map {
+            ($0.type == .expense ? -abs($0.amount) : abs($0.amount), $0.currencyCode)
+        })
     }
 
     private var filteredAdvanceCases: [AdvanceCase] {
         advanceCases.filter { matchesFilter(date: $0.date) }
     }
 
-    private var periodOutstandingAdvance: Decimal {
-        filteredAdvanceCases
-            .reduce(Decimal.zero) { partial, advanceCase in
-                let outstanding = AdvanceSemantics.outstanding(participantRemainingAmounts: advanceCase.participants.map(\.remainingAmount))
-                return partial + currencyService.convert(amount: outstanding, from: advanceCase.currencyCode)
-            }
+    private var periodOutstandingAdvance: CurrencyTotalEstimate {
+        currencyService.totalEstimate(filteredAdvanceCases.map {
+            (AdvanceSemantics.outstanding(participantRemainingAmounts: $0.participants.map(\.remainingAmount)), $0.currencyCode)
+        })
     }
 
     private var periodRecordCount: Int {
@@ -182,28 +174,28 @@ struct HomeDashboardView: View {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 summaryCard(
                     title: "收入",
-                    value: periodIncomeMain.formatted(.currency(code: currencyService.mainCurrency)),
+                    value: periodIncomeMain.formatted(in: currencyService.mainCurrency),
                     tint: .green,
                     icon: "arrow.down.circle"
                 )
 
                 summaryCard(
                     title: "支出",
-                    value: periodExpenseMain.formatted(.currency(code: currencyService.mainCurrency)),
+                    value: periodExpenseMain.formatted(in: currencyService.mainCurrency),
                     tint: .red,
                     icon: "arrow.up.circle"
                 )
 
                 summaryCard(
                     title: "淨收支",
-                    value: periodNetMain.formatted(.currency(code: currencyService.mainCurrency)),
-                    tint: periodNetMain >= 0 ? .blue : .orange,
+                    value: periodNetMain.formatted(in: currencyService.mainCurrency),
+                    tint: periodNetMain.amount.map { $0 >= 0 ? Color.blue : Color.orange } ?? .secondary,
                     icon: "equal.circle"
                 )
 
                 summaryCard(
                     title: "代墊待收",
-                    value: periodOutstandingAdvance.formatted(.currency(code: currencyService.mainCurrency)),
+                    value: periodOutstandingAdvance.formatted(in: currencyService.mainCurrency),
                     tint: .purple,
                     icon: "person.2"
                 )

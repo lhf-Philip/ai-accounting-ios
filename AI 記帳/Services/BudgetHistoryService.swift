@@ -7,11 +7,32 @@ final class BudgetHistoryService {
 
     private init() {}
 
+    func mutateBudgets(modelContext: ModelContext, currencyService: CurrencyService, mutation: () throws -> Void) throws {
+        let budgets = try modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())
+        let restore: [() -> Void] = budgets.map { budget in
+            let amount = budget.amount, currency = budget.currencyCode, month = budget.monthKey
+            let category = budget.category, enabled = budget.isEnabled, updatedAt = budget.updatedAt
+            return {
+                budget.amount = amount
+                budget.currencyCode = currency
+                budget.monthKey = month
+                budget.category = category
+                budget.isEnabled = enabled
+                budget.updatedAt = updatedAt
+            }
+        }
+        try LedgerMutationService.atomic(modelContext: modelContext, recover: { restore.forEach { $0() } }) {
+            try mutation()
+            try syncAll(modelContext: modelContext, currencyService: currencyService, save: false)
+        }
+    }
+
     func syncAll(
         modelContext: ModelContext,
         currencyService: CurrencyService,
         budgets: [CategoryMonthlyBudget]? = nil,
-        transactions: [FinancialTransaction]? = nil
+        transactions: [FinancialTransaction]? = nil,
+        save: Bool = true
     ) throws {
         let budgetRecords: [CategoryMonthlyBudget]
         if let budgets {
@@ -28,7 +49,7 @@ final class BudgetHistoryService {
         }
         let existingHistories = try modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>())
 
-        let desiredHistories = buildDesiredHistories(
+        let desiredHistories = try buildDesiredHistories(
             budgets: budgetRecords,
             transactions: transactionRecords,
             currencyService: currencyService
@@ -49,22 +70,24 @@ final class BudgetHistoryService {
             }
         }
 
-        try modelContext.save()
+        if save { try modelContext.save() }
     }
 
     func syncAffected(
         by transactions: [FinancialTransaction],
         modelContext: ModelContext,
-        currencyService: CurrencyService
+        currencyService: CurrencyService,
+        save: Bool = true
     ) throws {
         let keys = transactions.compactMap(Self.affectedKey(for:))
-        try syncAffected(keys: keys, modelContext: modelContext, currencyService: currencyService)
+        try syncAffected(keys: keys, modelContext: modelContext, currencyService: currencyService, save: save)
     }
 
     func syncAffected(
         keys: [BudgetHistoryAffectedKey],
         modelContext: ModelContext,
-        currencyService: CurrencyService
+        currencyService: CurrencyService,
+        save: Bool = true
     ) throws {
         let uniqueKeys = Array(Set(keys))
         guard !uniqueKeys.isEmpty else { return }
@@ -73,6 +96,8 @@ final class BudgetHistoryService {
         let existingHistories = try modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>())
         let existingByKey = Dictionary(uniqueKeysWithValues: existingHistories.map { ($0.historyKey, $0) })
 
+        var snapshots: [BudgetHistorySnapshot] = []
+        var obsolete: [BudgetMonthlyHistory] = []
         for key in uniqueKeys {
             let historyKey = Self.historyKey(monthKey: key.monthKey, categoryID: key.categoryID)
             guard let budget = budgets.first(where: { budget in
@@ -82,7 +107,7 @@ final class BudgetHistoryService {
                 budget.category?.kind.supports(.expense) == true
             }) else {
                 if let existing = existingByKey[historyKey] {
-                    modelContext.delete(existing)
+                    obsolete.append(existing)
                 }
                 continue
             }
@@ -102,20 +127,26 @@ final class BudgetHistoryService {
                 $0.type == .expense && $0.category?.id == key.categoryID
             }
 
-            let snapshot = makeSnapshot(
+            let snapshot = try makeSnapshot(
                 for: budget,
                 transactions: categoryTransactions,
                 currencyService: currencyService
             )
 
-            if let existing = existingByKey[historyKey] {
+            snapshots.append(snapshot)
+        }
+
+        // Complete every read and conversion before changing any existing snapshot.
+        for history in obsolete { modelContext.delete(history) }
+        for snapshot in snapshots {
+            if let existing = existingByKey[snapshot.historyKey] {
                 apply(snapshot, to: existing)
             } else {
                 modelContext.insert(snapshot.asModel())
             }
         }
 
-        try modelContext.save()
+        if save { try modelContext.save() }
     }
 
     static func affectedKey(for transaction: FinancialTransaction) -> BudgetHistoryAffectedKey? {
@@ -132,13 +163,13 @@ final class BudgetHistoryService {
         budgets: [CategoryMonthlyBudget],
         transactions: [FinancialTransaction],
         currencyService: CurrencyService
-    ) -> [BudgetHistorySnapshot] {
-        budgets
+    ) throws -> [BudgetHistorySnapshot] {
+        try budgets
             .filter { $0.isEnabled }
             .compactMap { budget in
                 guard let category = budget.category, category.kind.supports(.expense) else { return nil }
 
-                return makeSnapshot(
+                return try makeSnapshot(
                     for: budget,
                     transactions: transactions.filter { transaction in
                         transaction.type == .expense &&
@@ -160,11 +191,11 @@ final class BudgetHistoryService {
         for budget: CategoryMonthlyBudget,
         transactions: [FinancialTransaction],
         currencyService: CurrencyService
-    ) -> BudgetHistorySnapshot {
+    ) throws -> BudgetHistorySnapshot {
         let category = budget.category
         let categoryID = category?.id ?? UUID()
-        let spent = transactions.reduce(Decimal.zero) { partial, transaction in
-            partial + currencyService.convert(
+        let spent = try transactions.reduce(Decimal.zero) { partial, transaction in
+            try partial + currencyService.convert(
                 amount: abs(transaction.amount),
                 from: transaction.currencyCode,
                 to: budget.currencyCode

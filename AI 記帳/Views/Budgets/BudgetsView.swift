@@ -8,13 +8,14 @@ struct BudgetsView: View {
     @Query(sort: \BudgetSettings.updatedAt, order: .reverse) private var budgetSettingsRecords: [BudgetSettings]
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @StateObject private var currencyService = CurrencyService.shared
-    
+
     @State private var selectedMonthDate = Date()
     @State private var budgetToEdit: CategoryMonthlyBudget?
     @State private var showingAddBudget = false
     @State private var showingOnlyAlerts = false
     @State private var showingAISuggestions = false
-    
+    @State private var operationError: String?
+
     private var monthKey: String {
         BudgetService.monthKey(from: selectedMonthDate)
     }
@@ -22,27 +23,26 @@ struct BudgetsView: View {
     private var budgetSettings: BudgetSettings? {
         budgetSettingsRecords.first
     }
-    
-    private var monthStatuses: [BudgetStatus] {
-        BudgetService.statuses(
-            for: monthKey,
-            budgets: budgets,
-            transactions: transactions,
-            currencyService: currencyService
-        )
+
+    private var monthStatusResult: Result<[BudgetStatus], Error> {
+        Result { try BudgetService.statuses(for: monthKey, budgets: budgets, transactions: transactions, currencyService: currencyService) }
     }
-    
+
+    private var monthStatuses: [BudgetStatus] {
+        (try? monthStatusResult.get()) ?? []
+    }
+
     private var visibleStatuses: [BudgetStatus] {
         if showingOnlyAlerts {
             return monthStatuses.filter { $0.ratio >= 1 }
         }
         return monthStatuses
     }
-    
+
     private var availableExpenseCategories: [Category] {
         categories.filter { $0.kind.supports(.expense) }
     }
-    
+
     var body: some View {
         List {
             Section("月份") {
@@ -87,8 +87,10 @@ struct BudgetsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            
-            if visibleStatuses.isEmpty {
+
+            if case .failure(let error) = monthStatusResult {
+                Section("預算估算暫不可用") { Text(error.localizedDescription) }
+            } else if visibleStatuses.isEmpty {
                 Section {
                     ContentUnavailableView(
                         "本月無預算",
@@ -116,6 +118,10 @@ struct BudgetsView: View {
                 }
             }
         }
+        .alert("操作失敗", isPresented: Binding(get: { operationError != nil }, set: { if !$0 { operationError = nil } })) {
+            Button("好", role: .cancel) { operationError = nil }
+        } message: { Text(operationError ?? "") }
+
         .navigationTitle("預算與超支提醒")
         .task {
             ensureBudgetSettings()
@@ -169,7 +175,7 @@ struct BudgetsView: View {
             }
         }
     }
-    
+
     @ViewBuilder
     private func budgetRow(_ status: BudgetStatus) -> some View {
         let budget = status.budget
@@ -179,7 +185,7 @@ struct BudgetsView: View {
         let threshold = (budgetSettings?.alertThresholdPercent ?? 85) / 100
         let forecast = BudgetService.forecast(for: status)
         let color: Color = status.isOverBudget ? .red : (status.ratio >= threshold ? .orange : .green)
-        
+
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(categoryName)
@@ -191,10 +197,10 @@ struct BudgetsView: View {
                     .fontWeight(.medium)
                     .foregroundStyle(status.isOverBudget ? .red : .primary)
             }
-            
+
             ProgressView(value: progress, total: 1.0)
                 .tint(color)
-            
+
             HStack {
                 Text("預算：\(budget.amount.formatted(.currency(code: budget.currencyCode)))")
                     .font(.caption)
@@ -268,90 +274,90 @@ struct BudgetsView: View {
             return budget.category?.id
         })
 
-        let previousStatuses = BudgetService.statuses(
-            for: previousMonthKey,
-            budgets: budgets,
-            transactions: transactions,
-            currencyService: currencyService
-        )
-
-        var inserted = false
-        for status in previousStatuses {
-            guard let category = status.budget.category,
-                  !currentCategoryIDs.contains(category.id)
-            else { continue }
-
-            let amount = BudgetService.carryOverAmount(
-                previousBudgetAmount: status.budget.amount,
-                previousRemaining: status.remaining,
-                mode: settings.carryOverMode
+        let previousStatuses: [BudgetStatus]
+        do {
+            previousStatuses = try BudgetService.statuses(
+                for: previousMonthKey,
+                budgets: budgets,
+                transactions: transactions,
+                currencyService: currencyService
             )
-            guard amount > 0 else { continue }
-
-            modelContext.insert(CategoryMonthlyBudget(
-                monthKey: monthKey,
-                amount: amount,
-                currencyCode: status.budget.currencyCode,
-                isEnabled: status.budget.isEnabled,
-                category: category
-            ))
-            inserted = true
-        }
-
-        guard inserted else { return }
-        do {
-            try modelContext.save()
-            try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: currencyService)
         } catch {
-            print("套用預算結轉失敗: \(error)")
+            operationError = error.localizedDescription
+            return
         }
+
+        do {
+            try BudgetHistoryService.shared.mutateBudgets(modelContext: modelContext, currencyService: currencyService) {
+                for status in previousStatuses {
+                    guard let category = status.budget.category,
+                          !currentCategoryIDs.contains(category.id)
+                    else { continue }
+
+                    let amount = BudgetService.carryOverAmount(
+                        previousBudgetAmount: status.budget.amount,
+                        previousRemaining: status.remaining,
+                        mode: settings.carryOverMode
+                    )
+                    guard amount > 0 else { continue }
+
+                    modelContext.insert(CategoryMonthlyBudget(
+                        monthKey: monthKey,
+                        amount: amount,
+                        currencyCode: status.budget.currencyCode,
+                        isEnabled: status.budget.isEnabled,
+                        category: category
+                    ))
+                }
+
+            }
+        } catch { operationError = error.localizedDescription }
+
     }
-    
+
     private func deleteBudget(_ budget: CategoryMonthlyBudget) {
-        modelContext.delete(budget)
         do {
-            try modelContext.save()
-            try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: currencyService)
-        } catch {
-            print("刪除預算後同步歷史失敗: \(error)")
-        }
+            try BudgetHistoryService.shared.mutateBudgets(modelContext: modelContext, currencyService: currencyService) {
+                modelContext.delete(budget)
+            }
+        } catch { operationError = error.localizedDescription }
     }
 
     private func applyAISuggestions(_ suggestions: [BudgetSuggestionItem]) {
         let targetMonthKey = BudgetService.monthKey(from: selectedMonthDate)
 
-        for suggestion in suggestions {
-            guard let category = availableExpenseCategories.first(where: { $0.id == suggestion.categoryId }) else {
-                continue
-            }
-
-            if let existing = budgets.first(where: {
-                $0.monthKey == targetMonthKey && $0.category?.id == category.id
-            }) {
-                existing.amount = currencyService.convert(
-                    amount: suggestion.suggestedAmount,
-                    from: suggestion.currencyCode,
-                    to: existing.currencyCode
-                )
-                existing.updatedAt = Date()
-                existing.isEnabled = true
-            } else {
-                let budget = CategoryMonthlyBudget(
-                    monthKey: targetMonthKey,
-                    amount: suggestion.suggestedAmount,
-                    currencyCode: suggestion.currencyCode,
-                    isEnabled: true,
-                    category: category
-                )
-                modelContext.insert(budget)
-            }
-        }
-
         do {
-            try modelContext.save()
-            try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: currencyService)
+            try BudgetHistoryService.shared.mutateBudgets(modelContext: modelContext, currencyService: currencyService) {
+                for suggestion in suggestions {
+                    guard let category = availableExpenseCategories.first(where: { $0.id == suggestion.categoryId }) else {
+                        continue
+                    }
+
+                    if let existing = budgets.first(where: {
+                        $0.monthKey == targetMonthKey && $0.category?.id == category.id
+                    }) {
+                        existing.amount = try currencyService.convert(
+                            amount: suggestion.suggestedAmount,
+                            from: suggestion.currencyCode,
+                            to: existing.currencyCode
+                        )
+                        existing.updatedAt = Date()
+                        existing.isEnabled = true
+                    } else {
+                        let budget = CategoryMonthlyBudget(
+                            monthKey: targetMonthKey,
+                            amount: suggestion.suggestedAmount,
+                            currencyCode: suggestion.currencyCode,
+                            isEnabled: true,
+                            category: category
+                        )
+                        modelContext.insert(budget)
+                    }
+                }
+
+            }
         } catch {
-            print("套用 AI 預算建議後同步歷史失敗: \(error)")
+            operationError = error.localizedDescription
         }
     }
 
@@ -361,12 +367,12 @@ struct BudgetEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @AppStorage("mainCurrency") private var mainCurrency: String = "HKD"
-    
+
     let existingBudget: CategoryMonthlyBudget?
     let monthDate: Date
     let allBudgets: [CategoryMonthlyBudget]
     let categories: [Category]
-    
+
     @State private var selectedCategory: Category?
     @State private var selectedMonthDate = Date()
     @State private var amountString = ""
@@ -374,13 +380,13 @@ struct BudgetEditorView: View {
     @State private var isEnabled = true
     @State private var showingError = false
     @State private var errorMessage = ""
-    
+
     private let currencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
 
     private var availableCurrencies: [String] {
         currencies.contains(currencyCode) ? currencies : [currencyCode] + currencies
     }
-    
+
     var body: some View {
         NavigationStack {
             Form {
@@ -391,11 +397,11 @@ struct BudgetEditorView: View {
                             Text(category.name).tag(category as Category?)
                         }
                     }
-                    
+
                     DatePicker("月份", selection: $selectedMonthDate, displayedComponents: [.date])
                         .datePickerStyle(.compact)
                 }
-                
+
                 Section("預算") {
                     HStack {
                         Picker("幣種", selection: $currencyCode) {
@@ -404,7 +410,7 @@ struct BudgetEditorView: View {
                             }
                         }
                         .frame(width: 90)
-                        
+
                         TextField("金額", text: $amountString)
                             .keyboardType(.decimalPad)
                     }
@@ -429,7 +435,7 @@ struct BudgetEditorView: View {
             .onAppear(perform: setup)
         }
     }
-    
+
     private func setup() {
         if let existingBudget {
             selectedCategory = existingBudget.category
@@ -443,62 +449,48 @@ struct BudgetEditorView: View {
             isEnabled = true
         }
     }
-    
+
     private func save() {
         guard let selectedCategory else {
             showError("請選擇分類")
             return
         }
-        
+
         guard let amount = Decimal(string: amountString), amount > 0 else {
             showError("請輸入大於 0 的預算金額")
             return
         }
-        
+
         let key = BudgetService.monthKey(from: selectedMonthDate)
-        
+
         // 避免同一分類同月份重複，找到既有資料就覆寫
         let duplicate = allBudgets.first { budget in
             budget.id != existingBudget?.id &&
             budget.monthKey == key &&
             budget.category?.id == selectedCategory.id
         }
-        
-        if let duplicate {
-            duplicate.amount = amount
-            duplicate.currencyCode = currencyCode
-            duplicate.isEnabled = isEnabled
-            duplicate.updatedAt = Date()
-            if let existingBudget, existingBudget.id != duplicate.id {
-                modelContext.delete(existingBudget)
-            }
-            if persistBudgetChanges() {
-                dismiss()
-            }
-            return
-        }
-        
-        if let existingBudget {
-            existingBudget.category = selectedCategory
-            existingBudget.monthKey = key
-            existingBudget.amount = amount
-            existingBudget.currencyCode = currencyCode
-            existingBudget.isEnabled = isEnabled
-            existingBudget.updatedAt = Date()
-        } else {
-            let budget = CategoryMonthlyBudget(
-                monthKey: key,
-                amount: amount,
-                currencyCode: currencyCode,
-                isEnabled: isEnabled,
-                category: selectedCategory
-            )
-            modelContext.insert(budget)
-        }
 
-        if persistBudgetChanges() {
+        do {
+            try BudgetHistoryService.shared.mutateBudgets(modelContext: modelContext, currencyService: .shared) {
+                if let duplicate {
+                    duplicate.amount = amount
+                    duplicate.currencyCode = currencyCode
+                    duplicate.isEnabled = isEnabled
+                    duplicate.updatedAt = Date()
+                    if let existingBudget, existingBudget.id != duplicate.id { modelContext.delete(existingBudget) }
+                } else if let existingBudget {
+                    existingBudget.category = selectedCategory
+                    existingBudget.monthKey = key
+                    existingBudget.amount = amount
+                    existingBudget.currencyCode = currencyCode
+                    existingBudget.isEnabled = isEnabled
+                    existingBudget.updatedAt = Date()
+                } else {
+                    modelContext.insert(CategoryMonthlyBudget(monthKey: key, amount: amount, currencyCode: currencyCode, isEnabled: isEnabled, category: selectedCategory))
+                }
+            }
             dismiss()
-        }
+        } catch { showError(error.localizedDescription) }
     }
 
     private func showError(_ message: String) {
@@ -506,14 +498,5 @@ struct BudgetEditorView: View {
         showingError = true
     }
 
-    private func persistBudgetChanges() -> Bool {
-        do {
-            try modelContext.save()
-            try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: CurrencyService.shared)
-            return true
-        } catch {
-            showError("儲存預算後同步歷史失敗：\(error.localizedDescription)")
-            return false
-        }
-    }
+
 }

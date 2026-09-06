@@ -340,164 +340,166 @@ enum AdvanceService {
         isBorrowedByMe: Bool = false,
         modelContext: ModelContext
     ) throws -> AdvanceCase {
-        if !isBorrowedByMe, payerAccount == nil {
-            throw AdvanceServiceError.invalidPayerAccount
-        }
-        if let payerAccount, payerAccount.type == .debt {
-            throw AdvanceServiceError.invalidPayerAccount
-        }
-        guard !participants.isEmpty else {
-            throw AdvanceServiceError.noParticipants
-        }
-        guard myShareAmount >= 0 else {
-            throw AdvanceServiceError.invalidMyShare
-        }
-        
-        var seenAccounts = Set<UUID>()
-        for participant in participants {
-            guard participant.owedAmount > 0 else {
-                throw AdvanceServiceError.invalidParticipantAmount
+        return try LedgerMutationService.atomic(modelContext: modelContext, commit: true) {
+            if !isBorrowedByMe, payerAccount == nil {
+                throw AdvanceServiceError.invalidPayerAccount
             }
-            if seenAccounts.contains(participant.debtAccount.id) {
-                throw AdvanceServiceError.duplicateParticipantAccount
+            if let payerAccount, payerAccount.type == .debt {
+                throw AdvanceServiceError.invalidPayerAccount
             }
-            seenAccounts.insert(participant.debtAccount.id)
-        }
-        
-        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let finalTitle = trimmedTitle.isEmpty ? "代墊" : trimmedTitle
-        let finalNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        let now = Date()
-        
-        let advanceCase = AdvanceCase(
-            title: finalTitle,
-            date: date,
-            currencyCode: currencyCode,
-            myShareAmount: myShareAmount,
-            note: finalNote,
-            direction: isBorrowedByMe ? .othersAdvancedMe : .iAdvancedOthers,
-            tagIDs: tags.map(\.id),
-            createdAt: now,
-            updatedAt: now,
-            payerAccount: payerAccount,
-            expenseCategory: category
-        )
-        modelContext.insert(advanceCase)
-        var budgetHistoryTransactions: [FinancialTransaction] = []
-        
-        if !isBorrowedByMe, myShareAmount > 0, let payerAccount {
-            let expenseNote = finalNote.isEmpty
-                ? "\(finalTitle) (自己份額)"
-                : "\(finalNote) (自己份額)"
-            
-            let expenseTx = FinancialTransaction(
-                amount: -abs(myShareAmount),
-                currencyCode: currencyCode,
+            guard !participants.isEmpty else {
+                throw AdvanceServiceError.noParticipants
+            }
+            guard myShareAmount >= 0 else {
+                throw AdvanceServiceError.invalidMyShare
+            }
+
+            var seenAccounts = Set<UUID>()
+            for participant in participants {
+                guard participant.owedAmount > 0 else {
+                    throw AdvanceServiceError.invalidParticipantAmount
+                }
+                if seenAccounts.contains(participant.debtAccount.id) {
+                    throw AdvanceServiceError.duplicateParticipantAccount
+                }
+                seenAccounts.insert(participant.debtAccount.id)
+            }
+
+            let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalTitle = trimmedTitle.isEmpty ? "代墊" : trimmedTitle
+            let finalNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+            let now = Date()
+
+            let advanceCase = AdvanceCase(
+                title: finalTitle,
                 date: date,
-                note: expenseNote,
-                type: .expense,
-                advanceCaseID: advanceCase.id,
-                advanceEntryRole: .selfExpense,
-                account: payerAccount,
-                category: category,
-                tags: tags
-            )
-            modelContext.insert(expenseTx)
-            budgetHistoryTransactions.append(expenseTx)
-            advanceCase.selfExpenseTransactionID = expenseTx.id
-        }
-        
-        let transferMemo = finalNote.isEmpty ? finalTitle : finalNote
-        
-        for input in participants {
-            let transferGroupID = UUID()
-            let outID = UUID()
-            let inID = UUID()
-            
-            let participant = AdvanceParticipant(
-                name: input.debtAccount.name,
-                owedAmount: abs(input.owedAmount),
-                repaidAmount: 0,
-                initialTransferGroupID: transferGroupID,
+                currencyCode: currencyCode,
+                myShareAmount: myShareAmount,
+                note: finalNote,
+                direction: isBorrowedByMe ? .othersAdvancedMe : .iAdvancedOthers,
+                tagIDs: tags.map(\.id),
                 createdAt: now,
                 updatedAt: now,
-                advanceCase: advanceCase,
-                debtAccount: input.debtAccount
+                payerAccount: payerAccount,
+                expenseCategory: category
             )
-            modelContext.insert(participant)
+            modelContext.insert(advanceCase)
+            var budgetHistoryTransactions: [FinancialTransaction] = []
 
-            let outTx: FinancialTransaction
-            let inTx: FinancialTransaction
+            if !isBorrowedByMe, myShareAmount > 0, let payerAccount {
+                let expenseNote = finalNote.isEmpty
+                    ? "\(finalTitle) (自己份額)"
+                    : "\(finalNote) (自己份額)"
 
-            if isBorrowedByMe {
                 let expenseTx = FinancialTransaction(
-                    id: outID,
-                    amount: -abs(input.owedAmount),
+                    amount: -abs(myShareAmount),
                     currencyCode: currencyCode,
                     date: date,
-                    note: "\(transferMemo) (他人代墊我：\(input.debtAccount.name))",
+                    note: expenseNote,
                     type: .expense,
-                    linkedTransactionID: nil,
-                    transferGroupID: transferGroupID,
-                    transferSide: .outgoing,
                     advanceCaseID: advanceCase.id,
-                    advanceParticipantID: participant.id,
-                    advanceEntryRole: .initialDebt,
-                    account: input.debtAccount,
+                    advanceEntryRole: .selfExpense,
+                    account: payerAccount,
                     category: category,
                     tags: tags
                 )
                 modelContext.insert(expenseTx)
                 budgetHistoryTransactions.append(expenseTx)
-                continue
-            } else {
-                guard let payerAccount else {
-                    throw AdvanceServiceError.invalidPayerAccount
-                }
-                outTx = FinancialTransaction(
-                    id: outID,
-                    amount: -abs(input.owedAmount),
-                    currencyCode: currencyCode,
-                    date: date,
-                    note: "\(transferMemo) (代墊給 \(input.debtAccount.name))",
-                    type: .transfer,
-                    linkedTransactionID: inID,
-                    transferGroupID: transferGroupID,
-                    transferSide: .outgoing,
-                    advanceCaseID: advanceCase.id,
-                    advanceParticipantID: participant.id,
-                    advanceEntryRole: .initialAsset,
-                    account: payerAccount
-                )
-
-                inTx = FinancialTransaction(
-                    id: inID,
-                    amount: abs(input.owedAmount),
-                    currencyCode: currencyCode,
-                    date: date,
-                    note: "\(transferMemo) (來自 \(payerAccount.name))",
-                    type: .transfer,
-                    linkedTransactionID: outID,
-                    transferGroupID: transferGroupID,
-                    transferSide: .incoming,
-                    advanceCaseID: advanceCase.id,
-                    advanceParticipantID: participant.id,
-                    advanceEntryRole: .initialDebt,
-                    account: input.debtAccount
-                )
+                advanceCase.selfExpenseTransactionID = expenseTx.id
             }
-            
-            modelContext.insert(outTx)
-            modelContext.insert(inTx)
+
+            let transferMemo = finalNote.isEmpty ? finalTitle : finalNote
+
+            for input in participants {
+                let transferGroupID = UUID()
+                let outID = UUID()
+                let inID = UUID()
+
+                let participant = AdvanceParticipant(
+                    name: input.debtAccount.name,
+                    owedAmount: abs(input.owedAmount),
+                    repaidAmount: 0,
+                    initialTransferGroupID: transferGroupID,
+                    createdAt: now,
+                    updatedAt: now,
+                    advanceCase: advanceCase,
+                    debtAccount: input.debtAccount
+                )
+                modelContext.insert(participant)
+
+                let outTx: FinancialTransaction
+                let inTx: FinancialTransaction
+
+                if isBorrowedByMe {
+                    let expenseTx = FinancialTransaction(
+                        id: outID,
+                        amount: -abs(input.owedAmount),
+                        currencyCode: currencyCode,
+                        date: date,
+                        note: "\(transferMemo) (他人代墊我：\(input.debtAccount.name))",
+                        type: .expense,
+                        linkedTransactionID: nil,
+                        transferGroupID: transferGroupID,
+                        transferSide: .outgoing,
+                        advanceCaseID: advanceCase.id,
+                        advanceParticipantID: participant.id,
+                        advanceEntryRole: .initialDebt,
+                        account: input.debtAccount,
+                        category: category,
+                        tags: tags
+                    )
+                    modelContext.insert(expenseTx)
+                    budgetHistoryTransactions.append(expenseTx)
+                    continue
+                } else {
+                    guard let payerAccount else {
+                        throw AdvanceServiceError.invalidPayerAccount
+                    }
+                    outTx = FinancialTransaction(
+                        id: outID,
+                        amount: -abs(input.owedAmount),
+                        currencyCode: currencyCode,
+                        date: date,
+                        note: "\(transferMemo) (代墊給 \(input.debtAccount.name))",
+                        type: .transfer,
+                        linkedTransactionID: inID,
+                        transferGroupID: transferGroupID,
+                        transferSide: .outgoing,
+                        advanceCaseID: advanceCase.id,
+                        advanceParticipantID: participant.id,
+                        advanceEntryRole: .initialAsset,
+                        account: payerAccount
+                    )
+
+                    inTx = FinancialTransaction(
+                        id: inID,
+                        amount: abs(input.owedAmount),
+                        currencyCode: currencyCode,
+                        date: date,
+                        note: "\(transferMemo) (來自 \(payerAccount.name))",
+                        type: .transfer,
+                        linkedTransactionID: outID,
+                        transferGroupID: transferGroupID,
+                        transferSide: .incoming,
+                        advanceCaseID: advanceCase.id,
+                        advanceParticipantID: participant.id,
+                        advanceEntryRole: .initialDebt,
+                        account: input.debtAccount
+                    )
+                }
+
+                modelContext.insert(outTx)
+                modelContext.insert(inTx)
+            }
+
+            try BudgetHistoryService.shared.syncAffected(
+                by: budgetHistoryTransactions,
+                modelContext: modelContext,
+                currencyService: CurrencyService.shared,
+                save: false
+            )
+            return advanceCase
         }
-        
-        try modelContext.save()
-        try BudgetHistoryService.shared.syncAffected(
-            by: budgetHistoryTransactions,
-            modelContext: modelContext,
-            currencyService: CurrencyService.shared
-        )
-        return advanceCase
     }
 
     
@@ -537,7 +539,7 @@ enum AdvanceService {
             throw AdvanceServiceError.invalidSettlementAccount
         }
         
-        let normalizedAmount = normalizedAmountOverride ?? currencyService.convert(
+        let normalizedAmount = try normalizedAmountOverride ?? currencyService.convert(
             amount: abs(amount),
             from: currencyCode,
             to: advanceCase.currencyCode
@@ -1343,73 +1345,75 @@ enum AdvanceService {
         autosave: Bool = true,
         modelContext: ModelContext
     ) throws -> DeleteAdvanceResult {
-        var deletedTransactionCount = 0
-        var missingLinkedRecordCount = 0
-        var affectedBudgetKeys: [BudgetHistoryAffectedKey] = []
-        
-        if deleteLinkedTransactions {
-            var groupIDs = Set<UUID>()
-            
-            for participant in advanceCase.participants {
-                if let groupID = participant.initialTransferGroupID {
-                    groupIDs.insert(groupID)
-                } else {
-                    missingLinkedRecordCount += 1
-                }
-            }
-            
-            for repayment in advanceCase.repayments {
-                if let groupID = repayment.linkedTransferGroupID {
-                    groupIDs.insert(groupID)
-                } else {
-                    missingLinkedRecordCount += 1
-                }
-            }
-            
-            for groupID in groupIDs {
-                let descriptor = FetchDescriptor<FinancialTransaction>(
-                    predicate: #Predicate { $0.transferGroupID == groupID }
-                )
-                let linkedTransfers = (try? modelContext.fetch(descriptor)) ?? []
-                deletedTransactionCount += linkedTransfers.count
-                for tx in linkedTransfers {
-                    if let key = BudgetHistoryService.affectedKey(for: tx) {
-                        affectedBudgetKeys.append(key)
+        return try LedgerMutationService.atomic(modelContext: modelContext, commit: autosave) {
+            var deletedTransactionCount = 0
+            var missingLinkedRecordCount = 0
+            var affectedBudgetKeys: [BudgetHistoryAffectedKey] = []
+
+            if deleteLinkedTransactions {
+                var groupIDs = Set<UUID>()
+
+                for participant in advanceCase.participants {
+                    if let groupID = participant.initialTransferGroupID {
+                        groupIDs.insert(groupID)
+                    } else {
+                        missingLinkedRecordCount += 1
                     }
-                    modelContext.delete(tx)
                 }
-            }
-            
-            if let expenseID = advanceCase.selfExpenseTransactionID {
-                let descriptor = FetchDescriptor<FinancialTransaction>(
-                    predicate: #Predicate { $0.id == expenseID }
-                )
-                if let expenseTx = try? modelContext.fetch(descriptor).first {
-                    if let key = BudgetHistoryService.affectedKey(for: expenseTx) {
-                        affectedBudgetKeys.append(key)
+
+                for repayment in advanceCase.repayments {
+                    if let groupID = repayment.linkedTransferGroupID {
+                        groupIDs.insert(groupID)
+                    } else {
+                        missingLinkedRecordCount += 1
                     }
-                    modelContext.delete(expenseTx)
-                    deletedTransactionCount += 1
-                } else {
-                    missingLinkedRecordCount += 1
+                }
+
+                for groupID in groupIDs {
+                    let descriptor = FetchDescriptor<FinancialTransaction>(
+                        predicate: #Predicate { $0.transferGroupID == groupID }
+                    )
+                    let linkedTransfers = (try? modelContext.fetch(descriptor)) ?? []
+                    deletedTransactionCount += linkedTransfers.count
+                    for tx in linkedTransfers {
+                        if let key = BudgetHistoryService.affectedKey(for: tx) {
+                            affectedBudgetKeys.append(key)
+                        }
+                        modelContext.delete(tx)
+                    }
+                }
+
+                if let expenseID = advanceCase.selfExpenseTransactionID {
+                    let descriptor = FetchDescriptor<FinancialTransaction>(
+                        predicate: #Predicate { $0.id == expenseID }
+                    )
+                    if let expenseTx = try? modelContext.fetch(descriptor).first {
+                        if let key = BudgetHistoryService.affectedKey(for: expenseTx) {
+                            affectedBudgetKeys.append(key)
+                        }
+                        modelContext.delete(expenseTx)
+                        deletedTransactionCount += 1
+                    } else {
+                        missingLinkedRecordCount += 1
+                    }
                 }
             }
-        }
-        
-        modelContext.delete(advanceCase)
-        if autosave {
-            try modelContext.save()
-            try BudgetHistoryService.shared.syncAffected(
-                keys: affectedBudgetKeys,
-                modelContext: modelContext,
-                currencyService: CurrencyService.shared
+
+            modelContext.delete(advanceCase)
+            if autosave {
+                try BudgetHistoryService.shared.syncAffected(
+                    keys: affectedBudgetKeys,
+                    modelContext: modelContext,
+                    currencyService: CurrencyService.shared,
+                    save: false
+                )
+            }
+
+            return DeleteAdvanceResult(
+                deletedTransactionCount: deletedTransactionCount,
+                missingLinkedRecordCount: missingLinkedRecordCount
             )
         }
-        
-        return DeleteAdvanceResult(
-            deletedTransactionCount: deletedTransactionCount,
-            missingLinkedRecordCount: missingLinkedRecordCount
-        )
     }
 
 }
