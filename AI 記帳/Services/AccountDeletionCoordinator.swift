@@ -116,38 +116,40 @@ enum AccountDeletionCoordinator {
     }
 
     static func deleteAccount(using impact: AccountDeletionImpact, modelContext: ModelContext) throws {
-        for shortcut in impact.shortcutsToDetach {
-            shortcut.account = nil
-        }
+        return try LedgerMutationService.atomic(modelContext: modelContext, commit: true) {
+            for shortcut in impact.shortcutsToDetach {
+                shortcut.account = nil
+            }
 
-        for repayment in impact.repaymentsToRollback {
-            guard let advanceCase = repayment.advanceCase else { continue }
-            try AdvanceService.rollbackRepayment(
-                advanceCase: advanceCase,
-                repayment: repayment,
-                autosave: false,
-                modelContext: modelContext
+            for repayment in impact.repaymentsToRollback {
+                guard let advanceCase = repayment.advanceCase else { continue }
+                try AdvanceService.rollbackRepayment(
+                    advanceCase: advanceCase,
+                    repayment: repayment,
+                    autosave: false,
+                    modelContext: modelContext
+                )
+            }
+
+            for advanceCase in impact.advanceCasesToDelete {
+                _ = try AdvanceService.deleteAdvanceCase(
+                    advanceCase,
+                    deleteLinkedTransactions: true,
+                    autosave: false,
+                    modelContext: modelContext
+                )
+            }
+
+            for transaction in impact.directTransactionsToDelete {
+                modelContext.delete(transaction)
+            }
+
+            modelContext.delete(impact.account)
+            try BudgetHistoryService.shared.syncAll(
+                modelContext: modelContext,
+                currencyService: CurrencyService.shared,
+                save: false
             )
         }
-
-        for advanceCase in impact.advanceCasesToDelete {
-            _ = try AdvanceService.deleteAdvanceCase(
-                advanceCase,
-                deleteLinkedTransactions: true,
-                autosave: false,
-                modelContext: modelContext
-            )
-        }
-
-        for transaction in impact.directTransactionsToDelete {
-            modelContext.delete(transaction)
-        }
-
-        modelContext.delete(impact.account)
-        try modelContext.save()
-        try BudgetHistoryService.shared.syncAll(
-            modelContext: modelContext,
-            currencyService: CurrencyService.shared
-        )
     }
 }

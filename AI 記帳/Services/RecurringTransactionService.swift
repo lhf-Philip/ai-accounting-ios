@@ -59,43 +59,53 @@ enum RecurringTransactionService {
         occurrence: RecurringOccurrence,
         modelContext: ModelContext
     ) throws -> FinancialTransaction {
-        guard let rule = occurrence.rule else { throw RecurringTransactionError.missingRule }
-        guard rule.type == .income || rule.type == .expense else { throw RecurringTransactionError.invalidType }
-        guard let account = rule.account else { throw RecurringTransactionError.missingAccount }
+        let originalStatus = occurrence.statusRaw
+        let originalTransactionID = occurrence.createdTransactionID
+        let originalUpdatedAt = occurrence.updatedAt
+        let originalRuleUpdatedAt = occurrence.rule?.updatedAt
+        return try LedgerMutationService.atomic(modelContext: modelContext, recover: {
+            occurrence.statusRaw = originalStatus
+            occurrence.createdTransactionID = originalTransactionID
+            occurrence.updatedAt = originalUpdatedAt
+            if let originalRuleUpdatedAt { occurrence.rule?.updatedAt = originalRuleUpdatedAt }
+        }) {
+            guard let rule = occurrence.rule else { throw RecurringTransactionError.missingRule }
+            guard rule.type == .income || rule.type == .expense else { throw RecurringTransactionError.invalidType }
+            guard let account = rule.account else { throw RecurringTransactionError.missingAccount }
 
-        if let createdID = occurrence.createdTransactionID {
-            let descriptor = FetchDescriptor<FinancialTransaction>(
-                predicate: #Predicate { $0.id == createdID }
-            )
-            if let existing = try modelContext.fetch(descriptor).first {
-                occurrence.status = .confirmed
-                try modelContext.save()
-                return existing
+            if let createdID = occurrence.createdTransactionID {
+                let descriptor = FetchDescriptor<FinancialTransaction>(
+                    predicate: #Predicate { $0.id == createdID }
+                )
+                if let existing = try modelContext.fetch(descriptor).first {
+                    occurrence.status = .confirmed
+                    return existing
+                }
             }
-        }
 
-        let signedAmount = rule.type == .expense ? -abs(rule.amount) : abs(rule.amount)
-        let transaction = FinancialTransaction(
-            amount: signedAmount,
-            currencyCode: rule.currencyCode,
-            date: occurrence.dueDate,
-            note: rule.note.isEmpty ? rule.title : rule.note,
-            type: rule.type,
-            account: account,
-            category: rule.category,
-            tags: rule.tags
-        )
-        modelContext.insert(transaction)
-        occurrence.createdTransactionID = transaction.id
-        occurrence.status = .confirmed
-        rule.updatedAt = Date()
-        try modelContext.save()
-        try BudgetHistoryService.shared.syncAffected(
-            by: [transaction],
-            modelContext: modelContext,
-            currencyService: CurrencyService.shared
-        )
-        return transaction
+            let signedAmount = rule.type == .expense ? -abs(rule.amount) : abs(rule.amount)
+            let transaction = FinancialTransaction(
+                amount: signedAmount,
+                currencyCode: rule.currencyCode,
+                date: occurrence.dueDate,
+                note: rule.note.isEmpty ? rule.title : rule.note,
+                type: rule.type,
+                account: account,
+                category: rule.category,
+                tags: rule.tags
+            )
+            modelContext.insert(transaction)
+            occurrence.createdTransactionID = transaction.id
+            occurrence.status = .confirmed
+            rule.updatedAt = Date()
+            try BudgetHistoryService.shared.syncAffected(
+                by: [transaction],
+                modelContext: modelContext,
+                currencyService: CurrencyService.shared,
+                save: false
+            )
+            return transaction
+        }
     }
 
     static func skip(

@@ -7,6 +7,26 @@ final class BudgetHistoryService {
 
     private init() {}
 
+    func mutateBudgets(modelContext: ModelContext, currencyService: CurrencyService, mutation: () throws -> Void) throws {
+        let budgets = try modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())
+        let restore: [() -> Void] = budgets.map { budget in
+            let amount = budget.amount, currency = budget.currencyCode, month = budget.monthKey
+            let category = budget.category, enabled = budget.isEnabled, updatedAt = budget.updatedAt
+            return {
+                budget.amount = amount
+                budget.currencyCode = currency
+                budget.monthKey = month
+                budget.category = category
+                budget.isEnabled = enabled
+                budget.updatedAt = updatedAt
+            }
+        }
+        try LedgerMutationService.atomic(modelContext: modelContext, recover: { restore.forEach { $0() } }) {
+            try mutation()
+            try syncAll(modelContext: modelContext, currencyService: currencyService, save: false)
+        }
+    }
+
     func syncAll(
         modelContext: ModelContext,
         currencyService: CurrencyService,

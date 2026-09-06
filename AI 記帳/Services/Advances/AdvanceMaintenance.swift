@@ -79,63 +79,65 @@ enum AdvanceMaintenance {
         )
     }
     static func repairLegacyBorrowedAdvanceAccountInflation(modelContext: ModelContext) throws -> LegacyBorrowedAdvanceRepairResult {
-        let participants = try modelContext.fetch(FetchDescriptor<AdvanceParticipant>())
-        var repairedParticipantCount = 0
-        var removedInflatedAccountTransactionCount = 0
-        var repairedExpenseTransactions: [FinancialTransaction] = []
+        return try LedgerMutationService.atomic(modelContext: modelContext, commit: true) {
+            let participants = try modelContext.fetch(FetchDescriptor<AdvanceParticipant>())
+            var repairedParticipantCount = 0
+            var removedInflatedAccountTransactionCount = 0
+            var repairedExpenseTransactions: [FinancialTransaction] = []
 
-        for participant in participants {
-            guard let groupID = participant.initialTransferGroupID,
-                  let debtAccount = participant.debtAccount,
-                  let advanceCase = participant.advanceCase
-            else { continue }
+            for participant in participants {
+                guard let groupID = participant.initialTransferGroupID,
+                      let debtAccount = participant.debtAccount,
+                      let advanceCase = participant.advanceCase
+                else { continue }
 
-            let descriptor = FetchDescriptor<FinancialTransaction>(
-                predicate: #Predicate { $0.transferGroupID == groupID }
+                let descriptor = FetchDescriptor<FinancialTransaction>(
+                    predicate: #Predicate { $0.transferGroupID == groupID }
+                )
+                let group = try modelContext.fetch(descriptor)
+                guard let outgoing = group.first(where: { tx in
+                    tx.account?.id == debtAccount.id && (tx.transferSide == .outgoing || tx.amount < 0)
+                }) else { continue }
+
+                let inflatedIncoming = group.filter { tx in
+                    tx.id != outgoing.id &&
+                        tx.amount > 0 &&
+                        tx.account?.type != .debt
+                }
+                guard !inflatedIncoming.isEmpty else { continue }
+
+                outgoing.type = .expense
+                outgoing.amount = -abs(outgoing.amount)
+                outgoing.linkedTransactionID = nil
+                outgoing.transferSide = .outgoing
+                outgoing.category = advanceCase.expenseCategory
+                outgoing.note = "\(advanceCase.note.isEmpty ? advanceCase.title : advanceCase.note) (他人代墊我：\(debtAccount.name))"
+                outgoing.updatedAt = Date()
+                repairedExpenseTransactions.append(outgoing)
+
+                for tx in inflatedIncoming {
+                    modelContext.delete(tx)
+                    removedInflatedAccountTransactionCount += 1
+                }
+
+                advanceCase.payerAccount = nil
+                advanceCase.updatedAt = Date()
+                participant.updatedAt = Date()
+                repairedParticipantCount += 1
+            }
+
+            try BudgetHistoryService.shared.syncAffected(
+                by: repairedExpenseTransactions,
+                modelContext: modelContext,
+                currencyService: CurrencyService.shared,
+                save: false
             )
-            let group = try modelContext.fetch(descriptor)
-            guard let outgoing = group.first(where: { tx in
-                tx.account?.id == debtAccount.id && (tx.transferSide == .outgoing || tx.amount < 0)
-            }) else { continue }
 
-            let inflatedIncoming = group.filter { tx in
-                tx.id != outgoing.id &&
-                    tx.amount > 0 &&
-                    tx.account?.type != .debt
-            }
-            guard !inflatedIncoming.isEmpty else { continue }
-
-            outgoing.type = .expense
-            outgoing.amount = -abs(outgoing.amount)
-            outgoing.linkedTransactionID = nil
-            outgoing.transferSide = .outgoing
-            outgoing.category = advanceCase.expenseCategory
-            outgoing.note = "\(advanceCase.note.isEmpty ? advanceCase.title : advanceCase.note) (他人代墊我：\(debtAccount.name))"
-            outgoing.updatedAt = Date()
-            repairedExpenseTransactions.append(outgoing)
-
-            for tx in inflatedIncoming {
-                modelContext.delete(tx)
-                removedInflatedAccountTransactionCount += 1
-            }
-
-            advanceCase.payerAccount = nil
-            advanceCase.updatedAt = Date()
-            participant.updatedAt = Date()
-            repairedParticipantCount += 1
+            return LegacyBorrowedAdvanceRepairResult(
+                repairedParticipantCount: repairedParticipantCount,
+                removedInflatedAccountTransactionCount: removedInflatedAccountTransactionCount
+            )
         }
-
-        try modelContext.save()
-        try BudgetHistoryService.shared.syncAffected(
-            by: repairedExpenseTransactions,
-            modelContext: modelContext,
-            currencyService: CurrencyService.shared
-        )
-
-        return LegacyBorrowedAdvanceRepairResult(
-            repairedParticipantCount: repairedParticipantCount,
-            removedInflatedAccountTransactionCount: removedInflatedAccountTransactionCount
-        )
     }
     static func repairLegacyLinks(modelContext: ModelContext) throws -> LegacyLinkRepairResult {
         let advanceCases = try modelContext.fetch(FetchDescriptor<AdvanceCase>())
