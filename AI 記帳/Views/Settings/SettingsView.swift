@@ -182,8 +182,8 @@ struct SettingsView: View {
                     }
 
                     Button {
-                        let data = BackupManager.shared.createBackupData(modelContext: modelContext)
                         do {
+                            let data = try BackupManager.shared.createBackupData(modelContext: modelContext)
                             let encoder = JSONEncoder()
                             encoder.outputFormatting = .prettyPrinted
                             encoder.dateEncodingStrategy = .iso8601
