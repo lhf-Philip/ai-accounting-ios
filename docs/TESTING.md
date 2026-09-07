@@ -372,7 +372,9 @@ an unrelated pending insert, edit or deletion causes a recoverable error and is
 left untouched. The owner of the pending work must resolve it before retrying.
 Do not pre-save or roll back a shared context just to pass this check.
 
-Add/scan/edit views build value drafts, shortcuts only read their template, and
+Add/scan/edit views build value drafts. Creating a tag in the add form is its
+own guarded commit, so it does not leave a pending insert for the ledger save.
+Shortcuts only read their template, and
 ledger deletion stages its changes inside the boundary. Their error handlers
 show the error without saving or rolling back. Direct-bound editors elsewhere
 can leave a dirty context; those operations are deliberately rejected rather than

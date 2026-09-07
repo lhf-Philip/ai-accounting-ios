@@ -495,10 +495,17 @@ struct AddTransactionView: View {
     private func createTag() {
         let trimmed = newTagName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let tag = Tag(name: trimmed)
-        modelContext.insert(tag)
-        selectedTags.insert(tag)
-        newTagName = ""
+        do {
+            let tag = try LedgerMutationService.atomic(modelContext: modelContext) {
+                let tag = Tag(name: trimmed)
+                modelContext.insert(tag)
+                return tag
+            }
+            selectedTags.insert(tag)
+            newTagName = ""
+        } catch {
+            showValidation(error.localizedDescription)
+        }
     }
 
     private func positiveDecimal(from value: String) -> Decimal? {

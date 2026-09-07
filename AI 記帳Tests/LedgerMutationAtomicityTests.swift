@@ -206,6 +206,20 @@ final class LedgerMutationAtomicityTests: XCTestCase {
         }
     }
 
+    func testNewTagCommitLeavesCleanContextForLedgerDraft() throws {
+        let fixture = try Fixture()
+        let tag = try LedgerMutationService.atomic(modelContext: fixture.context) {
+            let tag = Tag(name: "New tag")
+            fixture.context.insert(tag)
+            return tag
+        }
+        XCTAssertFalse(fixture.context.hasChanges)
+        let draft = OrdinaryTransactionEditDraft(amount: 20, currencyCode: "HKD", date: fixture.date, note: "Tagged", type: .expense, account: fixture.account, category: fixture.category, tags: [tag])
+        _ = try LedgerMutationService.add([draft], modelContext: fixture.context)
+        let reader = ModelContext(fixture.context.container)
+        XCTAssertEqual([tag.id], try reader.fetch(FetchDescriptor<FinancialTransaction>()).first?.tags.map(\.id))
+    }
+
     private struct Fixture {
         let context: ModelContext
         let account: Account
