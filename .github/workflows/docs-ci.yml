@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -17,3 +21,6 @@ jobs:
 
       - name: Validate Developer Documentation
         run: python3 scripts/check-docs.py
+
+      - name: Validate CI scope rules
+        run: python3 -m unittest discover -s scripts/tests -p "test_ci_scope.py"

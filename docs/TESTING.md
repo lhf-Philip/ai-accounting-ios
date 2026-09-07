@@ -195,7 +195,7 @@ Use the runner when validating Android locally. It runs documentation checks,
 money-fixture checks, unit tests, debug APK assembly, and connected
 instrumentation while storing logs under `build/regression/`.
 
-The local runner is the source of truth for full Android regression scope. GitHub CI uses the narrower workflow stages plus `.github/scripts/run-android-instrumentation.sh`; when either runner or wrapper changes, update `.github/workflows/android-ci.yml` path filters so Android CI cannot be skipped by a scripts-only PR.
+The local runner is the source of truth for full Android regression scope. GitHub CI uses the narrower workflow stages plus `.github/scripts/run-android-instrumentation.sh`; when either runner or wrapper changes, update `scripts/ci-scope.py` scope rules so Android CI cannot be skipped by a scripts-only PR.
 
 ```bash
 scripts/run-android-regression.sh
@@ -354,3 +354,23 @@ The PR description should list:
 - manual devices/OS versions used;
 - accounting invariants checked;
 - failures, retries, or tests not run and why.
+
+### CI scope and superseded runs
+
+Platform workflows always report a check, including the required Android `build`
+check. After checkout, `scripts/ci-scope.py` selects heavy work from the full PR
+merge-base diff (or the push before/after diff). Ordinary documentation changes
+run Docs CI only; iOS and Android changes run their respective platform stages.
+Shared `docs/specs/` changes, scope-rule changes, and unknown paths run both.
+Renames include both paths; invalid diffs fail the check instead of skipping tests.
+The job summary explicitly distinguishes unaffected platforms from executed tests.
+A lightweight platform job still starts, but skips SDK setup, builds and simulators.
+
+New commits cancel older runs for the same PR and workflow. Running `main` workflows
+are not cancelled; while one is active, GitHub concurrency may replace an older
+pending `main` run with a newer one. Existing unit, UI, fixture and localization
+checks remain intact. iOS retains explicit Bash/pipefail and available-simulator
+UDID selection so failed test commands cannot be masked by `tee`.
+
+During development, run affected tests first; use one final CI run for the
+reviewed revision. Re-run only for changed code, a failure, or unresolved evidence.
