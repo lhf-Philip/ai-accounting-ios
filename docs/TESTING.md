@@ -363,3 +363,24 @@ Ordinary add, scan, shortcut, edit and ledger deletion stage their ledger and bu
 Apple documents [save](https://developer.apple.com/documentation/swiftdata/modelcontext/save()) as writing pending inserts, updates and deletes, and [includePendingChanges](https://developer.apple.com/documentation/swiftdata/fetchdescriptor/includependingchanges) as true by default. Integration tests verify that budget queries observe pending inserts, date/category moves and deletions before the commit. Failure tests inspect both the active context and a fresh reader, then retry to detect duplicate or leaked entries. UI tests cover ordinary, transfer and advance editing; physical-device upgrade/storage smoke remains a release check.
 
 The ledger UI regression navigates from an advance-case summary to its repayment record and scrolls to the editor note field. The prior test expected a standalone repayment ledger row; the captured failure showed the existing case grouping with its outstanding balance intact.
+
+### Ledger context ownership
+
+Committing ledger mutations require a clean ModelContext. The service checks
+`hasChanges` before invoking mutation, synchronization, recovery, save or rollback;
+an unrelated pending insert, edit or deletion causes a recoverable error and is
+left untouched. The owner of the pending work must resolve it before retrying.
+Do not pre-save or roll back a shared context just to pass this check.
+
+Add/scan/edit views build value drafts, shortcuts only read their template, and
+ledger deletion stages its changes inside the boundary. Their error handlers
+show the error without saving or rolling back. Direct-bound editors elsewhere
+can leave a dirty context; those operations are deliberately rejected rather than
+silently absorbing their edits. This is an enforced clean-context contract, not
+an isolated-context implementation that permits concurrent pending edits.
+
+`LedgerMutationAtomicityTests` covers unrelated pending inserts/edits/deletions,
+normal and throwing synchronization, edit/delete/shortcut entry points, and a
+single successful retry after the pending-work owner explicitly saves.
+See [Apple save](https://developer.apple.com/documentation/swiftdata/modelcontext/save())
+and [rollback](https://developer.apple.com/documentation/swiftdata/modelcontext/rollback()).

@@ -1,6 +1,14 @@
 import Foundation
 import SwiftData
 
+enum LedgerMutationError: LocalizedError {
+    case pendingChanges
+
+    var errorDescription: String? {
+        "目前有其他尚未儲存的變更。請先完成其他編輯，再重試此操作。"
+    }
+}
+
 @MainActor
 enum LedgerMutationService {
     typealias BudgetSynchronization = (ModelContext, [BudgetHistoryAffectedKey]) throws -> Void
@@ -104,6 +112,9 @@ enum LedgerMutationService {
         mutation: () throws -> Value
     ) throws -> Value {
         guard commit else { return try mutation() }
+        // This boundary owns all pending work, so it must start clean. Reject outside
+        // the recovery block: neither save, rollback nor recover may touch prior work.
+        guard !modelContext.hasChanges else { throw LedgerMutationError.pendingChanges }
         let autosave = modelContext.autosaveEnabled
         modelContext.autosaveEnabled = false
         defer { modelContext.autosaveEnabled = autosave }

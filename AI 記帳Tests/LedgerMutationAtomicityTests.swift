@@ -137,6 +137,75 @@ final class LedgerMutationAtomicityTests: XCTestCase {
         }
     }
 
+    func testPendingUnrelatedWorkRejectsSuccessfulAndFailingMutationsWithoutSavingOrRollback() throws {
+        for pendingKind in ["edit", "insert", "delete"] {
+            for failSynchronization in [false, true] {
+                let fixture = try Fixture()
+                fixture.context.autosaveEnabled = false
+                let unrelated = Account(name: "Unrelated", currency: "HKD", type: .cash, baseBalance: 7)
+                if pendingKind != "insert" {
+                    fixture.context.insert(unrelated)
+                    try fixture.context.save()
+                }
+                switch pendingKind {
+                case "edit": unrelated.name = "Pending name"
+                case "insert": fixture.context.insert(unrelated)
+                default: fixture.context.delete(unrelated)
+                }
+                XCTAssertTrue(fixture.context.hasChanges)
+                var synchronized = false
+                XCTAssertThrowsError(try LedgerMutationService.add(
+                    [fixture.draft(amount: 20)], modelContext: fixture.context,
+                    synchronize: { context, keys in
+                        synchronized = true
+                        if failSynchronization { throw InjectedFailure.budget }
+                        try LedgerMutationService.synchronizeBudget(context, keys)
+                    }
+                ), "Must reject a dirty context before touching it")
+                XCTAssertFalse(synchronized)
+                XCTAssertTrue(fixture.context.hasChanges)
+                XCTAssertFalse(fixture.context.autosaveEnabled)
+                if pendingKind == "edit" { XCTAssertEqual("Pending name", unrelated.name) }
+                if pendingKind == "insert" { XCTAssertTrue(fixture.context.insertedModelsArray.contains { $0 === unrelated }) }
+                if pendingKind == "delete" { XCTAssertTrue(fixture.context.deletedModelsArray.contains { $0 === unrelated }) }
+                let reader = ModelContext(fixture.context.container)
+                let stored = try reader.fetch(FetchDescriptor<Account>()).first { $0.id == unrelated.id }
+                XCTAssertEqual(pendingKind == "insert" ? nil : "Unrelated", stored?.name)
+                try fixture.assertUnchanged()
+                // Only the owner resolves its pending work. The ledger retry then commits once.
+                try fixture.context.save()
+                _ = try LedgerMutationService.add([fixture.draft(amount: 20)], modelContext: fixture.context)
+                XCTAssertEqual(1, try ModelContext(fixture.context.container).fetch(FetchDescriptor<FinancialTransaction>()).count)
+            }
+        }
+    }
+
+    func testDirtyContextAlsoRejectsEditDeleteAndShortcutBeforeChangingLedger() throws {
+        for operation in ["edit", "delete", "shortcut"] {
+            let fixture = try Fixture()
+            fixture.context.autosaveEnabled = false
+            let transaction = try XCTUnwrap(LedgerMutationService.add([fixture.draft(amount: 20)], modelContext: fixture.context).first)
+            let shortcut = Shortcut(name: "Coffee", icon: "cup.and.saucer", amount: 25, currencyCode: "HKD", type: .expense, note: "", account: fixture.account, category: fixture.category)
+            fixture.context.insert(shortcut)
+            try fixture.context.save()
+            fixture.account.name = "Pending wallet name"
+            XCTAssertThrowsError(try {
+                switch operation {
+                case "edit": try LedgerMutationService.edit(transaction, draft: fixture.draft(amount: 99), modelContext: fixture.context)
+                case "delete": try LedgerDeletionService.delete(transaction: transaction, modelContext: fixture.context)
+                default: _ = try LedgerMutationService.executeShortcut(shortcut, date: fixture.date, modelContext: fixture.context)
+                }
+            }())
+            XCTAssertEqual("Pending wallet name", fixture.account.name)
+            XCTAssertTrue(fixture.context.hasChanges)
+            let reader = ModelContext(fixture.context.container)
+            let transactions = try reader.fetch(FetchDescriptor<FinancialTransaction>())
+            XCTAssertEqual(1, transactions.count)
+            XCTAssertEqual(-20, transactions.first?.amount)
+            XCTAssertEqual("Wallet", try reader.fetch(FetchDescriptor<Account>()).first?.name)
+        }
+    }
+
     private struct Fixture {
         let context: ModelContext
         let account: Account
