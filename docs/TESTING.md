@@ -366,10 +366,11 @@ Renames include both paths; invalid diffs fail the check instead of skipping tes
 The job summary explicitly distinguishes unaffected platforms from executed tests.
 A lightweight platform job still starts, but skips SDK setup, builds and simulators.
 
-New commits cancel older runs for the same PR and workflow. Main runs are not
-interrupted. Existing unit, UI, fixture and localization checks remain intact.
-iOS retains explicit Bash/pipefail and available-simulator UDID selection so
-failed test commands cannot be masked by `tee`.
+New commits cancel older runs for the same PR and workflow. Running `main` workflows
+are not cancelled; while one is active, GitHub concurrency may replace an older
+pending `main` run with a newer one. Existing unit, UI, fixture and localization
+checks remain intact. iOS retains explicit Bash/pipefail and available-simulator
+UDID selection so failed test commands cannot be masked by `tee`.
 
 During development, run affected tests first; use one final CI run for the
 reviewed revision. Re-run only for changed code, a failure, or unresolved evidence.
