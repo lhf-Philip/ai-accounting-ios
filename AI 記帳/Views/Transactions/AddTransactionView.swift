@@ -148,6 +148,7 @@ struct AddTransactionView: View {
                                 .foregroundStyle(.blue)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("transaction.add.category")
                     }
                 }
 
@@ -184,6 +185,7 @@ struct AddTransactionView: View {
 
                     DatePicker("日期", selection: $date)
                     TextField("備註", text: $note)
+                        .accessibilityIdentifier("transaction.add.note")
                 }
             }
             .interactiveKeyboardDismiss()
@@ -194,6 +196,7 @@ struct AddTransactionView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("儲存") { saveTransactions() }
+                        .accessibilityIdentifier("transaction.add.save")
                         .disabled(!canSubmit)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
@@ -270,6 +273,7 @@ struct AddTransactionView: View {
                     set: { amountString = sanitizePositiveDecimalInput($0) }
                 ))
                 .font(.largeTitle)
+                .accessibilityIdentifier("transaction.add.amount")
                 .keyboardType(.decimalPad)
                 .focused($isAmountFocused)
             }

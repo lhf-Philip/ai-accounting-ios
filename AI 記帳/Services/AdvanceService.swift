@@ -1279,7 +1279,8 @@ enum AdvanceService {
         advanceCase: AdvanceCase,
         repayment: AdvanceRepayment,
         autosave: Bool = true,
-        modelContext: ModelContext
+        modelContext: ModelContext,
+        fetchLinkedTransactions: (ModelContext, FetchDescriptor<FinancialTransaction>) throws -> [FinancialTransaction] = { try $0.fetch($1) }
     ) throws {
         guard repayment.advanceCase?.id == advanceCase.id else {
             throw AdvanceServiceError.participantNotInCase
@@ -1296,7 +1297,7 @@ enum AdvanceService {
             let descriptor = FetchDescriptor<FinancialTransaction>(
                 predicate: #Predicate { $0.transferGroupID == groupID }
             )
-            let linkedTransfers = (try? modelContext.fetch(descriptor)) ?? []
+            let linkedTransfers = try fetchLinkedTransactions(modelContext, descriptor)
             for tx in linkedTransfers {
                 modelContext.delete(tx)
             }

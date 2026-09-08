@@ -14,15 +14,15 @@ enum LedgerDeletionError: LocalizedError {
 
 @MainActor
 enum LedgerDeletionService {
-    static func delete(transaction: FinancialTransaction, modelContext: ModelContext, synchronize: LedgerMutationService.BudgetSynchronization = LedgerMutationService.synchronizeBudget) throws {
+    static func delete(transaction: FinancialTransaction, modelContext: ModelContext, synchronize: LedgerMutationService.BudgetSynchronization = LedgerMutationService.synchronizeBudget, fetchRepaymentTransfers: (ModelContext, FetchDescriptor<FinancialTransaction>) throws -> [FinancialTransaction] = { try $0.fetch($1) }) throws {
         try LedgerMutationService.atomic(modelContext: modelContext) {
-            try deleteStaged(transaction: transaction, modelContext: modelContext, synchronize: synchronize)
+            try deleteStaged(transaction: transaction, modelContext: modelContext, synchronize: synchronize, fetchRepaymentTransfers: fetchRepaymentTransfers)
         }
     }
 
-    private static func deleteStaged(transaction: FinancialTransaction, modelContext: ModelContext, synchronize: LedgerMutationService.BudgetSynchronization) throws {
+    private static func deleteStaged(transaction: FinancialTransaction, modelContext: ModelContext, synchronize: LedgerMutationService.BudgetSynchronization, fetchRepaymentTransfers: (ModelContext, FetchDescriptor<FinancialTransaction>) throws -> [FinancialTransaction]) throws {
         if let groupID = transaction.transferGroupID {
-            try deleteTransferGroup(groupID, fallbackTransaction: transaction, modelContext: modelContext, synchronize: synchronize)
+            try deleteTransferGroup(groupID, fallbackTransaction: transaction, modelContext: modelContext, synchronize: synchronize, fetchRepaymentTransfers: fetchRepaymentTransfers)
             return
         }
 
@@ -49,7 +49,8 @@ enum LedgerDeletionService {
         _ groupID: UUID,
         fallbackTransaction: FinancialTransaction,
         modelContext: ModelContext,
-        synchronize: LedgerMutationService.BudgetSynchronization
+        synchronize: LedgerMutationService.BudgetSynchronization,
+        fetchRepaymentTransfers: (ModelContext, FetchDescriptor<FinancialTransaction>) throws -> [FinancialTransaction]
     ) throws {
         if let repayment = try repayment(for: groupID, modelContext: modelContext),
            let advanceCase = repayment.advanceCase {
@@ -57,7 +58,8 @@ enum LedgerDeletionService {
                 advanceCase: advanceCase,
                 repayment: repayment,
                 autosave: false,
-                modelContext: modelContext
+                modelContext: modelContext,
+                fetchLinkedTransactions: fetchRepaymentTransfers
             )
             return
         }

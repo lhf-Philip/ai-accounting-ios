@@ -11,6 +11,19 @@ enum LedgerMutationError: LocalizedError {
 
 @MainActor
 enum LedgerMutationService {
+    // Category creation is an explicit user action, independent of the ledger draft.
+    static func createCategory(
+        name: String, icon: String, colorHex: String, kind: CategoryKind,
+        modelContext: ModelContext,
+        save: (ModelContext) throws -> Void = { try $0.save() }
+    ) throws -> Category {
+        try atomic(modelContext: modelContext, save: save) {
+            let category = Category(name: name, icon: icon, colorHex: colorHex, kind: kind)
+            modelContext.insert(category)
+            return category
+        }
+    }
+
     typealias BudgetSynchronization = (ModelContext, [BudgetHistoryAffectedKey]) throws -> Void
 
     static func synchronizeBudget(_ context: ModelContext, _ keys: [BudgetHistoryAffectedKey]) throws {
@@ -109,6 +122,7 @@ enum LedgerMutationService {
         modelContext: ModelContext,
         commit: Bool = true,
         recover: () -> Void = {},
+        save: (ModelContext) throws -> Void = { try $0.save() },
         mutation: () throws -> Value
     ) throws -> Value {
         guard commit else { return try mutation() }
@@ -120,7 +134,7 @@ enum LedgerMutationService {
         defer { modelContext.autosaveEnabled = autosave }
         do {
             let value = try mutation()
-            try modelContext.save()
+            try save(modelContext)
             return value
         } catch {
             recover()

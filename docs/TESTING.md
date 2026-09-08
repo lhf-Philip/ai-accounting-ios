@@ -406,3 +406,20 @@ UDID selection so failed test commands cannot be masked by `tee`.
 
 During development, run affected tests first; use one final CI run for the
 reviewed revision. Re-run only for changed code, a failure, or unresolved evidence.
+
+### Inline creation and repayment rollback follow-up
+
+Creating a category commits through the guarded ledger boundary before notifying
+its parent or closing the sheet. It is a separate explicit action: cancelling the
+transaction later keeps the category. Save failure keeps the sheet open, drops
+the failed insertion, and permits retry. A dirty context is rejected unchanged.
+Inline tag creation in transaction/advance/repayment forms and debt-account
+creation in the advance form also use guarded commits.
+
+The repayment rollback path propagates required linked-transfer read failures
+before changing repayment totals or deleting rows. Fault injection enters via
+`LedgerDeletionService.delete`, verifies the current context and an independent
+reader, and retries once. Category tests cover commit/cancellation semantics,
+commit failure, retry and unrelated pending edits. The iOS CI includes the focused
+`testInlineCategoryThenImmediateTransactionSave` UI smoke in its existing UI step.
+The workflow retains main's platform scope, concurrency and full-history checkout.

@@ -220,6 +220,84 @@ final class LedgerMutationAtomicityTests: XCTestCase {
         XCTAssertEqual([tag.id], try reader.fetch(FetchDescriptor<FinancialTransaction>()).first?.tags.map(\.id))
     }
 
+    func testCategoryCommitsBeforeLedgerAndSurvivesCancelledDraft() throws {
+        let fixture = try Fixture()
+        let category = try LedgerMutationService.createCategory(name: "Inline", icon: "cart", colorHex: "123456", kind: .expense, modelContext: fixture.context)
+        XCTAssertFalse(fixture.context.hasChanges)
+        let reader = ModelContext(fixture.context.container)
+        XCTAssertTrue(try reader.fetch(FetchDescriptor<AI_記帳.Category>()).contains { $0.id == category.id })
+        // No transaction was saved yet: cancelling here preserves the category.
+        XCTAssertTrue(try reader.fetch(FetchDescriptor<FinancialTransaction>()).isEmpty)
+        let draft = OrdinaryTransactionEditDraft(amount: 20, currencyCode: "HKD", date: fixture.date, note: "Inline", type: .expense, account: fixture.account, category: category, tags: [])
+        _ = try LedgerMutationService.add([draft], modelContext: fixture.context)
+        let saved = try ModelContext(fixture.context.container).fetch(FetchDescriptor<FinancialTransaction>())
+        XCTAssertEqual(1, saved.count)
+        XCTAssertEqual(category.id, saved.first?.category?.id)
+    }
+
+    func testCategoryCommitFailureDoesNotPublishInsertAndRetryCreatesOnce() throws {
+        let fixture = try Fixture()
+        var published = false
+        do {
+            _ = try LedgerMutationService.createCategory(name: "Inline", icon: "cart", colorHex: "123456", kind: .expense, modelContext: fixture.context, save: { _ in throw InjectedFailure.save })
+            published = true // The sheet calls onSave/dismiss only after this returns.
+        } catch { XCTAssertTrue(error is InjectedFailure) }
+        XCTAssertFalse(published)
+        XCTAssertFalse(fixture.context.hasChanges)
+        XCTAssertFalse(try fixture.context.fetch(FetchDescriptor<AI_記帳.Category>()).contains { $0.name == "Inline" })
+        XCTAssertFalse(try ModelContext(fixture.context.container).fetch(FetchDescriptor<AI_記帳.Category>()).contains { $0.name == "Inline" })
+        _ = try LedgerMutationService.createCategory(name: "Inline", icon: "cart", colorHex: "123456", kind: .expense, modelContext: fixture.context)
+        XCTAssertEqual(1, try ModelContext(fixture.context.container).fetch(FetchDescriptor<AI_記帳.Category>()).filter { $0.name == "Inline" }.count)
+    }
+
+    func testCategoryCreationRejectsUnrelatedPendingEdit() throws {
+        let fixture = try Fixture()
+        fixture.account.name = "Pending"
+        XCTAssertThrowsError(try LedgerMutationService.createCategory(name: "Inline", icon: "cart", colorHex: "123456", kind: .expense, modelContext: fixture.context))
+        XCTAssertEqual("Pending", fixture.account.name)
+        XCTAssertTrue(fixture.context.hasChanges)
+        XCTAssertFalse(try fixture.context.fetch(FetchDescriptor<AI_記帳.Category>()).contains { $0.name == "Inline" })
+        XCTAssertEqual("Wallet", try ModelContext(fixture.context.container).fetch(FetchDescriptor<Account>()).first?.name)
+    }
+
+    func testLedgerRepaymentReadFailurePreservesGraphAndRetryRollsBackOnce() throws {
+        let fixture = try Fixture()
+        let debt = Account(name: "Friend", currency: "HKD", type: .debt, baseBalance: 0)
+        fixture.context.insert(debt)
+        try fixture.context.save()
+        let advance = try AdvanceService.createAdvanceCase(title: "Read failure", date: fixture.date, currencyCode: "HKD", myShareAmount: 20, note: "", payerAccount: fixture.account, category: fixture.category, tags: [], participants: [.init(debtAccount: debt, owedAmount: 80)], modelContext: fixture.context)
+        let participant = try XCTUnwrap(advance.participants.first)
+        let repayment = try AdvanceService.recordRepayment(advanceCase: advance, participant: participant, amount: 10, currencyCode: "HKD", date: fixture.date, note: "", receiveAccount: fixture.account, category: nil, tags: [], currencyService: .shared, modelContext: fixture.context)
+        let repaymentID = repayment.id
+        let groupID = try XCTUnwrap(repayment.linkedTransferGroupID)
+        let allIDs = Set(try fixture.context.fetch(FetchDescriptor<FinancialTransaction>()).map(\.id))
+        let descriptor = FetchDescriptor<FinancialTransaction>(predicate: #Predicate { $0.transferGroupID == groupID })
+        let leg = try XCTUnwrap(fixture.context.fetch(descriptor).first)
+        var readAttempted = false
+        XCTAssertThrowsError(try LedgerDeletionService.delete(transaction: leg, modelContext: fixture.context, fetchRepaymentTransfers: { context, _ in
+            readAttempted = true
+            XCTAssertFalse(context.hasChanges)
+            throw InjectedFailure.save
+        }))
+        XCTAssertTrue(readAttempted)
+        XCTAssertFalse(fixture.context.hasChanges)
+        XCTAssertEqual(10, participant.repaidAmount)
+        XCTAssertEqual([repaymentID], advance.repayments.map(\.id))
+        let reader = ModelContext(fixture.context.container)
+        XCTAssertEqual([repaymentID], try reader.fetch(FetchDescriptor<AdvanceRepayment>()).map(\.id))
+        XCTAssertEqual(10, try reader.fetch(FetchDescriptor<AdvanceParticipant>()).first?.repaidAmount)
+        XCTAssertEqual(allIDs, Set(try reader.fetch(FetchDescriptor<FinancialTransaction>()).map(\.id)))
+        XCTAssertEqual(allIDs, Set(try fixture.context.fetch(FetchDescriptor<FinancialTransaction>()).map(\.id)))
+        XCTAssertEqual(20, try reader.fetch(FetchDescriptor<BudgetMonthlyHistory>()).first?.spentAmount)
+        try LedgerDeletionService.delete(transaction: leg, modelContext: fixture.context)
+        let after = ModelContext(fixture.context.container)
+        XCTAssertTrue(try after.fetch(FetchDescriptor<AdvanceRepayment>()).isEmpty)
+        XCTAssertTrue(try after.fetch(descriptor).isEmpty)
+        XCTAssertEqual(0, try after.fetch(FetchDescriptor<AdvanceParticipant>()).first?.repaidAmount)
+        XCTAssertEqual(allIDs.count - 2, try after.fetch(FetchDescriptor<FinancialTransaction>()).count)
+        XCTAssertFalse(fixture.context.hasChanges)
+    }
+
     private struct Fixture {
         let context: ModelContext
         let account: Account

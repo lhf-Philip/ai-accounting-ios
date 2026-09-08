@@ -44,6 +44,43 @@ final class LedgerEditPerformanceUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "UITest 代墊還款 ui")).firstMatch.waitForExistence(timeout: 10))
     }
 
+    func testInlineCategoryThenImmediateTransactionSave() throws {
+        openLedger()
+        app.buttons["global.addButton"].tap()
+        app.buttons["支出"].tap()
+        let amount = app.textFields["transaction.add.amount"]
+        XCTAssertTrue(amount.waitForExistence(timeout: 10))
+        amount.tap()
+        amount.typeText("23")
+        app.buttons["完成"].firstMatch.tap()
+        let note = app.textFields["transaction.add.note"]
+        for _ in 0..<4 {
+            if note.exists && note.isHittable { break }
+            app.swipeUp()
+        }
+        note.tap()
+        note.typeText("UITest inline category")
+        app.buttons["完成"].firstMatch.tap()
+        let addCategory = app.buttons["transaction.add.category"]
+        for _ in 0..<4 {
+            if addCategory.exists && addCategory.isHittable { break }
+            app.swipeDown()
+        }
+        addCategory.tap()
+        let name = app.textFields["category.create.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 10))
+        name.tap()
+        name.typeText("UITest Inline")
+        app.buttons["category.create.save"].tap()
+        let save = app.buttons["transaction.add.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        save.tap() // No intentional delay to wait for autosave.
+        XCTAssertTrue(app.collectionViews["ledger.list"].waitForExistence(timeout: 10))
+        let row = app.staticTexts.matching(NSPredicate(format: "label == %@", "UITest inline category"))
+        XCTAssertTrue(row.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertEqual(1, row.count)
+    }
+
     private func openLedger() {
         let ledgerTab = app.tabBars.buttons["帳目"]
         XCTAssertTrue(ledgerTab.waitForExistence(timeout: 15), "Ledger tab should be available")
