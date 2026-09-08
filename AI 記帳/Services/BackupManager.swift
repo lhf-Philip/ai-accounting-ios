@@ -1013,7 +1013,13 @@ class BackupManager: NSObject, ObservableObject {
         try modelContext.save()
         _ = try AdvanceMaintenance.backfillExplicitLinks(modelContext: modelContext)
         _ = try AdvanceMaintenance.reconcileUnderstatedRepaymentTotals(modelContext: modelContext)
-        try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: CurrencyService.shared)
+        do {
+            try BudgetHistoryService.shared.syncAll(modelContext: modelContext, currencyService: CurrencyService.shared)
+        } catch is CurrencyConversionError {
+            // Restore the backup's ledger/history as recorded. Offline re-estimation is optional;
+            // syncAll validates all conversions before changing any imported history.
+            print("Budget history re-estimation deferred: exchange rates unavailable")
+        }
         try modelContext.save()
     }
     

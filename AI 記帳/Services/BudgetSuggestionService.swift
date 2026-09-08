@@ -135,7 +135,7 @@ final class BudgetSuggestionService {
             throw NSError(domain: "Gemini", code: 401, userInfo: [NSLocalizedDescriptionKey: "未設定 API Key。"])
         }
 
-        let payload = buildPayload(for: request)
+        let payload = try buildPayload(for: request)
         guard hasMeaningfulSignal(payload) else {
             throw BudgetSuggestionError.insufficientData
         }
@@ -168,13 +168,13 @@ final class BudgetSuggestionService {
         }
     }
 
-    private func buildPayload(for request: BudgetSuggestionRequest) -> BudgetSuggestionPayload {
+    private func buildPayload(for request: BudgetSuggestionRequest) throws -> BudgetSuggestionPayload {
         let targetMonthKey = BudgetService.monthKey(from: request.targetMonthDate)
         let analysisStart = request.startDate
         let analysisEnd = request.endDate
 
-        let appExpenseHistory = summarizeAppBudgetHistory(for: request)
-        let appExpenseCurrentPeriod = summarizeCurrentPeriodTransactions(
+        let appExpenseHistory = try summarizeAppBudgetHistory(for: request)
+        let appExpenseCurrentPeriod = try summarizeCurrentPeriodTransactions(
             transactions: request.appTransactions,
             startDate: analysisStart,
             endDate: analysisEnd,
@@ -184,7 +184,7 @@ final class BudgetSuggestionService {
         )
 
         let appIncomeHistory = request.includeIncomeContext
-            ? summarizeAppTransactions(
+            ? try summarizeAppTransactions(
                 transactions: request.appTransactions,
                 startDate: analysisStart,
                 endDate: analysisEnd,
@@ -195,7 +195,7 @@ final class BudgetSuggestionService {
             : nil
 
         let appIncomeCurrentPeriod = request.includeIncomeContext
-            ? summarizeCurrentPeriodTransactions(
+            ? try summarizeCurrentPeriodTransactions(
                 transactions: request.appTransactions,
                 startDate: analysisStart,
                 endDate: analysisEnd,
@@ -205,8 +205,8 @@ final class BudgetSuggestionService {
             )
             : nil
 
-        let backupExpenseHistory = request.backupData.map {
-            summarizeBackupBudgetHistory(
+        let backupExpenseHistory = try request.backupData.map {
+            try summarizeBackupBudgetHistory(
                 backupData: $0,
                 startDate: analysisStart,
                 endDate: analysisEnd,
@@ -215,8 +215,8 @@ final class BudgetSuggestionService {
             )
         }
 
-        let backupIncomeHistory = request.includeIncomeContext ? request.backupData.map {
-            summarizeBackupTransactions(
+        let backupIncomeHistory = request.includeIncomeContext ? try request.backupData.map {
+            try summarizeBackupTransactions(
                 backupData: $0,
                 startDate: analysisStart,
                 endDate: analysisEnd,
@@ -226,11 +226,11 @@ final class BudgetSuggestionService {
             )
         } : nil
 
-        let existingBudgets = request.currentBudgets
+        let existingBudgets = try request.currentBudgets
             .filter { $0.monthKey == targetMonthKey }
             .compactMap { budget -> BudgetSuggestionExistingBudget? in
                 guard let category = budget.category, category.kind.supports(.expense) else { return nil }
-                let normalizedAmount = request.currencyService.convert(
+                let normalizedAmount = try request.currencyService.convert(
                     amount: budget.amount,
                     from: budget.currencyCode,
                     to: request.mainCurrency
@@ -261,7 +261,7 @@ final class BudgetSuggestionService {
         )
     }
 
-    private func summarizeAppBudgetHistory(for request: BudgetSuggestionRequest) -> [BudgetSuggestionMonthlyHistoryPayload] {
+    private func summarizeAppBudgetHistory(for request: BudgetSuggestionRequest) throws -> [BudgetSuggestionMonthlyHistoryPayload] {
         let relevantHistory = request.budgetHistories.filter { history in
             guard monthKeyInRange(history.monthKey, startDate: request.startDate, endDate: request.endDate) else {
                 return false
@@ -270,15 +270,15 @@ final class BudgetSuggestionService {
         }
 
         if !relevantHistory.isEmpty {
-            return relevantHistory
+            return try relevantHistory
                 .map {
                     BudgetSuggestionMonthlyHistoryPayload(
                         categoryId: $0.categoryID,
                         categoryName: $0.categoryNameSnapshot,
                         monthKey: $0.monthKey,
-                        budgetAmount: request.currencyService.convert(amount: $0.budgetAmount, from: $0.currencyCode, to: request.mainCurrency),
-                        spentAmount: request.currencyService.convert(amount: $0.spentAmount, from: $0.currencyCode, to: request.mainCurrency),
-                        remainingAmount: request.currencyService.convert(amount: $0.remainingAmount, from: $0.currencyCode, to: request.mainCurrency),
+                        budgetAmount: try request.currencyService.convert(amount: $0.budgetAmount, from: $0.currencyCode, to: request.mainCurrency),
+                        spentAmount: try request.currencyService.convert(amount: $0.spentAmount, from: $0.currencyCode, to: request.mainCurrency),
+                        remainingAmount: try request.currencyService.convert(amount: $0.remainingAmount, from: $0.currencyCode, to: request.mainCurrency),
                         usageRatio: $0.usageRatio,
                         isOverBudget: $0.isOverBudget,
                         currencyCode: request.mainCurrency
@@ -292,7 +292,7 @@ final class BudgetSuggestionService {
                 }
         }
 
-        return synthesizeBudgetHistoryFromAppData(for: request)
+        return try synthesizeBudgetHistoryFromAppData(for: request)
     }
 
     private func summarizeAppTransactions(
@@ -302,7 +302,7 @@ final class BudgetSuggestionService {
         transactionType: TransactionType,
         currencyService: CurrencyService,
         targetCurrency: String
-    ) -> [BudgetSuggestionCategoryTotal] {
+    ) throws -> [BudgetSuggestionCategoryTotal] {
         let filtered = transactions.filter {
             $0.type == transactionType &&
             $0.date >= startDate &&
@@ -318,7 +318,7 @@ final class BudgetSuggestionService {
             let categoryName = transaction.category?.name ?? "未分類"
             let categoryID = transaction.category?.id
             let key = "\(monthKey)|\(categoryID?.uuidString ?? categoryName)"
-            let normalizedAmount = currencyService.convert(
+            let normalizedAmount = try currencyService.convert(
                 amount: abs(transaction.amount),
                 from: transaction.currencyCode,
                 to: targetCurrency
@@ -345,8 +345,8 @@ final class BudgetSuggestionService {
         }
     }
 
-    private func synthesizeBudgetHistoryFromAppData(for request: BudgetSuggestionRequest) -> [BudgetSuggestionMonthlyHistoryPayload] {
-        request.currentBudgets
+    private func synthesizeBudgetHistoryFromAppData(for request: BudgetSuggestionRequest) throws -> [BudgetSuggestionMonthlyHistoryPayload] {
+        try request.currentBudgets
             .filter { budget in
                 budget.isEnabled &&
                 monthKeyInRange(budget.monthKey, startDate: request.startDate, endDate: request.endDate) &&
@@ -355,14 +355,14 @@ final class BudgetSuggestionService {
             .compactMap { budget -> BudgetSuggestionMonthlyHistoryPayload? in
                 guard let category = budget.category else { return nil }
 
-                let spent = request.appTransactions
+                let spent = try request.appTransactions
                     .filter { transaction in
                         transaction.type == .expense &&
                         BudgetService.monthKey(from: transaction.date) == budget.monthKey &&
                         transaction.category?.id == category.id
                     }
                     .reduce(Decimal.zero) { partial, transaction in
-                        partial + request.currencyService.convert(
+                        try partial + request.currencyService.convert(
                             amount: abs(transaction.amount),
                             from: transaction.currencyCode,
                             to: budget.currencyCode
@@ -376,9 +376,9 @@ final class BudgetSuggestionService {
                     categoryId: category.id,
                     categoryName: category.name,
                     monthKey: budget.monthKey,
-                    budgetAmount: request.currencyService.convert(amount: budget.amount, from: budget.currencyCode, to: request.mainCurrency),
-                    spentAmount: request.currencyService.convert(amount: spent, from: budget.currencyCode, to: request.mainCurrency),
-                    remainingAmount: request.currencyService.convert(amount: remaining, from: budget.currencyCode, to: request.mainCurrency),
+                    budgetAmount: try request.currencyService.convert(amount: budget.amount, from: budget.currencyCode, to: request.mainCurrency),
+                    spentAmount: try request.currencyService.convert(amount: spent, from: budget.currencyCode, to: request.mainCurrency),
+                    remainingAmount: try request.currencyService.convert(amount: remaining, from: budget.currencyCode, to: request.mainCurrency),
                     usageRatio: ratio,
                     isOverBudget: remaining < 0,
                     currencyCode: request.mainCurrency
@@ -399,7 +399,7 @@ final class BudgetSuggestionService {
         transactionType: TransactionType,
         currencyService: CurrencyService,
         targetCurrency: String
-    ) -> [BudgetSuggestionCurrentPeriodTotal] {
+    ) throws -> [BudgetSuggestionCurrentPeriodTotal] {
         let filtered = transactions.filter {
             $0.type == transactionType &&
             $0.date >= startDate &&
@@ -413,7 +413,7 @@ final class BudgetSuggestionService {
         for transaction in filtered {
             let categoryName = transaction.category?.name ?? "未分類"
             let key = transaction.category?.id.uuidString ?? categoryName
-            let normalizedAmount = currencyService.convert(
+            let normalizedAmount = try currencyService.convert(
                 amount: abs(transaction.amount),
                 from: transaction.currencyCode,
                 to: targetCurrency
@@ -440,7 +440,7 @@ final class BudgetSuggestionService {
         transactionTypeRawValue: String,
         targetCurrency: String,
         currencyService: CurrencyService
-    ) -> [BudgetSuggestionCategoryTotal] {
+    ) throws -> [BudgetSuggestionCategoryTotal] {
         let categoryNames = Dictionary(uniqueKeysWithValues: backupData.categories.map { ($0.id, $0.name) })
         let filtered = backupData.transactions.filter {
             $0.type == transactionTypeRawValue &&
@@ -456,7 +456,7 @@ final class BudgetSuggestionService {
             let monthKey = BudgetService.monthKey(from: transaction.date)
             let categoryName = transaction.categoryID.flatMap { categoryNames[$0] } ?? "未分類"
             let key = "\(monthKey)|\(transaction.categoryID?.uuidString ?? categoryName)"
-            let normalizedAmount = currencyService.convert(
+            let normalizedAmount = try currencyService.convert(
                 amount: abs(transaction.amount),
                 from: transaction.currencyCode,
                 to: targetCurrency
@@ -489,18 +489,18 @@ final class BudgetSuggestionService {
         endDate: Date,
         targetCurrency: String,
         currencyService: CurrencyService
-    ) -> [BudgetSuggestionMonthlyHistoryPayload] {
+    ) throws -> [BudgetSuggestionMonthlyHistoryPayload] {
         if let history = backupData.budgetHistory, !history.isEmpty {
-            return history
+            return try history
                 .filter { monthKeyInRange($0.monthKey, startDate: startDate, endDate: endDate) }
                 .map {
                     BudgetSuggestionMonthlyHistoryPayload(
                         categoryId: $0.categoryID,
                         categoryName: $0.categoryNameSnapshot,
                         monthKey: $0.monthKey,
-                        budgetAmount: currencyService.convert(amount: $0.budgetAmount, from: $0.currencyCode, to: targetCurrency),
-                        spentAmount: currencyService.convert(amount: $0.spentAmount, from: $0.currencyCode, to: targetCurrency),
-                        remainingAmount: currencyService.convert(amount: $0.remainingAmount, from: $0.currencyCode, to: targetCurrency),
+                        budgetAmount: try currencyService.convert(amount: $0.budgetAmount, from: $0.currencyCode, to: targetCurrency),
+                        spentAmount: try currencyService.convert(amount: $0.spentAmount, from: $0.currencyCode, to: targetCurrency),
+                        remainingAmount: try currencyService.convert(amount: $0.remainingAmount, from: $0.currencyCode, to: targetCurrency),
                         usageRatio: $0.usageRatio,
                         isOverBudget: $0.isOverBudget,
                         currencyCode: targetCurrency
@@ -516,19 +516,19 @@ final class BudgetSuggestionService {
 
         let categoryNames = Dictionary(uniqueKeysWithValues: backupData.categories.map { ($0.id, $0.name) })
 
-        return (backupData.budgets ?? [])
+        return try (backupData.budgets ?? [])
             .filter { ($0.isEnabled ?? true) && monthKeyInRange($0.monthKey, startDate: startDate, endDate: endDate) }
             .compactMap { budget -> BudgetSuggestionMonthlyHistoryPayload? in
                 guard let categoryID = budget.categoryID else { return nil }
                 let categoryName = categoryNames[categoryID] ?? "未分類"
-                let spentAmount = backupData.transactions
+                let spentAmount = try backupData.transactions
                     .filter { transaction in
                         transaction.type == TransactionType.expense.rawValue &&
                         BudgetService.monthKey(from: transaction.date) == budget.monthKey &&
                         transaction.categoryID == categoryID
                     }
                     .reduce(Decimal.zero) { partial, transaction in
-                        partial + currencyService.convert(amount: abs(transaction.amount), from: transaction.currencyCode, to: budget.currencyCode)
+                        try partial + currencyService.convert(amount: abs(transaction.amount), from: transaction.currencyCode, to: budget.currencyCode)
                     }
                 let remainingAmount = budget.amount - spentAmount
                 let usageRatio: Decimal = budget.amount > 0 ? (spentAmount / budget.amount) : 0
@@ -537,9 +537,9 @@ final class BudgetSuggestionService {
                     categoryId: categoryID,
                     categoryName: categoryName,
                     monthKey: budget.monthKey,
-                    budgetAmount: currencyService.convert(amount: budget.amount, from: budget.currencyCode, to: targetCurrency),
-                    spentAmount: currencyService.convert(amount: spentAmount, from: budget.currencyCode, to: targetCurrency),
-                    remainingAmount: currencyService.convert(amount: remainingAmount, from: budget.currencyCode, to: targetCurrency),
+                    budgetAmount: try currencyService.convert(amount: budget.amount, from: budget.currencyCode, to: targetCurrency),
+                    spentAmount: try currencyService.convert(amount: spentAmount, from: budget.currencyCode, to: targetCurrency),
+                    remainingAmount: try currencyService.convert(amount: remainingAmount, from: budget.currencyCode, to: targetCurrency),
                     usageRatio: usageRatio,
                     isOverBudget: remainingAmount < 0,
                     currencyCode: targetCurrency

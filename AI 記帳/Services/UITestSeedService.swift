@@ -74,6 +74,8 @@ enum UITestSeedService {
         modelContext.insert(transferIn)
 
         do {
+            // This seed owns the fixture context; commit its setup before a domain operation.
+            try modelContext.save()
             let advanceCase = try AdvanceService.createAdvanceCase(
                 title: "UITest 代墊晚餐",
                 date: now.addingTimeInterval(-180),

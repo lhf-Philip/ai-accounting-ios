@@ -11,6 +11,8 @@ final class AdvanceEditingTests: XCTestCase {
         let replacementDebt = Account(name: "TKL Travel", currency: "JPY", type: .debt, baseBalance: 0)
         [bank, friend, replacementDebt].forEach(context.insert)
 
+        // Commit fixture setup before testing the domain operation.
+        try context.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "LUUP",
             date: Date(timeIntervalSince1970: 10),
@@ -69,6 +71,8 @@ final class AdvanceEditingTests: XCTestCase {
         context.insert(category)
         context.insert(tag)
 
+        // Commit fixture setup before testing the domain operation.
+        try context.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "Japan trip",
             date: Date(timeIntervalSince1970: 10),
@@ -140,6 +144,8 @@ final class AdvanceEditingTests: XCTestCase {
         context.insert(category)
         context.insert(tag)
 
+        // Commit fixture setup before testing the domain operation.
+        try context.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "Dinner",
             date: Date(timeIntervalSince1970: 10),
@@ -214,6 +220,8 @@ final class AdvanceEditingTests: XCTestCase {
         context.insert(category)
         context.insert(tag)
 
+        // Commit fixture setup before testing the domain operation.
+        try context.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "Taxi",
             date: Date(timeIntervalSince1970: 10),
@@ -286,6 +294,8 @@ final class AdvanceEditingTests: XCTestCase {
         let friendB = Account(name: "Friend B", currency: "JPY", type: .debt, baseBalance: 0)
         [wallet, bank, friendA, friendB].forEach(context.insert)
 
+        // Commit fixture setup before testing the domain operation.
+        try context.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "Japan trip",
             date: Date(timeIntervalSince1970: 10),
@@ -360,6 +370,8 @@ final class AdvanceEditingTests: XCTestCase {
         context.insert(category)
         context.insert(tag)
 
+        // Commit fixture setup before testing the domain operation.
+        try context.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "Japan trip",
             date: Date(timeIntervalSince1970: 10),
@@ -447,6 +459,8 @@ final class AdvanceEditingTests: XCTestCase {
         [wallet, friend].forEach(context.insert)
         context.insert(expenseCategory)
 
+        // Commit fixture setup before testing the domain operation.
+        try context.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "Dinner",
             date: Date(timeIntervalSince1970: 10),
@@ -507,6 +521,8 @@ final class AdvanceEditingTests: XCTestCase {
         let friend = Account(name: "Friend", currency: "JPY", type: .debt, baseBalance: 0)
         [wallet, friend].forEach(context.insert)
 
+        // Commit fixture setup before testing the domain operation.
+        try context.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "LUUP",
             date: Date(timeIntervalSince1970: 10),
@@ -557,6 +573,8 @@ final class AdvanceEditingTests: XCTestCase {
         [wallet, friend].forEach(context.insert)
         context.insert(expenseCategory)
 
+        // Commit fixture setup before testing the domain operation.
+        try context.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "Dinner",
             date: Date(timeIntervalSince1970: 10),
@@ -662,6 +680,8 @@ final class AdvanceEditingTests: XCTestCase {
         let friendB = Account(name: "Friend B", currency: "JPY", type: .debt, baseBalance: 0)
         [wallet, card, friendA, friendB].forEach(context.insert)
 
+        // Commit fixture setup before testing the domain operation.
+        try context.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "Japan",
             date: Date(timeIntervalSince1970: 10),
@@ -759,6 +779,8 @@ final class AdvanceEditingTests: XCTestCase {
         let wallet = Account(name: "Wallet", currency: "HKD", type: .cash, baseBalance: 0)
         let friend = Account(name: "Friend", currency: "HKD", type: .debt, baseBalance: 0)
         [wallet, friend].forEach(context.insert)
+        // Commit fixture setup before testing the domain operation.
+        try context.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "Dinner",
             date: Date(timeIntervalSince1970: 10),
@@ -844,6 +866,8 @@ final class AdvanceEditingTests: XCTestCase {
         let friendA = Account(name: "Friend A", currency: "HKD", type: .debt, baseBalance: 0)
         let friendB = Account(name: "Friend B", currency: "HKD", type: .debt, baseBalance: 0)
         [wallet, friendA, friendB].forEach(context.insert)
+        // Commit fixture setup before testing the domain operation.
+        try context.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "Dinner",
             date: Date(timeIntervalSince1970: 10),

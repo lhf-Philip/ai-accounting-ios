@@ -126,18 +126,40 @@ enum LedgerMutationService {
         mutation: () throws -> Value
     ) throws -> Value {
         guard commit else { return try mutation() }
-        // This boundary owns all pending work, so it must start clean. Reject outside
-        // the recovery block: neither save, rollback nor recover may touch prior work.
+        // The outer owner must start clean; nested commit:false work stages only.
+        // Reject before entering recovery so unrelated pending work remains untouched.
         guard !modelContext.hasChanges else { throw LedgerMutationError.pendingChanges }
         let autosave = modelContext.autosaveEnabled
         modelContext.autosaveEnabled = false
         defer { modelContext.autosaveEnabled = autosave }
         do {
             let value = try mutation()
-            try save(modelContext)
+            if modelContext.hasChanges { try save(modelContext) }
             return value
         } catch {
             recover()
+            // Failed domain inserts can otherwise survive through inverse relationships on retry.
+            for model in modelContext.insertedModelsArray {
+                if let transaction = model as? FinancialTransaction {
+                    transaction.account = nil
+                    transaction.category = nil
+                    transaction.tags = []
+                } else if let budget = model as? CategoryMonthlyBudget {
+                    budget.category = nil
+                } else if let advance = model as? AdvanceCase {
+                    advance.payerAccount = nil
+                    advance.expenseCategory = nil
+                    advance.participants = []
+                    advance.repayments = []
+                } else if let participant = model as? AdvanceParticipant {
+                    participant.advanceCase = nil
+                    participant.debtAccount = nil
+                } else if let repayment = model as? AdvanceRepayment {
+                    repayment.advanceCase = nil
+                    repayment.participant = nil
+                    repayment.receivedAccount = nil
+                }
+            }
             modelContext.rollback()
             throw error
         }
