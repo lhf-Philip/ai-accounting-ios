@@ -247,8 +247,8 @@ struct RemoteBackupView: View {
     private func uploadBackup() {
         let shouldEncrypt = encryptRemoteBackups
         run(shouldEncrypt ? "加密上傳完成" : "未加密上傳完成") {
-            let backup = await MainActor.run {
-                BackupManager.shared.createBackupData(modelContext: modelContext)
+            let backup = try await MainActor.run {
+                try BackupManager.shared.createBackupData(modelContext: modelContext)
             }
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
