@@ -17,6 +17,7 @@ struct ScannedResultView: View {
     @Query private var tags: [Tag]
 
     // 表單狀態
+    @State private var saveErrorMessage: String?
     @State private var amountString: String = ""
     @State private var selectedAccount: Account?
     @State private var selectedCategory: Category?
@@ -75,6 +76,14 @@ struct ScannedResultView: View {
             }
             .disabled(selectedAccount == nil || amountString.isEmpty)
         }
+        .alert("儲存失敗", isPresented: Binding(
+            get: { saveErrorMessage != nil },
+            set: { if !$0 { saveErrorMessage = nil } }
+        )) {
+            Button("確定", role: .cancel) { saveErrorMessage = nil }
+        } message: {
+            Text(saveErrorMessage ?? "")
+        }
         .onAppear {
             // 填充 AI 資料
             amountString = "\(info.amount)"
@@ -100,28 +109,15 @@ struct ScannedResultView: View {
 
         let txCurrency = normalizedCurrencyCode(info.currency, fallback: account.currency)
 
-        let tx = FinancialTransaction(
-            amount: -abs(amount), // 預設為支出
-            currencyCode: txCurrency,
-            date: date,
-            note: note,
-            type: .expense,
-            account: account,
-            category: selectedCategory,
-            tags: Array(selectedTags)
-            // photoPath: 如果你有實作圖片儲存，這裡可以存檔名
+        let draft = OrdinaryTransactionEditDraft(
+            amount: abs(amount), currencyCode: txCurrency, date: date, note: note,
+            type: .expense, account: account, category: selectedCategory, tags: Array(selectedTags)
         )
-
-        modelContext.insert(tx)
         do {
-            try modelContext.save()
-            try BudgetHistoryService.shared.syncAffected(
-                by: [tx],
-                modelContext: modelContext,
-                currencyService: CurrencyService.shared
-            )
+            try LedgerMutationService.add([draft], modelContext: modelContext)
         } catch {
-            print("⚠️ 掃描交易預算歷史同步失敗: \(error)")
+            saveErrorMessage = error.localizedDescription
+            return
         }
 
         // 這裡需要連續 dismiss 兩次 (回到主頁)，或者使用 Binding 控制

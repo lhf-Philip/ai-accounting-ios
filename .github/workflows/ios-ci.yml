@@ -79,7 +79,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             test | tee xcodebuild-test.log
 
-      - name: Run Advance Structural UI Tests
+      - name: Run Focused UI Tests
         if: steps.scope.outputs.run == 'true'
         run: |
           xcodebuild \
@@ -88,6 +88,7 @@ jobs:
             -destination "platform=iOS Simulator,id=$IOS_TEST_DEVICE_ID" \
             -parallel-testing-enabled NO \
             -only-testing:'AI 記帳UITests/AdvanceStructuralEditingUITests' \
+            -only-testing:'AI 記帳UITests/LedgerEditPerformanceUITests/testInlineCategoryThenImmediateTransactionSave' \
             -resultBundlePath ui-tests.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             test | tee xcodebuild-ui-test.log

@@ -34,6 +34,7 @@ This guide defines what each test layer is responsible for and the minimum evide
 - `AI 記帳Tests/`
   - backup compatibility;
   - transaction and transfer editing;
+  - ledger/budget atomicity, rollback of split entries and grouped deletion, and retry after injected synchronization failure;
   - advance structural editing;
   - report aggregation and refund semantics;
   - ledger semantic vectors.
@@ -43,7 +44,7 @@ This guide defines what each test layer is responsible for and the minimum evide
 - `.github/workflows/ios-ci.yml`
   - string catalog validation;
   - simulator build;
-  - unit tests on iPhone 13 Simulator;
+  - unit tests on an available iPhone Simulator selected by UDID;
   - focused structural advance UI tests.
 
 ### Android
@@ -73,7 +74,7 @@ For local simulator tests, select an installed iPhone runtime first:
 IOS_SIMULATOR_ID="$(python3 scripts/select-ios-simulator.py)"
 ```
 
-The helper prefers iPhone 13 when it is installed and otherwise selects another available iPhone. This avoids Xcode interpreting a device name as `OS=latest` when that model only exists on an older installed runtime.
+The helper prefers iPhone 13 when it is installed and otherwise selects another available iPhone. This avoids Xcode interpreting a device name as `OS=latest` when that model only exists on an older installed runtime. The iOS workflow uses the same selector and explicitly sets `shell: bash` so `pipefail` propagates an `xcodebuild` failure through `tee`. Failed runs upload the unit/UI result bundles. A green check without an executed-test summary is not sufficient evidence; the previous name-only destination and default shell combination masked unavailable-destination errors. See [GitHub shell semantics](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsshell).
 
 ### iOS simulator build
 
@@ -355,6 +356,37 @@ The PR description should list:
 - accounting invariants checked;
 - failures, retries, or tests not run and why.
 
+## Ledger commit boundary (#166)
+
+Ordinary add, scan, shortcut, edit and ledger deletion stage their ledger and budget-history changes in one context, then save once. Nested budget synchronization uses `save: false`; standalone callers retain the default save behavior. The operation owns pending changes in that synchronous context and temporarily disables autosave. On error, inserted inverse relationships or retained editor values are repaired before rollback, then the error reaches the view. This does not introduce a schema or backup-format change.
+
+Apple documents [save](https://developer.apple.com/documentation/swiftdata/modelcontext/save()) as writing pending inserts, updates and deletes, and [includePendingChanges](https://developer.apple.com/documentation/swiftdata/fetchdescriptor/includependingchanges) as true by default. Integration tests verify that budget queries observe pending inserts, date/category moves and deletions before the commit. Failure tests inspect both the active context and a fresh reader, then retry to detect duplicate or leaked entries. UI tests cover ordinary, transfer and advance editing; physical-device upgrade/storage smoke remains a release check.
+
+The ledger UI regression navigates from an advance-case summary to its repayment record and scrolls to the editor note field. The prior test expected a standalone repayment ledger row; the captured failure showed the existing case grouping with its outstanding balance intact.
+
+### Ledger context ownership
+
+Committing ledger mutations require a clean ModelContext. The service checks
+`hasChanges` before invoking mutation, synchronization, recovery, save or rollback;
+an unrelated pending insert, edit or deletion causes a recoverable error and is
+left untouched. The owner of the pending work must resolve it before retrying.
+Do not pre-save or roll back a shared context just to pass this check.
+
+Add/scan/edit views build value drafts. Creating a tag in the add form is its
+own guarded commit, so it does not leave a pending insert for the ledger save.
+Shortcuts only read their template, and
+ledger deletion stages its changes inside the boundary. Their error handlers
+show the error without saving or rolling back. Direct-bound editors elsewhere
+can leave a dirty context; those operations are deliberately rejected rather than
+silently absorbing their edits. This is an enforced clean-context contract, not
+an isolated-context implementation that permits concurrent pending edits.
+
+`LedgerMutationAtomicityTests` covers unrelated pending inserts/edits/deletions,
+normal and throwing synchronization, edit/delete/shortcut entry points, and a
+single successful retry after the pending-work owner explicitly saves.
+See [Apple save](https://developer.apple.com/documentation/swiftdata/modelcontext/save())
+and [rollback](https://developer.apple.com/documentation/swiftdata/modelcontext/rollback()).
+
 ### CI scope and superseded runs
 
 Platform workflows always report a check, including the required Android `build`
@@ -374,3 +406,20 @@ UDID selection so failed test commands cannot be masked by `tee`.
 
 During development, run affected tests first; use one final CI run for the
 reviewed revision. Re-run only for changed code, a failure, or unresolved evidence.
+
+### Inline creation and repayment rollback follow-up
+
+Creating a category commits through the guarded ledger boundary before notifying
+its parent or closing the sheet. It is a separate explicit action: cancelling the
+transaction later keeps the category. Save failure keeps the sheet open, drops
+the failed insertion, and permits retry. A dirty context is rejected unchanged.
+Inline tag creation in transaction/advance/repayment forms and debt-account
+creation in the advance form also use guarded commits.
+
+The repayment rollback path propagates required linked-transfer read failures
+before changing repayment totals or deleting rows. Fault injection enters via
+`LedgerDeletionService.delete`, verifies the current context and an independent
+reader, and retries once. Category tests cover commit/cancellation semantics,
+commit failure, retry and unrelated pending edits. The iOS CI includes the focused
+`testInlineCategoryThenImmediateTransactionSave` UI smoke in its existing UI step.
+The workflow retains main's platform scope, concurrency and full-history checkout.

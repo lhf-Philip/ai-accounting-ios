@@ -11,7 +11,8 @@ final class BudgetHistoryService {
         modelContext: ModelContext,
         currencyService: CurrencyService,
         budgets: [CategoryMonthlyBudget]? = nil,
-        transactions: [FinancialTransaction]? = nil
+        transactions: [FinancialTransaction]? = nil,
+        save: Bool = true
     ) throws {
         let budgetRecords: [CategoryMonthlyBudget]
         if let budgets {
@@ -49,22 +50,24 @@ final class BudgetHistoryService {
             }
         }
 
-        try modelContext.save()
+        if save { try modelContext.save() }
     }
 
     func syncAffected(
         by transactions: [FinancialTransaction],
         modelContext: ModelContext,
-        currencyService: CurrencyService
+        currencyService: CurrencyService,
+        save: Bool = true
     ) throws {
         let keys = transactions.compactMap(Self.affectedKey(for:))
-        try syncAffected(keys: keys, modelContext: modelContext, currencyService: currencyService)
+        try syncAffected(keys: keys, modelContext: modelContext, currencyService: currencyService, save: save)
     }
 
     func syncAffected(
         keys: [BudgetHistoryAffectedKey],
         modelContext: ModelContext,
-        currencyService: CurrencyService
+        currencyService: CurrencyService,
+        save: Bool = true
     ) throws {
         let uniqueKeys = Array(Set(keys))
         guard !uniqueKeys.isEmpty else { return }
@@ -115,7 +118,7 @@ final class BudgetHistoryService {
             }
         }
 
-        try modelContext.save()
+        if save { try modelContext.save() }
     }
 
     static func affectedKey(for transaction: FinancialTransaction) -> BudgetHistoryAffectedKey? {

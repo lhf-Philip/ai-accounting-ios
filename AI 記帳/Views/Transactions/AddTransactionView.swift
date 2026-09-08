@@ -148,6 +148,7 @@ struct AddTransactionView: View {
                                 .foregroundStyle(.blue)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("transaction.add.category")
                     }
                 }
 
@@ -184,6 +185,7 @@ struct AddTransactionView: View {
 
                     DatePicker("日期", selection: $date)
                     TextField("備註", text: $note)
+                        .accessibilityIdentifier("transaction.add.note")
                 }
             }
             .interactiveKeyboardDismiss()
@@ -194,6 +196,7 @@ struct AddTransactionView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("儲存") { saveTransactions() }
+                        .accessibilityIdentifier("transaction.add.save")
                         .disabled(!canSubmit)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
@@ -270,6 +273,7 @@ struct AddTransactionView: View {
                     set: { amountString = sanitizePositiveDecimalInput($0) }
                 ))
                 .font(.largeTitle)
+                .accessibilityIdentifier("transaction.add.amount")
                 .keyboardType(.decimalPad)
                 .focused($isAmountFocused)
             }
@@ -393,7 +397,7 @@ struct AddTransactionView: View {
     }
 
     private func saveTransactions() {
-        var insertedTransactions: [FinancialTransaction] = []
+        var drafts: [OrdinaryTransactionEditDraft] = []
 
         switch entryMode {
         case .normal:
@@ -404,7 +408,7 @@ struct AddTransactionView: View {
                 return
             }
 
-            insertedTransactions.append(insertTransaction(
+            drafts.append(makeDraft(
                 amount: amount,
                 currencyCode: selectedCurrency,
                 account: account,
@@ -424,7 +428,7 @@ struct AddTransactionView: View {
             }
 
             for (index, leg) in legs.enumerated() {
-                insertedTransactions.append(insertTransaction(
+                drafts.append(makeDraft(
                     amount: leg.amount,
                     currencyCode: leg.currency,
                     account: leg.account,
@@ -448,7 +452,7 @@ struct AddTransactionView: View {
             }
 
             for (index, item) in items.enumerated() {
-                insertedTransactions.append(insertTransaction(
+                drafts.append(makeDraft(
                     amount: item.amount,
                     currencyCode: item.currency,
                     account: account,
@@ -458,12 +462,7 @@ struct AddTransactionView: View {
         }
 
         do {
-            try modelContext.save()
-            try BudgetHistoryService.shared.syncAffected(
-                by: insertedTransactions,
-                modelContext: modelContext,
-                currencyService: currencyService
-            )
+            try LedgerMutationService.add(drafts, modelContext: modelContext)
         } catch {
             showValidation("儲存失敗：\(error.localizedDescription)")
             return
@@ -472,22 +471,11 @@ struct AddTransactionView: View {
         dismiss()
     }
 
-    private func insertTransaction(amount: Decimal, currencyCode: String, account: Account, note: String) -> FinancialTransaction {
-        let finalAmount = (selectedType == .expense) ? -abs(amount) : abs(amount)
-
-        let tx = FinancialTransaction(
-            amount: finalAmount,
-            currencyCode: currencyCode,
-            date: date,
-            note: note,
-            type: selectedType,
-            account: account,
-            category: selectedCategory,
-            tags: Array(selectedTags)
+    private func makeDraft(amount: Decimal, currencyCode: String, account: Account, note: String) -> OrdinaryTransactionEditDraft {
+        OrdinaryTransactionEditDraft(
+            amount: amount, currencyCode: currencyCode, date: date, note: note,
+            type: selectedType, account: account, category: selectedCategory, tags: Array(selectedTags)
         )
-
-        modelContext.insert(tx)
-        return tx
     }
 
     private func indexedNote(base: String, mode: EntryMode, index: Int, count: Int) -> String {
@@ -511,10 +499,17 @@ struct AddTransactionView: View {
     private func createTag() {
         let trimmed = newTagName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let tag = Tag(name: trimmed)
-        modelContext.insert(tag)
-        selectedTags.insert(tag)
-        newTagName = ""
+        do {
+            let tag = try LedgerMutationService.atomic(modelContext: modelContext) {
+                let tag = Tag(name: trimmed)
+                modelContext.insert(tag)
+                return tag
+            }
+            selectedTags.insert(tag)
+            newTagName = ""
+        } catch {
+            showValidation(error.localizedDescription)
+        }
     }
 
     private func positiveDecimal(from value: String) -> Decimal? {

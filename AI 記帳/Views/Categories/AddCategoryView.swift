@@ -7,6 +7,8 @@ struct AddCategoryView: View {
     @Query(sort: \Category.name) private var categories: [Category]
     let onSave: ((Category) -> Void)?
     
+    @State private var saveError: String?
+
     // Form States
     @State private var name: String = ""
     @State private var selectedIcon: String = "fork.knife"
@@ -54,6 +56,7 @@ struct AddCategoryView: View {
                         }
                         
                         TextField("例如: 早餐、交通", text: $name)
+                            .accessibilityIdentifier("category.create.name")
                             .padding(.leading, 8)
                     }
                 }
@@ -142,6 +145,13 @@ struct AddCategoryView: View {
                 }
             }
             .standardKeyboardBehavior()
+            .alert("無法儲存分類", isPresented: Binding(
+                get: { saveError != nil }, set: { if !$0 { saveError = nil } }
+            )) {
+                Button("確定", role: .cancel) { saveError = nil }
+            } message: {
+                Text(saveError ?? "")
+            }
             .navigationTitle("新增分類")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -155,6 +165,7 @@ struct AddCategoryView: View {
                     Button("儲存") {
                         saveCategory()
                     }
+                    .accessibilityIdentifier("category.create.save")
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
@@ -164,16 +175,17 @@ struct AddCategoryView: View {
     // MARK: - Actions
     
     private func saveCategory() {
-        let newCategory = Category(
-            name: name,
-            icon: selectedIcon,
-            colorHex: Color.normalizedRGBHex(selectedColorHex),
-            kind: selectedKind
-        )
-        
-        modelContext.insert(newCategory)
-        onSave?(newCategory)
-        dismiss()
+        do {
+            let newCategory = try LedgerMutationService.createCategory(
+                name: name, icon: selectedIcon,
+                colorHex: Color.normalizedRGBHex(selectedColorHex), kind: selectedKind,
+                modelContext: modelContext
+            )
+            onSave?(newCategory)
+            dismiss()
+        } catch {
+            saveError = error.localizedDescription
+        }
     }
 }
 

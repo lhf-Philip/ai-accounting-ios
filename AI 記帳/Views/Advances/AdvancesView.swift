@@ -1166,10 +1166,17 @@ struct AddAdvanceCaseView: View {
     private func createTag() {
         let trimmed = newTagName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let tag = Tag(name: trimmed)
-        modelContext.insert(tag)
-        selectedTags.insert(tag)
-        newTagName = ""
+        do {
+            let tag = try LedgerMutationService.atomic(modelContext: modelContext) {
+                let tag = Tag(name: trimmed)
+                modelContext.insert(tag)
+                return tag
+            }
+            selectedTags.insert(tag)
+            newTagName = ""
+        } catch {
+            showError(error.localizedDescription)
+        }
     }
 
     private func createDebtAccount() {
@@ -1190,9 +1197,10 @@ struct AddAdvanceCaseView: View {
             baseBalance: 0,
             sortOrder: nextSortOrder
         )
-        modelContext.insert(account)
         do {
-            try modelContext.save()
+            try LedgerMutationService.atomic(modelContext: modelContext) {
+                modelContext.insert(account)
+            }
         } catch {
             showError("建立債務人物失敗：\(error.localizedDescription)")
             return
@@ -1809,10 +1817,17 @@ struct AddAdvanceRepaymentView: View {
     private func createTag() {
         let trimmed = newTagName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let tag = Tag(name: trimmed)
-        modelContext.insert(tag)
-        selectedTags.insert(tag)
-        newTagName = ""
+        do {
+            let tag = try LedgerMutationService.atomic(modelContext: modelContext) {
+                let tag = Tag(name: trimmed)
+                modelContext.insert(tag)
+                return tag
+            }
+            selectedTags.insert(tag)
+            newTagName = ""
+        } catch {
+            showError(error.localizedDescription)
+        }
     }
     
     private func validateTotalNotExceedingRemaining(items: [(amount: Decimal, currency: String)]) -> Bool? {
