@@ -159,7 +159,7 @@ Use merge only when combining non-overlapping datasets.
 ### Replace import
 
 - Decode and validate the selected JSON first.
-- Capture an in-memory recovery backup of current data.
+- Capture a complete in-memory recovery backup of current data. Every required iOS model fetch must succeed before any clearing begins; a fetch error is not an empty collection.
 - Clear records in relationship-safe order and verify the database is empty.
 - Restore the selected backup.
 - If restore fails, clear partial records and restore the recovery backup.
@@ -224,3 +224,13 @@ Every persisted-data change must cover:
 - failure rollback.
 
 The PR must state the source schema/version, target schema/version, backup version decision, rollback strategy, and exact fixtures used.
+
+## iOS Backup Failure Boundaries
+
+Backup creation and restore preloading propagate required SwiftData fetch errors. Local export, WebDAV upload, and automatic backup share this throwing snapshot operation. Merge restore preloads every existing model collection before inserting or updating records. Replace restore cannot clear data until its recovery snapshot succeeds.
+
+Automatic local backup writes JSON with Foundation `.atomic`, and records `lastBackupDate` only after the write succeeds. This protects destination replacement; it does not establish that arbitrary externally supplied JSON is complete or guarantee durability against every filesystem/device failure.
+
+Backup JSON remains version 1.9 and its fields/defaults are unchanged. Android uses its existing throwing Room reads and transaction boundary, so this iOS error-propagation correction requires no Android codec or schema change. Synthetic tests cover all 13 required model reads, recovery-capture failure, merge preloading, write failure, and full graph IDs/relationships through export/import/export.
+
+Authoritative references: [Apple ModelContext.fetch](https://developer.apple.com/documentation/swiftdata/modelcontext/fetch(_:)), [Apple atomic writing](https://developer.apple.com/documentation/foundation/nsdata/writingoptions/atomic).

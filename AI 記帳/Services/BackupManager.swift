@@ -277,6 +277,21 @@ struct BackupRestoreSummary {
     }
 }
 
+// A per-operation seam lets callers surface real fetch errors and tests inject store failures.
+@MainActor
+protocol BackupModelReading {
+    func fetch<Model: PersistentModel>(_ descriptor: FetchDescriptor<Model>) throws -> [Model]
+}
+
+@MainActor
+private struct ModelContextBackupReader: BackupModelReading {
+    let modelContext: ModelContext
+
+    func fetch<Model: PersistentModel>(_ descriptor: FetchDescriptor<Model>) throws -> [Model] {
+        try modelContext.fetch(descriptor)
+    }
+}
+
 class BackupManager: NSObject, ObservableObject {
     static let shared = BackupManager()
     
@@ -307,19 +322,32 @@ class BackupManager: NSObject, ObservableObject {
         guard url.startAccessingSecurityScopedResource() else { return }
         defer { url.stopAccessingSecurityScopedResource() }
         
-        let data = createBackupData(modelContext: modelContext)
         let filename = "AutoBackup_\(Date().formatted(date: .numeric, time: .omitted)).json".replacingOccurrences(of: "/", with: "-")
         let fileURL = url.appendingPathComponent(filename)
         
         do {
-            let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-            try encoder.encode(data).write(to: fileURL)
+            try writeAutoBackup(modelContext: modelContext, to: fileURL)
             print("✅ 自動備份成功: \(filename)")
             cleanOldBackups(in: url)
-            lastBackupDate = Date().timeIntervalSince1970
         } catch { print("❌ 備份失敗: \(error)") }
     }
     
+    @MainActor
+    func writeAutoBackup(
+        modelContext: ModelContext,
+        to fileURL: URL,
+        reader: (any BackupModelReading)? = nil,
+        write: (Data, URL, Data.WritingOptions) throws -> Void = { data, url, options in
+            try data.write(to: url, options: options)
+        }
+    ) throws {
+        let backup = try createBackupData(modelContext: modelContext, reader: reader)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try write(encoder.encode(backup), fileURL, .atomic)
+        lastBackupDate = Date().timeIntervalSince1970
+    }
+
     private func cleanOldBackups(in folderURL: URL) {
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(at: folderURL, includingPropertiesForKeys: [.creationDateKey]) else { return }
@@ -333,20 +361,25 @@ class BackupManager: NSObject, ObservableObject {
     
     // MARK: - 匯入/匯出 邏輯
     
-    @MainActor func createBackupData(modelContext: ModelContext) -> FullBackupData {
-        let accounts = (try? modelContext.fetch(FetchDescriptor<Account>())) ?? []
-        let categories = (try? modelContext.fetch(FetchDescriptor<Category>())) ?? []
-        let tags = (try? modelContext.fetch(FetchDescriptor<Tag>())) ?? []
-        let transactions = (try? modelContext.fetch(FetchDescriptor<FinancialTransaction>())) ?? []
-        let shortcuts = (try? modelContext.fetch(FetchDescriptor<Shortcut>())) ?? []
-        let recurringRules = (try? modelContext.fetch(FetchDescriptor<RecurringRule>())) ?? []
-        let recurringOccurrences = (try? modelContext.fetch(FetchDescriptor<RecurringOccurrence>())) ?? []
-        let budgets = (try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []
-        let budgetHistory = (try? modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>())) ?? []
-        let budgetSettings = (try? modelContext.fetch(FetchDescriptor<BudgetSettings>())) ?? []
-        let advanceCases = (try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []
-        let advanceParticipants = (try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []
-        let advanceRepayments = (try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []
+    @MainActor
+    func createBackupData(
+        modelContext: ModelContext,
+        reader: (any BackupModelReading)? = nil
+    ) throws -> FullBackupData {
+        let reader = reader ?? ModelContextBackupReader(modelContext: modelContext)
+        let accounts = try reader.fetch(FetchDescriptor<Account>())
+        let categories = try reader.fetch(FetchDescriptor<Category>())
+        let tags = try reader.fetch(FetchDescriptor<Tag>())
+        let transactions = try reader.fetch(FetchDescriptor<FinancialTransaction>())
+        let shortcuts = try reader.fetch(FetchDescriptor<Shortcut>())
+        let recurringRules = try reader.fetch(FetchDescriptor<RecurringRule>())
+        let recurringOccurrences = try reader.fetch(FetchDescriptor<RecurringOccurrence>())
+        let budgets = try reader.fetch(FetchDescriptor<CategoryMonthlyBudget>())
+        let budgetHistory = try reader.fetch(FetchDescriptor<BudgetMonthlyHistory>())
+        let budgetSettings = try reader.fetch(FetchDescriptor<BudgetSettings>())
+        let advanceCases = try reader.fetch(FetchDescriptor<AdvanceCase>())
+        let advanceParticipants = try reader.fetch(FetchDescriptor<AdvanceParticipant>())
+        let advanceRepayments = try reader.fetch(FetchDescriptor<AdvanceRepayment>())
         
         return FullBackupData(version: "1.9", timestamp: Date(),
             accounts: accounts.map { FullBackupData.AccountCodable(id: $0.id, name: $0.name, currency: $0.currency, type: $0.type.rawValue, baseBalance: $0.baseBalance, sortOrder: $0.sortOrder, isArchived: $0.isArchived) },
@@ -519,12 +552,17 @@ class BackupManager: NSObject, ObservableObject {
 
     @discardableResult
     @MainActor
-    func restoreBackupData(_ backup: FullBackupData, modelContext: ModelContext, replaceExisting: Bool = false) throws -> BackupRestoreSummary {
+    func restoreBackupData(
+        _ backup: FullBackupData,
+        modelContext: ModelContext,
+        replaceExisting: Bool = false,
+        reader: (any BackupModelReading)? = nil
+    ) throws -> BackupRestoreSummary {
         let beforeCounts = try backupRecordCounts(modelContext: modelContext)
         let backupCounts = BackupRecordCounts.fromBackup(backup)
 
         guard replaceExisting else {
-            try restoreDecodedBackup(backup, modelContext: modelContext)
+            try restoreDecodedBackup(backup, modelContext: modelContext, reader: reader)
             let afterCounts = try backupRecordCounts(modelContext: modelContext)
             return BackupRestoreSummary(
                 mode: .merge,
@@ -535,10 +573,10 @@ class BackupManager: NSObject, ObservableObject {
             )
         }
 
-        let recoveryBackup = createBackupData(modelContext: modelContext)
+        let recoveryBackup = try createBackupData(modelContext: modelContext, reader: reader)
         do {
             let clearSummary = try clearAllBackupData(modelContext: modelContext)
-            try restoreDecodedBackup(backup, modelContext: modelContext)
+            try restoreDecodedBackup(backup, modelContext: modelContext, reader: reader)
             let afterCounts = try backupRecordCounts(modelContext: modelContext)
             try verifyRestoredState(backup, actualCounts: afterCounts)
             return BackupRestoreSummary(
@@ -673,20 +711,25 @@ class BackupManager: NSObject, ObservableObject {
     }
 
     @MainActor
-    private func restoreDecodedBackup(_ backup: FullBackupData, modelContext: ModelContext) throws {
-        var accountByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<Account>())) ?? []).map { ($0.id, $0) })
-        var categoryByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<Category>())) ?? []).map { ($0.id, $0) })
-        var tagByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<Tag>())) ?? []).map { ($0.id, $0) })
-        var existingTransactionIDs = Set(((try? modelContext.fetch(FetchDescriptor<FinancialTransaction>())) ?? []).map(\.id))
-        var existingShortcutIDs = Set(((try? modelContext.fetch(FetchDescriptor<Shortcut>())) ?? []).map(\.id))
-        var recurringRuleByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<RecurringRule>())) ?? []).map { ($0.id, $0) })
-        var recurringOccurrenceByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<RecurringOccurrence>())) ?? []).map { ($0.id, $0) })
-        var existingBudgetIDs = Set(((try? modelContext.fetch(FetchDescriptor<CategoryMonthlyBudget>())) ?? []).map(\.id))
-        var historyByKey = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<BudgetMonthlyHistory>())) ?? []).map { ($0.historyKey, $0) })
-        var budgetSettingsByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<BudgetSettings>())) ?? []).map { ($0.id, $0) })
-        var advanceCaseByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<AdvanceCase>())) ?? []).map { ($0.id, $0) })
-        var participantByID = Dictionary(uniqueKeysWithValues: ((try? modelContext.fetch(FetchDescriptor<AdvanceParticipant>())) ?? []).map { ($0.id, $0) })
-        var existingRepaymentIDs = Set(((try? modelContext.fetch(FetchDescriptor<AdvanceRepayment>())) ?? []).map(\.id))
+    private func restoreDecodedBackup(
+        _ backup: FullBackupData,
+        modelContext: ModelContext,
+        reader: (any BackupModelReading)? = nil
+    ) throws {
+        let reader = reader ?? ModelContextBackupReader(modelContext: modelContext)
+        var accountByID = Dictionary(uniqueKeysWithValues: (try reader.fetch(FetchDescriptor<Account>())).map { ($0.id, $0) })
+        var categoryByID = Dictionary(uniqueKeysWithValues: (try reader.fetch(FetchDescriptor<Category>())).map { ($0.id, $0) })
+        var tagByID = Dictionary(uniqueKeysWithValues: (try reader.fetch(FetchDescriptor<Tag>())).map { ($0.id, $0) })
+        var existingTransactionIDs = Set((try reader.fetch(FetchDescriptor<FinancialTransaction>())).map(\.id))
+        var existingShortcutIDs = Set((try reader.fetch(FetchDescriptor<Shortcut>())).map(\.id))
+        var recurringRuleByID = Dictionary(uniqueKeysWithValues: (try reader.fetch(FetchDescriptor<RecurringRule>())).map { ($0.id, $0) })
+        var recurringOccurrenceByID = Dictionary(uniqueKeysWithValues: (try reader.fetch(FetchDescriptor<RecurringOccurrence>())).map { ($0.id, $0) })
+        var existingBudgetIDs = Set((try reader.fetch(FetchDescriptor<CategoryMonthlyBudget>())).map(\.id))
+        var historyByKey = Dictionary(uniqueKeysWithValues: (try reader.fetch(FetchDescriptor<BudgetMonthlyHistory>())).map { ($0.historyKey, $0) })
+        var budgetSettingsByID = Dictionary(uniqueKeysWithValues: (try reader.fetch(FetchDescriptor<BudgetSettings>())).map { ($0.id, $0) })
+        var advanceCaseByID = Dictionary(uniqueKeysWithValues: (try reader.fetch(FetchDescriptor<AdvanceCase>())).map { ($0.id, $0) })
+        var participantByID = Dictionary(uniqueKeysWithValues: (try reader.fetch(FetchDescriptor<AdvanceParticipant>())).map { ($0.id, $0) })
+        var existingRepaymentIDs = Set((try reader.fetch(FetchDescriptor<AdvanceRepayment>())).map(\.id))
 
         for accDTO in backup.accounts where accountByID[accDTO.id] == nil {
             let account = Account(
