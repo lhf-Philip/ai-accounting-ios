@@ -1,0 +1,108 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "WebDAV 必須使用 HTTPS 網址。備份加密不能取代安全連線。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebDAV requires an HTTPS URL. Backup encryption does not replace a secure connection."
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebDAV requires an HTTPS URL. Backup encryption does not replace a secure connection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebDAV には HTTPS の URL が必要です。バックアップの暗号化は安全な接続の代わりにはなりません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebDAV 必须使用 HTTPS 地址。备份加密不能代替安全连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebDAV 必須使用 HTTPS 網址。備份加密不能取代安全連線。"
+          }
+        }
+      }
+    },
+    "備份位置必須與設定的 HTTPS 伺服器相同。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The backup location must use the configured HTTPS server."
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The backup location must use the configured HTTPS server."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックアップの場所は、設定された HTTPS サーバー上にある必要があります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备份位置必须与设置的 HTTPS 服务器相同。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "備份位置必須與設定的 HTTPS 伺服器相同。"
+          }
+        }
+      }
+    },
+    "HTTPS 保護連線帳戶、密碼與傳輸內容；備份加密保護儲存的檔案。請使用最終 HTTPS 網址。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS protects your username, password and data in transit. Backup encryption protects stored files. Use the final HTTPS URL."
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS protects your username, password and data in transit. Backup encryption protects stored files. Use the final HTTPS URL."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS は通信中のユーザー名、パスワード、データを保護し、バックアップの暗号化は保存されたファイルを保護します。転送先の最終的な HTTPS URL を使用してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS 保护连接账户、密码和传输内容；备份加密保护存储的文件。请使用最终 HTTPS 地址。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS 保護連線帳戶、密碼與傳輸內容；備份加密保護儲存的檔案。請使用最終 HTTPS 網址。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}
