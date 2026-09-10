@@ -874,6 +874,8 @@ final class BackupCompatibilityTests: XCTestCase {
         modelContext.insert(category)
         modelContext.insert(tag)
 
+        // Commit fixture setup before testing the domain operation.
+        try modelContext.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "朋友代付晚餐",
             date: date,
@@ -949,6 +951,8 @@ final class BackupCompatibilityTests: XCTestCase {
         modelContext.insert(debtAccount)
         modelContext.insert(category)
 
+        // Commit fixture setup before testing the domain operation.
+        try modelContext.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "代付晚餐",
             date: date,
@@ -1232,6 +1236,8 @@ final class BackupCompatibilityTests: XCTestCase {
         modelContext.insert(receiveAccount)
         modelContext.insert(debtAccount)
 
+        // Commit fixture setup before testing the domain operation.
+        try modelContext.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "晚餐代墊",
             date: date,
@@ -1289,6 +1295,8 @@ final class BackupCompatibilityTests: XCTestCase {
         let card = Account(name: "Card", currency: "USD", type: .creditCard, baseBalance: 0)
         let friend = Account(name: "Friend", currency: "JPY", type: .debt, baseBalance: 0)
         [wallet, card, friend].forEach(modelContext.insert)
+        // Commit fixture setup before testing the domain operation.
+        try modelContext.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "Japan",
             date: Date(timeIntervalSince1970: 10),
@@ -1377,6 +1385,8 @@ final class BackupCompatibilityTests: XCTestCase {
         modelContext.insert(receiveAccount)
         modelContext.insert(debtAccount)
 
+        // Commit fixture setup before testing the domain operation.
+        try modelContext.save()
         let advanceCase = try AdvanceService.createAdvanceCase(
             title: "日本旅行代墊",
             date: date,

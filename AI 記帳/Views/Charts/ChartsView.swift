@@ -95,6 +95,9 @@ struct ChartsView: View {
                     }
                 }
                 
+                if renderState.budgetEstimatesUnavailable && flowMode == .expense {
+                    Text("預算估算暫不可用").foregroundStyle(.secondary)
+                }
                 if !renderState.budgetAlerts.isEmpty && flowMode == .expense {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("本月超支提醒")
@@ -421,6 +424,7 @@ struct ChartsView: View {
 private struct ChartsRenderState {
     let currentData: [ChartsView.ChartData]
     let budgetAlerts: [BudgetStatus]
+    let budgetEstimatesUnavailable: Bool
 
     private let snapshots: [ReportTransactionSnapshot]
     private let transactionsByID: [UUID: FinancialTransaction]
@@ -467,13 +471,14 @@ private struct ChartsRenderState {
             transactionsByID: transactionsByID,
             chartMode: chartMode
         )
-        self.budgetAlerts = BudgetService.statuses(
+        let budgetStatuses = try? BudgetService.statuses(
             for: BudgetService.monthKey(from: Date()),
             budgets: budgets,
             transactions: transactions,
             currencyService: currencyService
         )
-        .filter { $0.ratio >= 1 }
+        self.budgetEstimatesUnavailable = budgetStatuses == nil
+        self.budgetAlerts = (budgetStatuses ?? []).filter { $0.ratio >= 1 }
         self.snapshots = snapshots
         self.transactionsByID = transactionsByID
         self.currencyService = currencyService

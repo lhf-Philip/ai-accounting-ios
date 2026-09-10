@@ -335,15 +335,9 @@ struct AccountsView: View {
     
     private func calculateTotalEstimatedAssets() -> String {
         // 只計算未歸檔的資產
-        var total: Decimal = 0
-        let activeAccounts = allAccounts.filter { !$0.isArchived }
-        
-        for account in activeAccounts {
-            for balance in balances(for: account) {
-                total += currencyService.convert(amount: balance.amount, from: balance.currencyCode)
-            }
-        }
-        return total.formatted(.currency(code: mainCurrency))
+        currencyService.totalEstimate(allAccounts.filter { !$0.isArchived }.flatMap { account in
+            balances(for: account).map { ($0.amount, $0.currencyCode) }
+        }, to: mainCurrency).formatted(in: mainCurrency)
     }
     
     struct CurrencyTotal { let currency: String; let amount: Decimal }
