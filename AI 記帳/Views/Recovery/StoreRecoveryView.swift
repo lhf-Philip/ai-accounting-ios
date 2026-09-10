@@ -39,7 +39,9 @@ struct StoreRecoveryView: View {
             .navigationTitle("資料復原")
             .accessibilityIdentifier("storeRecovery.screen")
             .alert("匯出失敗", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
-                Button("好", role: .cancel) { exportError = nil }
+                Button(role: .cancel) { exportError = nil } label: {
+                    Text("好", tableName: "Recovery")
+                }
             } message: { Text(exportError ?? "") }
         }
     }
