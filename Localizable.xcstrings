@@ -1,6 +1,448 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "帳目資料尚未開啟。你可以重試，或匯出診斷與已有的備份以便排查。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your accounting data has not been opened. You can try again, or export diagnostics and any existing backup for troubleshooting."
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your accounting data has not been opened. You can try again, or export diagnostics and any existing backup for troubleshooting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帳簿データをまだ開けていません。再試行するか、診断情報と既存のバックアップを書き出して、問題の調査に役立てることができます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "账目数据尚未打开。你可以重试，或导出诊断信息和已有备份以便排查。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帳目資料尚未開啟。你可以重試，或匯出診斷與已有的備份以便排查。"
+          }
+        }
+      }
+    },
+    "重試開啟": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Opening Again"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Opening Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度開く"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重試開啟"
+          }
+        }
+      }
+    },
+    "診斷資料": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostics"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostics"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "診断情報"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "诊断信息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "診斷資料"
+          }
+        }
+      }
+    },
+    "匯出診斷": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Diagnostics"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Diagnostics"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "診断情報を書き出す"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出诊断信息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出診斷"
+          }
+        }
+      }
+    },
+    "遷移前備份": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pre-migration Backup"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pre-migration Backup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移行前のバックアップ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "迁移前备份"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遷移前備份"
+          }
+        }
+      }
+    },
+    "這是資料庫快照，須經檢查後才能還原。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is a database snapshot. It must be checked before restoration."
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is a database snapshot. It must be checked before restoration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これはデータベースのスナップショットです。復元する前に確認が必要です。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这是数据库快照，须经检查后才能还原。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這是資料庫快照，須經檢查後才能還原。"
+          }
+        }
+      }
+    },
+    "分享備份檔": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Backup File"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Backup File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックアップファイルを共有"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享备份文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享備份檔"
+          }
+        }
+      }
+    },
+    "準備匯出備份": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prepare Backup for Export"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prepare Backup for Export"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックアップの書き出しを準備"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "准备导出备份"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備匯出備份"
+          }
+        }
+      }
+    },
+    "資料復原": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data Recovery"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data Recovery"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データの復元"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数据恢复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料復原"
+          }
+        }
+      }
+    },
+    "匯出失敗": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Failed"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き出しに失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出失敗"
+          }
+        }
+      }
+    },
+    "無法存取資料資料夾": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot Access the Data Folder"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot Access the Data Folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データフォルダにアクセスできません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法访问数据文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法存取資料資料夾"
+          }
+        }
+      }
+    },
+    "無法建立遷移前備份": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot Create a Pre-migration Backup"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot Create a Pre-migration Backup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移行前のバックアップを作成できません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法创建迁移前备份"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立遷移前備份"
+          }
+        }
+      }
+    },
+    "無法開啟帳目資料": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot Open Accounting Data"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot Open Accounting Data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帳簿データを開けません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开账目数据"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟帳目資料"
+          }
+        }
+      }
+    },
     "預算估算暫不可用": {
       "localizations": {
         "en": {

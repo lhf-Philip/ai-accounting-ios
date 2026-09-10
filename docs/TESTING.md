@@ -1,7 +1,7 @@
 # Testing Guide
 
 Status: Active
-Last reviewed: 2026-07-05
+Last reviewed: 2026-09-10
 Applies to: iOS, Android, shared backup and accounting semantics
 Sources of truth: [CI workflows](../.github/workflows/), [validation matrix](./VALIDATION_MATRIX.md), [parity vectors](./specs/parity-test-vectors.md), [data contract](./specs/data-model.md)
 
@@ -40,12 +40,13 @@ This guide defines what each test layer is responsible for and the minimum evide
   - ledger semantic vectors.
 - `AI 記帳UITests/`
   - structural advance editing;
-  - ledger edit performance flow.
+  - ledger edit performance flow;
+  - startup recovery for store-open and pre-migration-backup failures, followed by a successful retry.
 - `.github/workflows/ios-ci.yml`
   - string catalog validation;
   - simulator build;
   - unit tests on an available iPhone Simulator selected by UDID;
-  - focused structural advance UI tests.
+  - focused structural advance, inline-category-save, and startup-recovery UI tests.
 
 ### Android
 
@@ -109,6 +110,33 @@ xcodebuild \
   -only-testing:'AI 記帳UITests/AdvanceStructuralEditingUITests' \
   test
 ```
+
+### Focused iOS startup-recovery UI tests
+
+`StoreStartupRecoveryUITests` injects store-open and pre-migration-backup
+failures through DEBUG-only launch arguments. Both tests verify that recovery
+appears before the ledger, the diagnostics action is available, and retry opens
+the ledger and dismisses recovery. Retry uses an in-memory store; these fixtures
+do not open or modify the production store. The tests check the diagnostics
+entry point, not the share sheet or exported file contents.
+
+```bash
+xcodebuild \
+  -project 'AI 記帳.xcodeproj' \
+  -scheme 'AI 記帳 UI Automation' \
+  -destination "platform=iOS Simulator,id=$IOS_SIMULATOR_ID" \
+  -parallel-testing-enabled NO \
+  -only-testing:'AI 記帳UITests/StoreStartupRecoveryUITests' \
+  -testLanguage zh-Hant \
+  CODE_SIGNING_ALLOWED=NO \
+  test
+```
+
+iOS CI already includes this suite in its existing focused UI step. The local
+full regression runner currently selects structural editing only; run the
+command above when validating startup recovery locally. Recovery localization
+changes also need a screen smoke check in a non-Chinese language, because the
+existing tests assert the ledger tab using its Chinese label.
 
 ### Full iOS regression runner
 
@@ -412,8 +440,10 @@ IDs and budget history, then verify a successful retry removes the target once.
 
 ### CI scope and superseded runs
 
-Platform workflows always report a check, including the required Android `build`
-check. After checkout, `scripts/ci-scope.py` selects heavy work from the full PR
+Main requires the existing GitHub Actions checks `build` (Android),
+`build-and-test` (iOS), and `validate` (Docs), including for administrators.
+Platform workflows always report a check. After checkout, `scripts/ci-scope.py`
+selects heavy work from the full PR
 merge-base diff (or the push before/after diff). Ordinary documentation changes
 run Docs CI only; iOS and Android changes run their respective platform stages.
 Shared `docs/specs/` changes, scope-rule changes, and unknown paths run both.
