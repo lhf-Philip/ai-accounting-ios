@@ -92,6 +92,13 @@ enum StoreMigrationSafetyService {
         ]
     }
 
+    // Read-only discovery for recovery when a new snapshot cannot be created.
+    static func latestCompleteBackup(storeURL: URL, fileManager: FileManager = .default) throws -> URL? {
+        let root = storeURL.deletingLastPathComponent().appendingPathComponent(backupDirectoryName, isDirectory: true)
+        guard fileManager.fileExists(atPath: root.path) else { return nil }
+        return try mostRecentCompleteBackup(in: root, storeName: storeURL.lastPathComponent, fileManager: fileManager)?.url
+    }
+
     private static func mostRecentCompleteBackup(
         in backupRoot: URL,
         storeName: String,
