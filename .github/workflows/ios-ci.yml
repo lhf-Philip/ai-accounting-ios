@@ -89,6 +89,7 @@ jobs:
             -parallel-testing-enabled NO \
             -only-testing:'AI 記帳UITests/AdvanceStructuralEditingUITests' \
             -only-testing:'AI 記帳UITests/LedgerEditPerformanceUITests/testInlineCategoryThenImmediateTransactionSave' \
+            -only-testing:'AI 記帳UITests/StoreStartupRecoveryUITests' \
             -resultBundlePath ui-tests.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             test | tee xcodebuild-ui-test.log

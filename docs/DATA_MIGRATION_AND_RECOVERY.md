@@ -234,3 +234,13 @@ Automatic local backup writes JSON with Foundation `.atomic`, and records `lastB
 Backup JSON remains version 1.9 and its fields/defaults are unchanged. Android uses its existing throwing Room reads and transaction boundary, so this iOS error-propagation correction requires no Android codec or schema change. Synthetic tests cover all 13 required model reads, recovery-capture failure, merge preloading, write failure, and full graph IDs/relationships through export/import/export.
 
 Authoritative references: [Apple ModelContext.fetch](https://developer.apple.com/documentation/swiftdata/modelcontext/fetch(_:)), [Apple atomic writing](https://developer.apple.com/documentation/foundation/nsdata/writingoptions/atomic).
+
+## Recoverable startup (#170)
+
+Production startup now enters a recovery screen when the Documents directory, pre-migration backup, or model-container open fails. Normal ledger views are constructed only after a container is ready. Retry uses the same `AI_Accounting_v3.store` path; it does not reset, delete, rename or silently replace an existing store. Once ready, repeated startup/retry requests do not reopen the store.
+
+Recovery provides diagnostics and read-only discovery/export of an existing pre-migration snapshot. Discovery retains the existing completeness rule (a nonempty store file); this is not proof that the snapshot can be restored. Export uses Apple's [NSFileCoordinator.forUploading](https://developer.apple.com/documentation/foundation/nsfilecoordinator/readingoptions/foruploading) to produce a ZIP and copies its temporary result for sharing. No automatic restore is attempted.
+
+The existing legacy compatibility repairs still run after backup and before opening, so an attempted repair may change the live store before a later open failure. The pre-repair snapshot remains available. Fault-injection tests use synthetic store/WAL/SHM files with no-op repairs to verify that the startup controller itself preserves files, stops before repair/open if backup fails, and retries safely. Schema/migration redesign remains tracked separately in #169.
+
+Apple's [error-handling guidance](https://developer.apple.com/tutorials/develop-in-swift/navigate-sample-data) recommends presenting an error or allowing retry for recoverable errors. UI tests verify that the recovery screen has diagnostics/retry and no normal ledger before recovery. Physical-device tests of locked storage and real historical migrations remain release checks.
