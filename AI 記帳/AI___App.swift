@@ -37,7 +37,9 @@ struct AI___App: App {
             Group {
                 switch startup.state {
                 case .idle, .opening:
-                    ProgressView("正在開啟帳目資料…")
+                    ProgressView {
+                        Text("正在開啟帳目資料…", tableName: "Recovery")
+                    }
                 case .ready(let container):
                     ContentView()
                         .modelContainer(container)
