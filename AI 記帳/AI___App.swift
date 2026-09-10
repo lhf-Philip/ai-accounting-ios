@@ -1,14 +1,9 @@
 import SwiftUI
 import SwiftData
-import SQLite3
 
 private extension ProcessInfo {
-    static var isRunningXCTest: Bool {
-        processInfo.environment["XCTestConfigurationFilePath"] != nil
-    }
-
     static var usesInMemoryStoreForTests: Bool {
-        isRunningXCTest
+        processInfo.environment["XCTestConfigurationFilePath"] != nil
             || processInfo.environment["AI_ACCOUNTING_UI_TESTS"] == "1"
             || processInfo.arguments.contains("-UITestSeedLedgerPerformanceData")
     }
@@ -16,275 +11,42 @@ private extension ProcessInfo {
 
 @main
 struct AI___App: App {
-    private static func repairLegacyCategoryKindsIfNeeded(storeURL: URL) {
-        guard FileManager.default.fileExists(atPath: storeURL.path) else {
-            return
-        }
-        
-        var db: OpaquePointer?
-        let openFlags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
-        let openResult = sqlite3_open_v2(storeURL.path, &db, openFlags, nil)
-        guard openResult == SQLITE_OK, let db else {
-            if let errorMessage = sqlite3_errmsg(db) {
-                print("⚠️ 無法開啟資料庫進行舊資料修復: \(String(cString: errorMessage))")
-            }
-            if db != nil {
-                sqlite3_close(db)
-            }
-            return
-        }
-        defer { sqlite3_close(db) }
-        
-        guard tableExists("ZCATEGORY", db: db) else {
-            return
-        }
-        
-        if !columnExists("ZKIND", in: "ZCATEGORY", db: db) {
-            let addColumnSQL = "ALTER TABLE ZCATEGORY ADD COLUMN ZKIND VARCHAR;"
-            let addResult = sqlite3_exec(db, addColumnSQL, nil, nil, nil)
-            if addResult != SQLITE_OK {
-                if let errorMessage = sqlite3_errmsg(db) {
-                    let message = String(cString: errorMessage)
-                    // 避免極端情況重複加欄位時中斷流程
-                    if !message.localizedCaseInsensitiveContains("duplicate column name") {
-                        print("⚠️ 補建 Category.kind 欄位失敗: \(message)")
-                        return
-                    }
-                } else {
-                    return
+    @State private var startup = makeStartupController()
+
+    private static func makeStartupController() -> StoreStartupController {
+        var attempts = 0
+        return StoreStartupController {
+            attempts += 1
+            if ProcessInfo.usesInMemoryStoreForTests {
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["AI_ACCOUNTING_UI_TESTS"] == "1",
+                   ProcessInfo.processInfo.arguments.contains("-UITestStartupFailure"), attempts == 1 {
+                    let stage: StoreStartupStage = ProcessInfo.processInfo.arguments.contains("-UITestBackupFailure") ? .backup : .container
+                    return .failure(StoreStartupFailure(stage: stage, error: NSError(domain: "UITestStartupFailure", code: 1)))
                 }
+                #endif
+                do { return .success(try StoreStartupService.makeInMemoryContainer()) }
+                catch { return .failure(StoreStartupFailure(stage: .container, error: error)) }
             }
-            print("ℹ️ 已補建缺失欄位 ZCATEGORY.ZKIND")
-        }
-        
-        let sql = """
-        UPDATE ZCATEGORY
-        SET ZKIND = 'Both'
-        WHERE ZKIND IS NULL
-           OR TRIM(ZKIND) = ''
-           OR ZKIND NOT IN ('Expense', 'Income', 'Both');
-        """
-        
-        let execResult = sqlite3_exec(db, sql, nil, nil, nil)
-        guard execResult == SQLITE_OK else {
-            if let errorMessage = sqlite3_errmsg(db) {
-                print("⚠️ Category.kind 舊資料修復失敗: \(String(cString: errorMessage))")
-            }
-            return
-        }
-        
-        let changed = sqlite3_changes(db)
-        if changed > 0 {
-            print("✅ 已修復 Category.kind 舊資料 \(changed) 筆")
+            return StoreStartupService().load()
         }
     }
-    
-    private static func repairLegacyAssetAdjustmentTransactionsIfNeeded(storeURL: URL) {
-        guard FileManager.default.fileExists(atPath: storeURL.path) else {
-            return
-        }
-        
-        var db: OpaquePointer?
-        let openFlags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
-        let openResult = sqlite3_open_v2(storeURL.path, &db, openFlags, nil)
-        guard openResult == SQLITE_OK, let db else {
-            if let errorMessage = sqlite3_errmsg(db) {
-                print("⚠️ 無法開啟資料庫修復資產調整資料: \(String(cString: errorMessage))")
-            }
-            if db != nil {
-                sqlite3_close(db)
-            }
-            return
-        }
-        defer { sqlite3_close(db) }
-        
-        guard tableExists("ZFINANCIALTRANSACTION", db: db),
-              columnExists("ZTYPE", in: "ZFINANCIALTRANSACTION", db: db),
-              columnExists("ZNOTE", in: "ZFINANCIALTRANSACTION", db: db),
-              columnExists("ZCATEGORY", in: "ZFINANCIALTRANSACTION", db: db) else {
-            return
-        }
-        
-        let beforeChanges = sqlite3_total_changes(db)
-        
-        let normalizeTypeSQL = """
-        UPDATE ZFINANCIALTRANSACTION
-        SET ZTYPE = 'Transfer'
-        WHERE ZTYPE IN ('Income', 'Expense')
-          AND ZCATEGORY IS NULL
-          AND (
-                ZNOTE LIKE '初始餘額 (%'
-             OR ZNOTE = '餘額修正'
-             OR ZNOTE LIKE '餘額修正 %'
-             OR ZNOTE LIKE '[資產調整]%'
-          );
-        """
-        
-        let updateTypeResult = sqlite3_exec(db, normalizeTypeSQL, nil, nil, nil)
-        guard updateTypeResult == SQLITE_OK else {
-            if let errorMessage = sqlite3_errmsg(db) {
-                print("⚠️ 舊資產調整交易修復失敗: \(String(cString: errorMessage))")
-            }
-            return
-        }
-        
-        if columnExists("ZTRANSFERSIDE", in: "ZFINANCIALTRANSACTION", db: db),
-           columnExists("ZAMOUNT", in: "ZFINANCIALTRANSACTION", db: db) {
-            let repairSideSQL = """
-            UPDATE ZFINANCIALTRANSACTION
-            SET ZTRANSFERSIDE = CASE WHEN ZAMOUNT >= 0 THEN 'Incoming' ELSE 'Outgoing' END
-            WHERE ZTYPE = 'Transfer'
-              AND ZTRANSFERSIDE IS NULL
-              AND (
-                    ZNOTE LIKE '初始餘額 (%'
-                 OR ZNOTE = '餘額修正'
-                 OR ZNOTE LIKE '餘額修正 %'
-                 OR ZNOTE LIKE '[資產調整]%'
-              );
-            """
-            _ = sqlite3_exec(db, repairSideSQL, nil, nil, nil)
-        }
-        
-        let repairedCount = sqlite3_total_changes(db) - beforeChanges
-        if repairedCount > 0 {
-            print("✅ 已修復舊版資產調整交易 \(repairedCount) 筆（不再計入收支）")
-        }
-    }
-    
-    private static func tableExists(_ name: String, db: OpaquePointer) -> Bool {
-        let sql = "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1;"
-        var statement: OpaquePointer?
-        defer {
-            if statement != nil {
-                sqlite3_finalize(statement)
-            }
-        }
-        
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-            return false
-        }
-        
-        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-        sqlite3_bind_text(statement, 1, name, -1, transient)
-        return sqlite3_step(statement) == SQLITE_ROW
-    }
-    
-    private static func columnExists(_ columnName: String, in tableName: String, db: OpaquePointer) -> Bool {
-        let sql = "PRAGMA table_info(\(tableName));"
-        var statement: OpaquePointer?
-        defer {
-            if statement != nil {
-                sqlite3_finalize(statement)
-            }
-        }
-        
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-            return false
-        }
-        
-        while sqlite3_step(statement) == SQLITE_ROW {
-            guard let cString = sqlite3_column_text(statement, 1) else { continue }
-            if String(cString: cString) == columnName {
-                return true
-            }
-        }
-        return false
-    }
-    
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Account.self,
-            FinancialTransaction.self,
-            Category.self,
-            Tag.self,
-            Shortcut.self,
-            RecurringRule.self,
-            RecurringOccurrence.self,
-            CategoryMonthlyBudget.self,
-            BudgetMonthlyHistory.self,
-            BudgetSettings.self,
-            AdvanceCase.self,
-            AdvanceParticipant.self,
-            AdvanceRepayment.self
-        ])
-
-        if ProcessInfo.usesInMemoryStoreForTests {
-            let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-            do {
-                return try ModelContainer(for: schema, configurations: [configuration])
-            } catch {
-                fatalError("Could not create in-memory ModelContainer for tests: \(error)")
-            }
-        }
-        
-        // 1. 獲取 Documents 資料夾
-        let fileManager = FileManager.default
-        guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            fatalError("無法存取 Documents 資料夾")
-        }
-        
-        // 2. 使用較安全的檔案保護，避免 FileProtection.none
-        do {
-            let attributes = [FileAttributeKey.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
-            try fileManager.setAttributes(attributes, ofItemAtPath: documentsURL.path)
-        } catch {
-            print("⚠️ 無法設定檔案保護屬性: \(error)")
-        }
-        
-        // 3. 使用新檔名 (v3) 避開舊的損壞檔案
-        let storeURL = documentsURL.appendingPathComponent("AI_Accounting_v3.store")
-        print("📂 資料庫路徑: \(storeURL.path)")
-
-        do {
-            if let backupURL = try StoreMigrationSafetyService.createPreMigrationBackupIfNeeded(
-                storeURL: storeURL
-            ) {
-                print("🛡️ SwiftData 遷移前備份: \(backupURL.lastPathComponent)")
-            }
-        } catch {
-            let details = StoreMigrationSafetyService.detailedDescription(for: error)
-            print("❌ 無法建立 SwiftData 遷移前備份，已停止開啟資料庫: \(details)")
-            fatalError("Could not create pre-migration backup: \(details)")
-        }
-        
-        // 4. 啟動前先修復舊資料的 Category.kind，避免 enum 強制轉型崩潰
-        repairLegacyCategoryKindsIfNeeded(storeURL: storeURL)
-        // 5. 啟動前修復舊資料的 FinancialTransaction enum 欄位，避免 enum 強制轉型崩潰
-        LegacyStoreRepairService.repairLegacyFinancialTransactionEnumsIfNeeded(storeURL: storeURL)
-        // 6. 啟動前修復舊版「其他幣種餘額/餘額修正」被誤記為收支的資料
-        repairLegacyAssetAdjustmentTransactionsIfNeeded(storeURL: storeURL)
-        
-        let modelConfiguration = ModelConfiguration(
-            schema: schema,
-            url: storeURL,
-            allowsSave: true, // 強制允許儲存
-            cloudKitDatabase: .none // 絕對禁止 CloudKit
-        )
-
-        do {
-            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
-            do {
-                let repairedCount = try StoreMigrationSafetyService.backfillMissingAdvanceCaseTagIDs(
-                    modelContext: container.mainContext
-                )
-                if repairedCount > 0 {
-                    print("✅ 已修復 AdvanceCase.tagIDs 舊資料 \(repairedCount) 筆")
-                }
-            } catch {
-                print("⚠️ AdvanceCase.tagIDs 舊資料正規化失敗: \(error.localizedDescription)")
-            }
-            return container
-        } catch {
-            let details = StoreMigrationSafetyService.detailedDescription(for: error)
-            print("❌ Could not create ModelContainer: \(details)")
-            fatalError("Could not create ModelContainer: \(details)")
-        }
-    }()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            Group {
+                switch startup.state {
+                case .idle, .opening:
+                    ProgressView("正在開啟帳目資料…")
+                case .ready(let container):
+                    ContentView()
+                        .modelContainer(container)
+                case .failed(let failure):
+                    StoreRecoveryView(failure: failure, retry: startup.retry)
+                        .id(failure.backupURL)
+                }
+            }
+            .task { await startup.startIfNeeded() }
         }
-        .modelContainer(sharedModelContainer)
     }
 }
