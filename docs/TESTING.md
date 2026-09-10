@@ -476,3 +476,32 @@ reader, and retries once. Category tests cover commit/cancellation semantics,
 commit failure, retry and unrelated pending edits. The iOS CI includes the focused
 `testInlineCategoryThenImmediateTransactionSave` UI smoke in its existing UI step.
 The workflow retains main's platform scope, concurrency and full-history checkout.
+
+## WebDAV HTTPS boundary (#171)
+
+On iOS, validate a WebDAV URL before saving settings or constructing an
+`Authorization` header. Test/list/upload/download all reject non-HTTPS URLs;
+download destinations and redirects must also retain the configured host and
+port. A default HTTPS port and explicit port 443 are equivalent. Custom HTTPS
+ports remain supported. No ATS exception is added. A refused redirect returns
+the original 3xx response as an error; configure the server's final HTTPS URL.
+
+`RemoteBackupTransportTests` uses a recording transport and synthetic credentials
+to assert that invalid endpoints produce zero transport calls. It also checks
+PROPFIND depth, plain and encrypted PUT/GET roundtrips, escaped paths, custom
+ports, and the actual redirect delegate's allow/refuse callback. These fixtures
+do not contact a real WebDAV server or establish a TLS session. Existing
+`BackupCompatibilityTests` continues to cover local restore semantics.
+
+For changes to this boundary, run these two unit suites and check that the
+WebDAV screen rejects an HTTP URL without offering a continue override. Existing
+saved HTTP settings remain visible for correction, but cannot be used; edited
+URLs are saved only after validation when a WebDAV action is requested. Before
+release, exercise HTTPS test/list/upload/download/restore on a controlled server
+and physical device, including a same-origin redirect and a refused downgrade.
+
+HTTPS protects credentials and data in transit. Optional `.aibackup` encryption
+protects the stored payload; it cannot protect a Basic authentication header on
+an insecure connection. See [Apple ATS](https://developer.apple.com/documentation/security/preventing-insecure-network-connections),
+[Apple redirect delegate](https://developer.apple.com/documentation/foundation/urlsessiontaskdelegate/urlsession(_:task:willperformhttpredirection:newrequest:completionhandler:)),
+and [RFC 7617](https://www.rfc-editor.org/rfc/rfc7617).

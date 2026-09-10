@@ -271,7 +271,7 @@ A shared feature is complete only when affected semantics, backup compatibility,
 
 - **Gemini**: optional user-provided API key; outputs are suggestions that require user review.
 - **Exchange rates**: live rates with cached fallback; estimates are not historical FX facts.
-- **WebDAV**: user credentials and optional backup passphrase; manual upload/restore only.
+- **WebDAV**: user credentials and optional backup passphrase; manual upload/restore only. On iOS, HTTPS is required before settings are saved or authenticated requests are built; downloads and redirects stay on the configured HTTPS origin. Payload encryption protects stored backups separately from TLS transport protection.
 - **Files**: JSON is the recovery contract; CSV is a report export, not an import or lossless backup.
 - **Secure storage**: iOS Keychain and Android Keystore-backed storage hold secrets. Secrets do not belong in SwiftData, Room, JSON backup, logs, or fixtures.
 

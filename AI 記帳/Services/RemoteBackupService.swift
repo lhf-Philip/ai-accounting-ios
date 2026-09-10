@@ -56,6 +56,8 @@ private struct EncryptedBackupEnvelope: Codable {
 
 enum RemoteBackupError: LocalizedError {
     case invalidURL
+    case httpsRequired
+    case untrustedEndpoint
     case invalidCredentials
     case missingPassphrase
     case invalidResponse
@@ -69,6 +71,10 @@ enum RemoteBackupError: LocalizedError {
         switch self {
         case .invalidURL:
             "WebDAV URL 無效。"
+        case .httpsRequired:
+            String(localized: "WebDAV 必須使用 HTTPS 網址。備份加密不能取代安全連線。", table: "RemoteBackup")
+        case .untrustedEndpoint:
+            String(localized: "備份位置必須與設定的 HTTPS 伺服器相同。", table: "RemoteBackup")
         case .invalidCredentials:
             "請先填寫 WebDAV URL、帳戶與密碼。"
         case .missingPassphrase:
@@ -97,14 +103,19 @@ final class RemoteBackupService {
     private let keyDerivationIterations: UInt32 = 120_000
     private let gcmTagByteCount = 16
 
-    private init() {}
+    typealias Transport = (URLRequest) async throws -> (Data, URLResponse)
+    private let transport: Transport
+
+    init(transport: @escaping Transport = { try await URLSession.shared.data(for: $0, delegate: WebDAVRedirectDelegate()) }) {
+        self.transport = transport
+    }
 
     func testConnection(credentials: WebDAVCredentials) async throws {
         var request = try makeRequest(credentials: credentials, url: credentials.baseURL)
         request.httpMethod = "PROPFIND"
         request.setValue("0", forHTTPHeaderField: "Depth")
         request.httpBody = propfindBody()
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await transport(request)
         try validate(response: response, accepted: [200, 207])
     }
 
@@ -113,13 +124,14 @@ final class RemoteBackupService {
         request.httpMethod = "PROPFIND"
         request.setValue("1", forHTTPHeaderField: "Depth")
         request.httpBody = propfindBody()
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await transport(request)
         try validate(response: response, accepted: [200, 207])
         let xml = String(decoding: data, as: UTF8.self)
         return parseBackupFiles(from: xml, baseURL: credentials.baseURL)
     }
 
     func uploadBackup(jsonData: Data, credentials: WebDAVCredentials, encrypt shouldEncrypt: Bool) async throws -> RemoteBackupFile {
+        try WebDAVEndpoint.validate(credentials.baseURL)
         if shouldEncrypt, !credentials.hasPassphrase {
             throw RemoteBackupError.missingPassphrase
         }
@@ -132,7 +144,7 @@ final class RemoteBackupService {
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = payload
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await transport(request)
         try validate(response: response, accepted: [200, 201, 204])
         return RemoteBackupFile(
             name: filename,
@@ -146,7 +158,7 @@ final class RemoteBackupService {
     func downloadBackup(_ file: RemoteBackupFile, credentials: WebDAVCredentials) async throws -> Data {
         var request = try makeRequest(credentials: credentials, url: file.url)
         request.httpMethod = "GET"
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await transport(request)
         try validate(response: response, accepted: [200])
         switch detectedFormat(for: file, data: data) {
         case .encrypted:
@@ -258,6 +270,11 @@ final class RemoteBackupService {
     }
 
     private func makeRequest(credentials: WebDAVCredentials, url: URL) throws -> URLRequest {
+        try WebDAVEndpoint.validate(credentials.baseURL)
+        try WebDAVEndpoint.validate(url)
+        guard WebDAVEndpoint.hasSameOrigin(url, as: credentials.baseURL) else {
+            throw RemoteBackupError.untrustedEndpoint
+        }
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
         request.setValue("application/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
@@ -351,4 +368,44 @@ final class RemoteBackupService {
         formatter.timeZone = .current
         return formatter
     }()
+}
+
+/// Validate before creating an authenticated request, independently of ATS.
+enum WebDAVEndpoint {
+    nonisolated static func validate(_ url: URL) throws {
+        guard url.scheme?.lowercased() == "https" else {
+            throw RemoteBackupError.httpsRequired
+        }
+        guard let host = url.host, !host.isEmpty,
+              url.user == nil, url.password == nil,
+              url.port.map({ (1...65535).contains($0) }) ?? true else {
+            throw RemoteBackupError.invalidURL
+        }
+    }
+
+    nonisolated static func hasSameOrigin(_ url: URL, as baseURL: URL) -> Bool {
+        url.scheme?.lowercased() == baseURL.scheme?.lowercased()
+            && url.host?.lowercased() == baseURL.host?.lowercased()
+            && (url.port ?? 443) == (baseURL.port ?? 443)
+    }
+}
+
+/// URLSession redirects do not pass through makeRequest again.
+final class WebDAVRedirectDelegate: NSObject, URLSessionTaskDelegate {
+    nonisolated func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        guard let source = task.originalRequest?.url, let destination = request.url,
+              (try? WebDAVEndpoint.validate(source)) != nil,
+              (try? WebDAVEndpoint.validate(destination)) != nil,
+              WebDAVEndpoint.hasSameOrigin(destination, as: source) else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
+    }
 }

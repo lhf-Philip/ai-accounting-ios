@@ -3,7 +3,8 @@ import SwiftData
 
 struct RemoteBackupView: View {
     @Environment(\.modelContext) private var modelContext
-    @AppStorage("webdavBackupURL") private var webdavURL: String = ""
+    @AppStorage("webdavBackupURL") private var savedWebdavURL: String = ""
+    @State private var webdavURL: String = ""
     @AppStorage("webdavBackupUsername") private var webdavUsername: String = ""
     @AppStorage("encryptRemoteBackups") private var encryptRemoteBackups = true
     @AppStorage("didConfirmPlainWebDAVBackup") private var didConfirmPlainWebDAVBackup = false
@@ -17,8 +18,6 @@ struct RemoteBackupView: View {
     @State private var pendingRestoreBackup: FullBackupData?
     @State private var showingRestoreConfirm = false
     @State private var showingPlainBackupConfirm = false
-    @State private var showingHTTPRiskConfirm = false
-    @State private var pendingHTTPAction: RemoteAction?
 
     private let service = RemoteBackupService.shared
     private let keychainServiceName = "org.duckdns.lhfser.AIMoney.webdav"
@@ -36,13 +35,19 @@ struct RemoteBackupView: View {
         List {
             Section("WebDAV 連線") {
                 TextField("WebDAV URL", text: $webdavURL)
+                    .accessibilityIdentifier("webdav.url")
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled(true)
                 TextField("帳戶", text: $webdavUsername)
+                    .accessibilityIdentifier("webdav.username")
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled(true)
                 SecureField("WebDAV 密碼", text: $webdavPassword)
+                    .accessibilityIdentifier("webdav.password")
+                Text("HTTPS 保護連線帳戶、密碼與傳輸內容；備份加密保護儲存的檔案。請使用最終 HTTPS 網址。", tableName: "RemoteBackup")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("加密遠端備份（建議）", isOn: $encryptRemoteBackups)
                 SecureField(
                     encryptRemoteBackups ? "備份加密 passphrase" : "加密 passphrase（還原加密備份時需要）",
@@ -52,17 +57,16 @@ struct RemoteBackupView: View {
                     .font(.caption)
                     .foregroundStyle(encryptRemoteBackups ? Color.secondary : Color.orange)
                 Button {
-                    saveSecrets()
                     perform(.testConnection)
                 } label: {
                     Label("測試連線", systemImage: "network")
                 }
+                .accessibilityIdentifier("webdav.testConnection")
                 .disabled(isBusy || !canConnect)
             }
 
             Section("遠端備份") {
                 Button {
-                    saveSecrets()
                     requestUploadBackup()
                 } label: {
                     Label(encryptRemoteBackups ? "加密並上傳目前備份" : "未加密上傳目前備份", systemImage: "icloud.and.arrow.up")
@@ -70,7 +74,6 @@ struct RemoteBackupView: View {
                 .disabled(isBusy || !canUpload)
 
                 Button {
-                    saveSecrets()
                     perform(.refreshList)
                 } label: {
                     Label("重新載入遠端備份", systemImage: "arrow.clockwise")
@@ -79,6 +82,7 @@ struct RemoteBackupView: View {
 
                 if let message {
                     Text(message)
+                        .accessibilityIdentifier("webdav.message")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -91,7 +95,7 @@ struct RemoteBackupView: View {
                 } else {
                     ForEach(files) { file in
                         Button {
-                            loadPreview(file)
+                            perform(.loadPreview(file))
                         } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -149,20 +153,6 @@ struct RemoteBackupView: View {
         } message: {
             Text("未加密 JSON 會包含帳戶、交易、備註、分類和標籤等資料。只有在你信任這個雲端儲存位置時才建議使用。")
         }
-        .alert("HTTP 連線不安全", isPresented: $showingHTTPRiskConfirm) {
-            Button("取消", role: .cancel) {
-                pendingHTTPAction = nil
-            }
-            Button("仍然繼續", role: .destructive) {
-                let action = pendingHTTPAction
-                pendingHTTPAction = nil
-                if let action {
-                    perform(action, allowInsecureHTTP: true)
-                }
-            }
-        } message: {
-            Text(encryptRemoteBackups ? "目前 WebDAV URL 使用 http://，傳輸途中可能被讀取或竄改。確定要繼續？" : "目前 WebDAV URL 使用 http://，而且你正在使用未加密備份；傳輸途中和雲端上都可能暴露財務資料。確定要繼續？")
-        }
     }
 
     private var canConnect: Bool {
@@ -180,19 +170,22 @@ struct RemoteBackupView: View {
     }
 
     private func loadSecrets() {
+        webdavURL = savedWebdavURL
         webdavPassword = KeychainService.shared.read(service: keychainServiceName, account: passwordAccountName) ?? ""
         backupPassphrase = KeychainService.shared.read(service: keychainServiceName, account: passphraseAccountName) ?? ""
     }
 
-    private func saveSecrets() {
-        _ = KeychainService.shared.save(service: keychainServiceName, account: passwordAccountName, value: webdavPassword)
-        _ = KeychainService.shared.save(service: keychainServiceName, account: passphraseAccountName, value: backupPassphrase)
+    private func saveSettings(credentials: WebDAVCredentials) {
+        savedWebdavURL = credentials.baseURL.absoluteString
+        _ = KeychainService.shared.save(service: keychainServiceName, account: passwordAccountName, value: credentials.password)
+        _ = KeychainService.shared.save(service: keychainServiceName, account: passphraseAccountName, value: credentials.passphrase)
     }
 
     private func credentials(requirePassphrase: Bool = false) throws -> WebDAVCredentials {
         guard let url = URL(string: webdavURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             throw RemoteBackupError.invalidURL
         }
+        try WebDAVEndpoint.validate(url)
         guard canConnect else {
             throw RemoteBackupError.invalidCredentials
         }
@@ -208,6 +201,8 @@ struct RemoteBackupView: View {
     }
 
     private func requestUploadBackup() {
+        do { _ = try credentials(requirePassphrase: encryptRemoteBackups) }
+        catch { message = error.localizedDescription; return }
         if !encryptRemoteBackups, !didConfirmPlainWebDAVBackup {
             showingPlainBackupConfirm = true
             return
@@ -215,37 +210,34 @@ struct RemoteBackupView: View {
         perform(.uploadBackup)
     }
 
-    private func perform(_ action: RemoteAction, allowInsecureHTTP: Bool = false) {
-        guard canConnect else {
-            message = RemoteBackupError.invalidCredentials.localizedDescription
-            return
-        }
-        if !allowInsecureHTTP, isInsecureHTTP {
-            pendingHTTPAction = action
-            showingHTTPRiskConfirm = true
-            return
-        }
-
-        switch action {
-        case .testConnection:
-            run("連線測試成功") {
-                try await service.testConnection(credentials: credentials())
+    private func perform(_ action: RemoteAction) {
+        do {
+            let requirePassphrase: Bool
+            switch action {
+            case .uploadBackup: requirePassphrase = encryptRemoteBackups
+            case .loadPreview(let file): requirePassphrase = file.format == .encrypted
+            default: requirePassphrase = false
             }
-        case .uploadBackup:
-            uploadBackup()
-        case .refreshList:
-            refreshList()
-        case .loadPreview(let file):
-            loadPreview(file)
+            let credentials = try credentials(requirePassphrase: requirePassphrase)
+            saveSettings(credentials: credentials)
+            switch action {
+            case .testConnection:
+                run("連線測試成功") {
+                    try await service.testConnection(credentials: credentials)
+                }
+            case .uploadBackup:
+                uploadBackup(credentials: credentials, encrypt: encryptRemoteBackups)
+            case .refreshList:
+                refreshList(credentials: credentials)
+            case .loadPreview(let file):
+                loadPreview(file, credentials: credentials)
+            }
+        } catch {
+            message = error.localizedDescription
         }
     }
 
-    private var isInsecureHTTP: Bool {
-        webdavURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("http://")
-    }
-
-    private func uploadBackup() {
-        let shouldEncrypt = encryptRemoteBackups
+    private func uploadBackup(credentials: WebDAVCredentials, encrypt shouldEncrypt: Bool) {
         run(shouldEncrypt ? "加密上傳完成" : "未加密上傳完成") {
             let backup = try await MainActor.run {
                 try BackupManager.shared.createBackupData(modelContext: modelContext)
@@ -254,26 +246,26 @@ struct RemoteBackupView: View {
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(backup)
-            _ = try await service.uploadBackup(jsonData: data, credentials: credentials(requirePassphrase: shouldEncrypt), encrypt: shouldEncrypt)
-            let remoteFiles = try await service.listBackups(credentials: credentials())
+            _ = try await service.uploadBackup(jsonData: data, credentials: credentials, encrypt: shouldEncrypt)
+            let remoteFiles = try await service.listBackups(credentials: credentials)
             await MainActor.run {
                 files = remoteFiles
             }
         }
     }
 
-    private func refreshList() {
+    private func refreshList(credentials: WebDAVCredentials) {
         run("已載入遠端備份") {
-            let remoteFiles = try await service.listBackups(credentials: credentials())
+            let remoteFiles = try await service.listBackups(credentials: credentials)
             await MainActor.run {
                 files = remoteFiles
             }
         }
     }
 
-    private func loadPreview(_ file: RemoteBackupFile) {
+    private func loadPreview(_ file: RemoteBackupFile, credentials: WebDAVCredentials) {
         run("已下載並讀取備份") {
-            let data = try await service.downloadBackup(file, credentials: credentials(requirePassphrase: file.format == .encrypted))
+            let data = try await service.downloadBackup(file, credentials: credentials)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let backup = try decoder.decode(FullBackupData.self, from: data)
