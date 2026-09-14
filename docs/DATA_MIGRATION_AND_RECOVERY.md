@@ -244,3 +244,43 @@ Recovery provides diagnostics and read-only discovery/export of an existing pre-
 The existing legacy compatibility repairs still run after backup and before opening, so an attempted repair may change the live store before a later open failure. The pre-repair snapshot remains available. Fault-injection tests use synthetic store/WAL/SHM files with no-op repairs to verify that the startup controller itself preserves files, stops before repair/open if backup fails, and retries safely. Schema/migration redesign remains tracked separately in #169.
 
 Apple's [error-handling guidance](https://developer.apple.com/tutorials/develop-in-swift/navigate-sample-data) recommends presenting an error or allowing retry for recoverable errors. UI tests verify that the recovery screen has diagnostics/retry and no normal ledger before recovery. Physical-device tests of locked storage and real historical migrations remain release checks.
+
+
+## Versioned-schema work sequence (#169)
+
+The first baseline now uses genuine framework-generated v1.0.1 stores, with
+empty and populated scenarios, source/compiler/runtime provenance, two startup
+opens and JSON recovery checks. The prior raw-table enum test remains useful for
+repair logic but does not prove that a store can open in SwiftData. The release
+fixture is generated from commit `9063807944d1b46e2125711338c73acfa20f32e9`; its
+five-model schema used the same `AI_Accounting_v3.store` path as today's thirteen
+models. That filename is not a reliable schema-version identifier.
+
+Current finding: populated v1.0.1 source fixtures open but crash when the current
+non-optional `Category.kind` getter casts a missing value. A test-only experiment
+that disabled raw repair reproduced the same crash, so removing that bridge
+alone is insufficient. The empty fixture succeeds. Keep this regression visible
+and diagnose a supported enum-value migration before considering the populated
+source covered. Intermediate deployed versions remain unknown to the maintainer.
+
+Proceed in separate reviews:
+
+1. Extend the fixture matrix with confirmed intermediate deployed sources and
+   runtimes, plus current advance/budget/recurring records. Label recreated
+   source fixtures separately from stores preserved from a historical runtime.
+2. Introduce a `VersionedSchema` baseline and `SchemaMigrationPlan` without a
+   simultaneous model redesign. Verify existing unversioned stores retain their
+   identity, exact monetary values and relationships after migration/reopen; do
+   not assume wrapping model types preserves schema identity.
+3. Retire each legacy raw repair only after all supported source fixtures open,
+   migrate and reopen twice without it, with recoverable backups on failure.
+   Unknown/incompatible stores must retain recovery options; do not expand raw
+   table mutations based on guessed internal layouts.
+
+The current baseline does not remove the compatibility bridge or claim #169 is
+complete. New migration cases belong in the existing unit-test job; a separate
+CI layer is unnecessary. Apple documents the native Core Data store format as
+[private](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/CoreData/PersistentStoreFeatures.html)
+and provides [VersionedSchema](https://developer.apple.com/documentation/swiftdata/versionedschema)
+and [SchemaMigrationPlan](https://developer.apple.com/documentation/swiftdata/schemamigrationplan)
+for SwiftData schema evolution.

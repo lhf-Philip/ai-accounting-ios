@@ -505,3 +505,22 @@ protects the stored payload; it cannot protect a Basic authentication header on
 an insecure connection. See [Apple ATS](https://developer.apple.com/documentation/security/preventing-insecure-network-connections),
 [Apple redirect delegate](https://developer.apple.com/documentation/foundation/urlsessiontaskdelegate/urlsession(_:task:willperformhttpredirection:newrequest:completionhandler:)),
 and [RFC 7617](https://www.rfc-editor.org/rfc/rfc7617).
+
+## Release-source SwiftData baseline (#169)
+
+`LegacyStoreMigrationBaselineTests` uses generated on-disk v1.0.1 fixtures, not
+hand-written SQLite tables. It checks fixture provenance/hashes, two real startup
+opens, exact ledger amounts and relationships, JSON roundtrip into a current
+store, and a usable pre-repair snapshot after an injected container-open failure.
+Run this suite with `StoreStartupRecoveryTests` for migration-boundary changes;
+CI discovers it through the existing unit-test target. The populated cases
+currently crash at `Category.kind` on main `2b829a5`; they are active regressions,
+not passing migration evidence. Production models and repair logic are unchanged
+by this baseline.
+
+The fixture [notes and generator](../AI%20記帳Tests/Fixtures/SwiftData/V101-FIXTURE-NOTES.md)
+record the source commit and producer runtime. The committed stores were made
+from release source on iOS 26.5, so they are not evidence for every historically
+shipped OS or intermediate model version. Frozen model source uses `.source`
+rather than `.swift` to keep it out of the current test module. Keep fixtures
+immutable and migrate temporary copies only.
