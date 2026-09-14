@@ -41,26 +41,36 @@ Framework-generated store UUIDs mean byte hashes may change between runs; the
 semantic assertions must stay stable. Do not update fixture hashes to hide a
 migration failure.
 
-## Current result: populated migration is blocked
+## Reproduced failure and migration coverage
 
-On main `2b829a5`, the empty-family and provenance tests pass, but both populated
-cases crash when reading `Category.kind`: `Could not cast value of type
-Swift.Optional<Any> to AI_記帳.CategoryKind`. The container opens successfully;
-reading the newly added non-optional enum exposes the failure. Earlier smoke
-checks that read transaction amounts without `Category.kind` missed this.
+On main `2b829a5`, populated cases opened but crashed at `Category.kind` with
+`Could not cast value of type Swift.Optional<Any> to AI_記帳.CategoryKind`.
+Skipping raw repairs, then bypassing startup entirely with a direct container,
+both reproduced the same getter crash. This establishes that startup repair is
+not necessary for this particular failure; it does not prove those repairs are
+harmless on other stores or identify a unique framework defect.
 
-A one-variable experiment skipped all raw repairs in the test's open helper; the
-same populated fixture still crashed at that getter. Thus removing raw SQL alone
-is not a demonstrated fix. Missing enum-value migration/backfill is the leading
-hypothesis; the exact framework/storage mechanism and historical-runtime impact
-remain unproven. Both crashes are product behavior on these recreated fixtures,
-not an environment-blocked run. The failing regressions are intentionally kept
-active; this draft must not merge until they pass with a reviewed migration fix.
+A two-schema custom migration could fill the new value for untouched v1.0.1
+stores, but failed for a store previously opened by main's automatic migration:
+that store already matched the current schema while its enum value was missing.
+The candidate therefore keeps a nullable enum representation in schema V3,
+maps it from the original `kind` name, and fills only nil values during migration.
+The public `Category.kind` remains non-optional; valid persisted values survive.
 
-No production repair, schema or migration plan is changed. v1.0.1 is the only
-confirmed source baseline; the maintainer is unsure which intermediate manual
-or TestFlight builds held persistent data. Do not infer support coverage from
-the release tag alone.
+The production-path regressions remain active and now test the candidate plan.
+Additional tests generate unversioned V2 stores using frozen model definitions,
+cover all thirteen model types and existing Expense/Income/Both values, reproduce
+an earlier automatic open, verify edits/reopens, and check unknown-schema recovery.
+These V2 test stores are generated at test time, not archived historical artifacts.
+An independent prototype compiled from unchanged main model source also confirmed
+that a real unversioned current store is recognized and preserves all three kinds.
+
+Confirmed source baselines are v1.0.1 and main `2b829a5`. Intermediate manual or
+TestFlight schemas remain unknown to the maintainer. A store whose schema is not
+recognized by the explicit plan enters recovery with its pre-open snapshot;
+there is no fallback to an empty ledger or an unplanned automatic migration.
+This limitation requires review before release; successful tests are not proof
+that every historically installed build is covered.
 
 ## Assertions required before migration is considered safe
 
@@ -75,5 +85,4 @@ These are release **source** fixtures generated on iOS 26.5, not preserved store
 from the OS shipped with that release. They do not prove all intermediate
 TestFlight/manual-install versions are supported, or validate removing the
 legacy repair bridge. Future coverage must add those source/runtime combinations
-and current advance/budget/recurring fixtures before production versioned-schema
-changes. See the [migration plan](../../../docs/DATA_MIGRATION_AND_RECOVERY.md).
+beyond the current advance/budget/recurring coverage. See the [migration plan](../../../docs/DATA_MIGRATION_AND_RECOVERY.md).

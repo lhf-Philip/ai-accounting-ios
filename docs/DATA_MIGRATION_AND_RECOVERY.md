@@ -1,7 +1,7 @@
 # Data Migration And Recovery
 
 Status: Active
-Last reviewed: 2026-06-20
+Last reviewed: 2026-09-14
 Applies to: iOS, Android, backup JSON
 Source of truth: [`specs/data-model.md`](./specs/data-model.md), iOS `DataModels.swift` / `BackupManager.swift`, Android `AIAccountingDatabase.kt` / `AccountingRepository.kt`
 
@@ -13,7 +13,7 @@ The project has three independent compatibility layers:
 
 1. **iOS SwiftData store**
    - Store: `AI_Accounting_v3.store` and its `-wal` / `-shm` companions.
-   - The current model is declared in `AI___App.swift`.
+   - The live schema is `AccountingSchemaV3`; `StoreStartupService` supplies its migration plan.
    - Startup creates a protected copy of the store family before SwiftData opens an existing store.
    - Legacy SQLite repairs run before `ModelContainer` creation; safe model backfills run after the container opens.
 
@@ -246,41 +246,71 @@ The existing legacy compatibility repairs still run after backup and before open
 Apple's [error-handling guidance](https://developer.apple.com/tutorials/develop-in-swift/navigate-sample-data) recommends presenting an error or allowing retry for recoverable errors. UI tests verify that the recovery screen has diagnostics/retry and no normal ledger before recovery. Physical-device tests of locked storage and real historical migrations remain release checks.
 
 
-## Versioned-schema work sequence (#169)
+## Versioned-schema migration candidate (#169)
 
-The first baseline now uses genuine framework-generated v1.0.1 stores, with
-empty and populated scenarios, source/compiler/runtime provenance, two startup
-opens and JSON recovery checks. The prior raw-table enum test remains useful for
-repair logic but does not prove that a store can open in SwiftData. The release
-fixture is generated from commit `9063807944d1b46e2125711338c73acfa20f32e9`; its
-five-model schema used the same `AI_Accounting_v3.store` path as today's thirteen
-models. That filename is not a reliable schema-version identifier.
+The explicit plan covers these schema identities; its version numbers are
+internal SwiftData versions, independent of app releases and backup JSON:
 
-Current finding: populated v1.0.1 source fixtures open but crash when the current
-non-optional `Category.kind` getter casts a missing value. A test-only experiment
-that disabled raw repair reproduced the same crash, so removing that bridge
-alone is insufficient. The empty fixture succeeds. Keep this regression visible
-and diagnose a supported enum-value migration before considering the populated
-source covered. Intermediate deployed versions remain unknown to the maintainer.
+| Schema | Frozen source / representation | Transition |
+| --- | --- | --- |
+| V1 (1.0.1) | v1.0.1 commit `9063807944d1b46e2125711338c73acfa20f32e9`, five models, no category kind | Lightweight to V2; do not read the new required enum |
+| V2 (2.0.0) | main `2b829a5507bced8e1e810a2fd577d27484d25f30`, thirteen models, required kind | Custom to V3; nullable stored kind maps from `kind`, then only missing values become `Both` |
+| V3 (3.0.0) | Live models with nullable `storedKind` and non-optional computed `kind` | New stores start here; existing valid values are retained |
 
-Proceed in separate reviews:
+Frozen V1/V2 model declarations retain the original persisted properties and
+relationships. Their unchanged enum types are shared. Do not alter historical
+raw values or frozen model definitions. Before the next persisted-model change,
+freeze V3's live definitions and append a new schema/stage; do not mutate a
+released schema in place. V1/V2 compatibility with unversioned source stores is
+verified by actual opens, rather than assumed from the wrapper names.
 
-1. Extend the fixture matrix with confirmed intermediate deployed sources and
-   runtimes, plus current advance/budget/recurring records. Label recreated
-   source fixtures separately from stores preserved from a historical runtime.
-2. Introduce a `VersionedSchema` baseline and `SchemaMigrationPlan` without a
-   simultaneous model redesign. Verify existing unversioned stores retain their
-   identity, exact monetary values and relationships after migration/reopen; do
-   not assume wrapping model types preserves schema identity.
-3. Retire each legacy raw repair only after all supported source fixtures open,
-   migrate and reopen twice without it, with recoverable backups on failure.
-   Unknown/incompatible stores must retain recovery options; do not expand raw
-   table mutations based on guessed internal layouts.
+Why a nullable target is necessary: a main-version automatic open can complete
+and persist a current-schema store before a `Category.kind` getter crashes. A
+migration stage only from V1 cannot repair such a V2 store. V3 can materialize a
+missing kind safely, and its custom stage persists `Both` only for missing values.
+The application API and backup JSON enum values remain Expense/Income/Both.
+All existing kind queries filter materialized models; a future store predicate
+must use the persisted property rather than computed `kind`.
 
-The current baseline does not remove the compatibility bridge or claim #169 is
-complete. New migration cases belong in the existing unit-test job; a separate
-CI layer is unnecessary. Apple documents the native Core Data store format as
-[private](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/CoreData/PersistentStoreFeatures.html)
-and provides [VersionedSchema](https://developer.apple.com/documentation/swiftdata/versionedschema)
-and [SchemaMigrationPlan](https://developer.apple.com/documentation/swiftdata/schemamigrationplan)
-for SwiftData schema evolution.
+Startup still creates its pre-migration store-family backup before repairs and
+container opening. Fetch/save errors in the new migration stage propagate to
+startup recovery. The same production store path is retained. Backup JSON stays
+at 1.9; there is no Android schema, JSON codec or accounting-semantic change.
+
+The existing raw repairs remain a compatibility bridge in this candidate. No new
+raw SQL is added, and these fixtures do not justify removing every legacy repair.
+Retire each repair separately only after confirmed source/runtime coverage proves
+it unnecessary. Never expand private-table mutations based on guessed layouts.
+
+### Verified scenarios and release limits
+
+- Frozen v1.0.1 empty/populated fixtures use exact historical model bytes with
+  recorded Xcode/runtime/source/store hashes. Tests open copies twice and verify
+  IDs, precise balances, relationships and JSON export/import/reopen.
+- A previous automatic V1-to-V2 open, without reading kind, recreates the missing
+  value case; the candidate then opens/reopens with a persisted `Both` value.
+- Unversioned V2 stores generated from frozen model definitions cover all thirteen
+  models, Expense/Income/Both preservation, UUIDs and relationship references.
+- Fresh V3 category creation/edit/save/reopen exercises the computed API and
+  persisted backing field. Existing backup tests cover JSON compatibility.
+- Injected open and custom-migration-stage failures preserve a byte-identical
+  pre-repair snapshot that can be restored and opened twice. An unrecognized schema enters recovery and retains
+  its snapshot instead of falling back to an empty or automatically migrated store.
+
+Unknown intermediate schemas are a release limitation: the maintainer does not
+know which manual/TestFlight builds held data. The plan recognizes V1, V2 and V3;
+it is not a promise that all previous automatic migrations remain accepted.
+Inventory additional deployed schema identities and add fixtures/stages before
+claiming complete historical support. Generated source fixtures are not original
+release-OS artifacts. Physical-device and historical-runtime validation remain
+release checks. Keep #169 open until compatibility coverage and repair retirement
+are reviewed; this candidate does not finish the whole issue.
+
+New migration cases run in the existing unit job; no extra CI layer is needed.
+Apple documents the native Core Data store format as
+[private](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/CoreData/PersistentStoreFeatures.html).
+Its [schema modeling session](https://developer.apple.com/videos/play/wwdc2023/10195/)
+explains versioned schemas, custom stages and `originalName` mapping. These APIs
+support the candidate's mechanism; the specific getter failure and migration
+results above are experimental observations, not a claimed Apple guarantee about
+automatic enum defaults.

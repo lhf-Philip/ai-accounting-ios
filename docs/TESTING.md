@@ -512,11 +512,18 @@ and [RFC 7617](https://www.rfc-editor.org/rfc/rfc7617).
 hand-written SQLite tables. It checks fixture provenance/hashes, two real startup
 opens, exact ledger amounts and relationships, JSON roundtrip into a current
 store, and a usable pre-repair snapshot after an injected container-open failure.
-Run this suite with `StoreStartupRecoveryTests` for migration-boundary changes;
-CI discovers it through the existing unit-test target. The populated cases
-currently crash at `Category.kind` on main `2b829a5`; they are active regressions,
-not passing migration evidence. Production models and repair logic are unchanged
-by this baseline.
+Run this suite with `VersionedStoreMigrationTests` and `StoreStartupRecoveryTests`
+for migration-boundary changes; CI discovers them through the existing unit-test
+target. The populated cases crash at `Category.kind` on main `2b829a5`; they remain
+active regressions against the candidate's explicit V1 → V2 → V3 migration.
+
+`VersionedStoreMigrationTests` additionally creates unversioned V2 stores from
+frozen schema definitions. It checks all thirteen models and all category kinds,
+a prior automatic migration that left kind missing, fresh-store category edits,
+a failure thrown inside the custom migration stage, and recovery/snapshot
+preservation for an unsupported schema. Every case uses a
+temporary store. Unknown historical intermediate schemas and original release-OS
+artifacts remain outside this verified matrix; review that limit before release.
 
 The fixture [notes and generator](../AI%20記帳Tests/Fixtures/SwiftData/V101-FIXTURE-NOTES.md)
 record the source commit and producer runtime. The committed stores were made
