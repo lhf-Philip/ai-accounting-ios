@@ -7,8 +7,8 @@ from pathlib import Path
 import platform
 import subprocess
 
-ROOT = Path(__file__).resolve().parents[1]
-FIXTURES = ROOT / "AI 記帳Tests/Fixtures/SwiftData/Historical"
+ROOT = Path(__file__).resolve().parents[4]
+FIXTURES = Path(__file__).resolve().parent
 
 
 def run(command, **kwargs):

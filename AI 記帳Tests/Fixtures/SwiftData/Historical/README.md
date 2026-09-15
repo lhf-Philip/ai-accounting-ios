@@ -28,7 +28,7 @@ Schema version numbers are internal identifiers, not historical app versions.
 On a Mac with Xcode and a booted iOS simulator, from the repository root:
 
 ```sh
-python3 scripts/generate-historical-stores.py \
+python3 "AI 記帳Tests/Fixtures/SwiftData/Historical/generate.py" \
   --simulator YOUR_BOOTED_SIMULATOR_UUID \
   --output /tmp/new-historical-stores
 ```
