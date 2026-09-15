@@ -11,7 +11,7 @@ private final class UnsupportedMigrationRecord {
 private enum FailingCategoryMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] { AccountingMigrationPlan.schemas }
     static var stages: [MigrationStage] {
-        [.lightweight(fromVersion: AccountingSchemaV1.self, toVersion: AccountingSchemaV2.self),
+        Array(AccountingMigrationPlan.stages.dropLast()) + [
          .custom(fromVersion: AccountingSchemaV2.self, toVersion: AccountingSchemaV3.self,
                  willMigrate: nil, didMigrate: { context in
              let categories = try context.fetch(FetchDescriptor<AI_記帳.Category>())

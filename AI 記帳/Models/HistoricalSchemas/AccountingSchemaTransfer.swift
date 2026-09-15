@@ -1,0 +1,155 @@
+// Frozen persisted models from 227f2bb1d06cac848feb2e38d83f111409aa6231 (transfer).
+// Preserve these definitions. Unchanged enum types are shared with DataModels.swift.
+import Foundation
+import SwiftData
+
+enum AccountingSchemaTransfer: VersionedSchema {
+    static var versionIdentifier: Schema.Version { .init(1, 1, 0) }
+    static var models: [any PersistentModel.Type] {
+        [Account.self, Category.self, Tag.self, FinancialTransaction.self, Shortcut.self]
+    }
+
+    @Model
+    final class Account {
+        @Attribute(.unique) var id: UUID
+        var name: String
+        var currency: String
+        var type: AccountType
+        var baseBalance: Decimal
+        var sortOrder: Int
+        var isArchived: Bool = false // 🔥 新增：歸檔狀態 (預設不歸檔)
+
+        @Relationship(deleteRule: .cascade, inverse: \FinancialTransaction.account)
+        var transactions: [FinancialTransaction] = []
+
+        init(id: UUID = UUID(), name: String, currency: String, type: AccountType, baseBalance: Decimal, sortOrder: Int = 0, isArchived: Bool = false) {
+            self.id = id
+            self.name = name
+            self.currency = currency
+            self.type = type
+            self.baseBalance = baseBalance
+            self.sortOrder = sortOrder
+            self.isArchived = isArchived
+        }
+
+        var currentBalance: Decimal {
+            let transactionSum = transactions.reduce(0) { $0 + $1.amount }
+            return baseBalance + transactionSum
+        }
+    }
+
+    @Model
+    final class Category {
+        @Attribute(.unique) var id: UUID
+        var name: String
+        var icon: String
+        var colorHex: String
+        var kind: CategoryKind = CategoryKind.both
+
+        @Relationship(deleteRule: .nullify, inverse: \FinancialTransaction.category)
+        var transactions: [FinancialTransaction] = []
+
+        init(id: UUID = UUID(), name: String, icon: String, colorHex: String, kind: CategoryKind = CategoryKind.both) {
+            self.id = id
+            self.name = name
+            self.icon = icon
+            self.colorHex = colorHex
+            self.kind = kind
+        }
+    }
+
+    @Model
+    final class Tag {
+        @Attribute(.unique) var id: UUID
+        var name: String
+
+        @Relationship(deleteRule: .nullify, inverse: \FinancialTransaction.tags)
+        var transactions: [FinancialTransaction] = []
+
+        init(id: UUID = UUID(), name: String) {
+            self.id = id
+            self.name = name
+        }
+    }
+
+    @Model
+    final class FinancialTransaction {
+        @Attribute(.unique) var id: UUID
+        var amount: Decimal
+        var currencyCode: String
+        var date: Date
+        var note: String
+        var photoPath: String?
+
+        var type: TransactionType
+        var linkedTransactionID: UUID?
+        var transferGroupID: UUID?
+        var transferSide: TransferSide?
+        var createdAt: Date = Date()
+        var updatedAt: Date = Date()
+
+        var account: Account?
+        var category: Category?
+        var tags: [Tag] = []
+
+        init(id: UUID = UUID(),
+             amount: Decimal,
+             currencyCode: String = "HKD",
+             date: Date = Date(),
+             note: String = "",
+             photoPath: String? = nil,
+             type: TransactionType = .expense,
+             linkedTransactionID: UUID? = nil,
+             transferGroupID: UUID? = nil,
+             transferSide: TransferSide? = nil,
+             account: Account? = nil,
+             category: Category? = nil,
+             tags: [Tag] = [],
+             createdAt: Date = Date(),
+             updatedAt: Date = Date()) {
+            self.id = id
+            self.amount = amount
+            self.currencyCode = currencyCode
+            self.date = date
+            self.note = note
+            self.photoPath = photoPath
+            self.type = type
+            self.linkedTransactionID = linkedTransactionID
+            self.transferGroupID = transferGroupID
+            self.transferSide = transferSide
+            self.account = account
+            self.category = category
+            self.tags = tags
+            self.createdAt = createdAt
+            self.updatedAt = updatedAt
+        }
+    }
+
+    @Model
+    final class Shortcut {
+        @Attribute(.unique) var id: UUID
+        var name: String
+        var icon: String
+        var amount: Decimal
+        var currencyCode: String // 🔥 新增：捷徑的幣種
+        var type: TransactionType
+        var note: String
+
+        var account: Account?
+        var category: Category?
+        var tags: [Tag] = []
+
+        init(id: UUID = UUID(), name: String, icon: String, amount: Decimal, currencyCode: String = "HKD", type: TransactionType, note: String, account: Account? = nil, category: Category? = nil, tags: [Tag] = []) {
+            self.id = id
+            self.name = name
+            self.icon = icon
+            self.amount = amount
+            self.currencyCode = currencyCode
+            self.type = type
+            self.note = note
+            self.account = account
+            self.category = category
+            self.tags = tags
+        }
+    }
+}

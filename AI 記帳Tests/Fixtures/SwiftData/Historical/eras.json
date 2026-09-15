@@ -1,0 +1,209 @@
+[
+  {
+    "label": "transfer",
+    "commit": "227f2bb1d06cac848feb2e38d83f111409aa6231",
+    "models": [
+      "Account",
+      "Category",
+      "Tag",
+      "FinancialTransaction",
+      "Shortcut"
+    ],
+    "flags": [],
+    "version": [
+      1,
+      1,
+      0
+    ]
+  },
+  {
+    "label": "budget",
+    "commit": "e29c0e44d04751bdae4e47ba5c2206266cdb6cf0",
+    "models": [
+      "Account",
+      "Category",
+      "Tag",
+      "FinancialTransaction",
+      "Shortcut",
+      "CategoryMonthlyBudget"
+    ],
+    "flags": [
+      "BUDGET"
+    ],
+    "version": [
+      1,
+      2,
+      0
+    ]
+  },
+  {
+    "label": "advance",
+    "commit": "7ee47caa342dd6e8efe622504dea27ff489d60ac",
+    "models": [
+      "Account",
+      "Category",
+      "Tag",
+      "FinancialTransaction",
+      "Shortcut",
+      "CategoryMonthlyBudget",
+      "AdvanceCase",
+      "AdvanceParticipant",
+      "AdvanceRepayment"
+    ],
+    "flags": [
+      "BUDGET",
+      "ADVANCE"
+    ],
+    "version": [
+      1,
+      3,
+      0
+    ]
+  },
+  {
+    "label": "advance_links",
+    "commit": "664458e9c64f460741b1e22841a75853f5e09bde",
+    "models": [
+      "Account",
+      "Category",
+      "Tag",
+      "FinancialTransaction",
+      "Shortcut",
+      "CategoryMonthlyBudget",
+      "AdvanceCase",
+      "AdvanceParticipant",
+      "AdvanceRepayment"
+    ],
+    "flags": [
+      "BUDGET",
+      "ADVANCE",
+      "ADVANCE_LINKS"
+    ],
+    "version": [
+      1,
+      4,
+      0
+    ]
+  },
+  {
+    "label": "history",
+    "commit": "fb2f437c1b981f46e8b1976df23b456bc7d47468",
+    "models": [
+      "Account",
+      "Category",
+      "Tag",
+      "FinancialTransaction",
+      "Shortcut",
+      "CategoryMonthlyBudget",
+      "BudgetMonthlyHistory",
+      "AdvanceCase",
+      "AdvanceParticipant",
+      "AdvanceRepayment"
+    ],
+    "flags": [
+      "BUDGET",
+      "ADVANCE",
+      "ADVANCE_LINKS",
+      "HISTORY"
+    ],
+    "version": [
+      1,
+      5,
+      0
+    ]
+  },
+  {
+    "label": "settings",
+    "commit": "f342461ab54a70d502ddf56d4a877f684185e429",
+    "models": [
+      "Account",
+      "Category",
+      "Tag",
+      "FinancialTransaction",
+      "Shortcut",
+      "CategoryMonthlyBudget",
+      "BudgetMonthlyHistory",
+      "BudgetSettings",
+      "AdvanceCase",
+      "AdvanceParticipant",
+      "AdvanceRepayment"
+    ],
+    "flags": [
+      "BUDGET",
+      "ADVANCE",
+      "ADVANCE_LINKS",
+      "HISTORY",
+      "SETTINGS"
+    ],
+    "version": [
+      1,
+      6,
+      0
+    ]
+  },
+  {
+    "label": "recurring",
+    "commit": "b7e8dda0770400336a3f70ef665e483b6ed7c3aa",
+    "models": [
+      "Account",
+      "Category",
+      "Tag",
+      "FinancialTransaction",
+      "Shortcut",
+      "RecurringRule",
+      "RecurringOccurrence",
+      "CategoryMonthlyBudget",
+      "BudgetMonthlyHistory",
+      "BudgetSettings",
+      "AdvanceCase",
+      "AdvanceParticipant",
+      "AdvanceRepayment"
+    ],
+    "flags": [
+      "BUDGET",
+      "ADVANCE",
+      "ADVANCE_LINKS",
+      "HISTORY",
+      "SETTINGS",
+      "RECURRING"
+    ],
+    "version": [
+      1,
+      7,
+      0
+    ]
+  },
+  {
+    "label": "pre_v2",
+    "commit": "abd3b2020d9416a6803f1a1081528c8dbac9defa",
+    "models": [
+      "Account",
+      "Category",
+      "Tag",
+      "FinancialTransaction",
+      "Shortcut",
+      "RecurringRule",
+      "RecurringOccurrence",
+      "CategoryMonthlyBudget",
+      "BudgetMonthlyHistory",
+      "BudgetSettings",
+      "AdvanceCase",
+      "AdvanceParticipant",
+      "AdvanceRepayment"
+    ],
+    "flags": [
+      "BUDGET",
+      "ADVANCE",
+      "ADVANCE_LINKS",
+      "HISTORY",
+      "SETTINGS",
+      "RECURRING",
+      "PRE_V2"
+    ],
+    "version": [
+      1,
+      8,
+      0
+    ]
+  }
+]

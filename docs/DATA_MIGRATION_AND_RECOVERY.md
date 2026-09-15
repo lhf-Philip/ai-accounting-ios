@@ -253,15 +253,16 @@ internal SwiftData versions, independent of app releases and backup JSON:
 
 | Schema | Frozen source / representation | Transition |
 | --- | --- | --- |
-| V1 (1.0.1) | v1.0.1 commit `9063807944d1b46e2125711338c73acfa20f32e9`, five models, no category kind | Lightweight to V2; do not read the new required enum |
+| V1 (1.0.1) | v1.0.1 commit `9063807944d1b46e2125711338c73acfa20f32e9`, five models, no category kind | Lightweight through the ordered historical structures; do not read new required values |
+| Historical 1.1.0–1.8.0 | Transfer, budget, advance, advance links, budget history/settings, recurring, required advance tags; [pinned source matrix](../AI%20記帳Tests/Fixtures/SwiftData/Historical/README.md) | Ordered lightweight stages to V2; no intermediate getter reads |
 | V2 (2.0.0) | main `2b829a5507bced8e1e810a2fd577d27484d25f30`, thirteen models, required kind | Custom to V3; nullable stored kind maps from `kind`, then only missing values become `Both` |
 | V3 (3.0.0) | Live models with nullable `storedKind` and non-optional computed `kind` | New stores start here; existing valid values are retained |
 
-Frozen V1/V2 model declarations retain the original persisted properties and
+Frozen historical model declarations retain the original persisted properties and
 relationships. Their unchanged enum types are shared. Do not alter historical
 raw values or frozen model definitions. Before the next persisted-model change,
 freeze V3's live definitions and append a new schema/stage; do not mutate a
-released schema in place. V1/V2 compatibility with unversioned source stores is
+released schema in place. Compatibility with these unversioned source stores is
 verified by actual opens, rather than assumed from the wrapper names.
 
 Why a nullable target is necessary: a main-version automatic open can complete
@@ -291,20 +292,24 @@ it unnecessary. Never expand private-table mutations based on guessed layouts.
   value case; the candidate then opens/reopens with a persisted `Both` value.
 - Unversioned V2 stores generated from frozen model definitions cover all thirteen
   models, Expense/Income/Both preservation, UUIDs and relationship references.
+- Eight populated intermediate-source fixtures cover distinct persisted structures
+  in the inspected Git history. All opened with old main but were rejected by the
+  original three-schema plan; the expanded plan is checked for era-specific data
+  preservation, reopening and unchanged snapshots.
 - Fresh V3 category creation/edit/save/reopen exercises the computed API and
   persisted backing field. Existing backup tests cover JSON compatibility.
 - Injected open and custom-migration-stage failures preserve a byte-identical
   pre-repair snapshot that can be restored and opened twice. An unrecognized schema enters recovery and retains
   its snapshot instead of falling back to an empty or automatically migrated store.
 
-Unknown intermediate schemas are a release limitation: the maintainer does not
-know which manual/TestFlight builds held data. The plan recognizes V1, V2 and V3;
-it is not a promise that all previous automatic migrations remain accepted.
-Inventory additional deployed schema identities and add fixtures/stages before
-claiming complete historical support. Generated source fixtures are not original
-release-OS artifacts. Physical-device and historical-runtime validation remain
-release checks. Keep #169 open until compatibility coverage and repair retirement
-are reviewed; this candidate does not finish the whole issue.
+The maintainer does not know which manual/TestFlight builds held data. The plan
+now covers the distinct persisted structures found between v1.0.1 and frozen V2,
+including the intermediate source eras; it is not a promise about unknown local
+model edits or every previous automatic-migration/runtime combination. Generated
+source fixtures are not original release-OS artifacts. Physical-device and
+historical-runtime validation remain release checks. Keep #169 open until
+compatibility coverage and repair retirement are reviewed; this candidate does
+not finish the whole issue.
 
 New migration cases run in the existing unit job; no extra CI layer is needed.
 Apple documents the native Core Data store format as

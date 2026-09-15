@@ -13,14 +13,31 @@ enum AccountingSchemaV3: VersionedSchema {
 }
 
 enum AccountingMigrationPlan: SchemaMigrationPlan {
+    // These are distinct historical persisted structures, not every Git commit or app version.
+    // Ordered stages also recognize stores that skipped app releases during automatic migration.
+    private static var legacySchemas: [any VersionedSchema.Type] {
+        [AccountingSchemaV1.self,
+         AccountingSchemaTransfer.self,
+         AccountingSchemaBudget.self,
+         AccountingSchemaAdvance.self,
+         AccountingSchemaAdvanceLinks.self,
+         AccountingSchemaHistory.self,
+         AccountingSchemaSettings.self,
+         AccountingSchemaRecurring.self,
+         AccountingSchemaPreV2.self,
+         AccountingSchemaV2.self]
+    }
+
     static var schemas: [any VersionedSchema.Type] {
-        [AccountingSchemaV1.self, AccountingSchemaV2.self, AccountingSchemaV3.self]
+        legacySchemas + [AccountingSchemaV3.self]
     }
 
     static var stages: [MigrationStage] {
-        [
-            // Do not read V2.Category.kind here: an automatic migration can leave it missing.
-            .lightweight(fromVersion: AccountingSchemaV1.self, toVersion: AccountingSchemaV2.self),
+        // Never read required enum/array getters in an intermediate schema: earlier automatic
+        // migrations can leave newly introduced values missing. Normalize only in the live schema.
+        zip(legacySchemas, legacySchemas.dropFirst()).map { source, destination in
+            MigrationStage.lightweight(fromVersion: source, toVersion: destination)
+        } + [
             .custom(fromVersion: AccountingSchemaV2.self, toVersion: AccountingSchemaV3.self,
                     willMigrate: nil, didMigrate: { context in
                 let categories = try context.fetch(FetchDescriptor<Category>())
