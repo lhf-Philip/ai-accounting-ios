@@ -1,0 +1,79 @@
+import Foundation
+import SwiftData
+
+// Built as a separate executable with the release app module name, never in the current test module.
+@main
+struct FixtureGenerator {
+    @MainActor static func main() throws {
+        let directory = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
+        let populated = CommandLine.arguments[2] == "populated"
+        let mode = CommandLine.arguments[2]
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let schema = Schema(ERA_MODELS)
+        let config = ModelConfiguration(schema: schema, url: directory.appendingPathComponent("AI_Accounting_v3.store"), cloudKitDatabase: .none)
+        let container = try ModelContainer(for: schema, configurations: [config])
+        if populated {
+            let cash = Account(id: id(1), name: "Synthetic cash", currency: "HKD", type: .cash, baseBalance: decimal("1000.00"))
+            let category = Category(id: id(2), name: "Synthetic food", icon: "fork.knife", colorHex: "#123456", kind: .expense)
+            let tag = Tag(id: id(3), name: "Synthetic fixture")
+            let expense = FinancialTransaction(id: id(4), amount: decimal("-35.59"), currencyCode: "HKD", date: date, note: "Synthetic expense", type: .expense, account: cash, category: category, tags: [tag])
+            let shortcut = Shortcut(id: id(5), name: "Synthetic shortcut", icon: "fork.knife", amount: decimal("35.59"), type: .expense, note: "Synthetic shortcut", account: cash, category: category, tags: [tag])
+            let bank = Account(id: id(6), name: "Synthetic USD bank", currency: "USD", type: .bank, baseBalance: decimal("50.00"), sortOrder: 1)
+            let income = FinancialTransaction(id: id(7), amount: decimal("250.00"), currencyCode: "HKD", date: date, note: "Synthetic income", type: .income, account: cash)
+            let outgoing = FinancialTransaction(id: id(8), amount: decimal("-100.00"), currencyCode: "HKD", date: date, note: "Synthetic transfer out", type: .transfer, linkedTransactionID: id(9), account: cash)
+            let incoming = FinancialTransaction(id: id(9), amount: decimal("12.80"), currencyCode: "USD", date: date, note: "Synthetic transfer in", type: .transfer, linkedTransactionID: id(8), account: bank)
+            outgoing.transferGroupID = id(30)
+            outgoing.transferSide = .outgoing
+            incoming.transferGroupID = id(30)
+            incoming.transferSide = .incoming
+            var extras: [any PersistentModel] = []
+#if ERA_BUDGET
+let budget = CategoryMonthlyBudget(id: id(20), monthKey: "2023-11", amount: decimal("500.50"), createdAt: date, updatedAt: date, category: category)
+extras.append(budget)
+#endif
+#if ERA_ADVANCE
+let advance = AdvanceCase(id: id(21), title: "Synthetic advance", date: date, myShareAmount: decimal("35.59"), note: "Synthetic advance note", createdAt: date, updatedAt: date, payerAccount: cash, expenseCategory: category)
+let participant = AdvanceParticipant(id: id(22), name: "Synthetic participant", owedAmount: decimal("20.25"), repaidAmount: decimal("10.10"), createdAt: date, updatedAt: date, advanceCase: advance)
+let repayment = AdvanceRepayment(id: id(23), amount: decimal("10.10"), normalizedAmount: decimal("10.10"), date: date, linkedTransferGroupID: id(31), createdAt: date, advanceCase: advance, participant: participant, receivedAccount: cash)
+extras += [advance, participant, repayment]
+#endif
+#if ERA_ADVANCE_LINKS
+advance.selfExpenseTransactionID = expense.id
+participant.initialTransferGroupID = id(30)
+#endif
+#if ERA_HISTORY
+let history = BudgetMonthlyHistory(id: id(24), historyKey: "2023-11-synthetic", monthKey: "2023-11", categoryID: category.id, categoryNameSnapshot: category.name, budgetAmount: decimal("500.50"), spentAmount: decimal("35.59"), remainingAmount: decimal("464.91"), usageRatio: decimal("0.0711088911"), isOverBudget: false, currencyCode: "HKD", updatedAt: date)
+extras.append(history)
+#endif
+#if ERA_SETTINGS
+extras.append(BudgetSettings(carryOverMode: .netBalance, alertThresholdPercent: decimal("85.50"), updatedAt: date))
+#endif
+#if ERA_RECURRING
+let rule = RecurringRule(id: id(25), title: "Synthetic recurring", amount: decimal("8.25"), type: .expense, frequency: .weekly, intervalCount: 2, nextDueDate: date, createdAt: date, updatedAt: date, account: cash, category: category, tags: [tag])
+let occurrence = RecurringOccurrence(id: id(26), dueDate: date, status: .confirmed, createdTransactionID: expense.id, createdAt: date, updatedAt: date, rule: rule)
+extras += [rule, occurrence]
+#endif
+#if ERA_PRE_V2
+advance.direction = .iAdvancedOthers
+advance.tagIDs = [tag.id]
+expense.advanceCaseID = advance.id
+expense.advanceParticipantID = participant.id
+expense.advanceRepaymentID = repayment.id
+expense.advanceEntryRole = .selfExpense
+#endif
+            for model in extras + [cash as any PersistentModel, category, tag, expense, shortcut, bank, income, outgoing, incoming] {
+                container.mainContext.insert(model)
+            }
+        }
+        container.mainContext.insert(Category(id: id(14), name: "Synthetic income", icon: "folder", colorHex: "#123456", kind: .income))
+        container.mainContext.insert(Category(id: id(15), name: "Synthetic both", icon: "folder", colorHex: "#123456", kind: .both))
+        try container.mainContext.save()
+        let metadata: [String: Any] = ["mode": mode, "runtime": ProcessInfo.processInfo.operatingSystemVersionString,
+                                       "transactionCount": try container.mainContext.fetchCount(FetchDescriptor<FinancialTransaction>())]
+        try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys, .prettyPrinted]).write(to: directory.appendingPathComponent("generation.json"))
+    }
+
+    static var date: Date { Date(timeIntervalSince1970: 1700000000) }
+    static func decimal(_ value: String) -> Decimal { Decimal(string: value, locale: Locale(identifier: "en_US_POSIX"))! }
+    static func id(_ value: Int) -> UUID { UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", value))! }
+}

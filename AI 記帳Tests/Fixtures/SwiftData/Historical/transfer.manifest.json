@@ -1,0 +1,30 @@
+{
+  "label": "transfer",
+  "commit": "227f2bb1d06cac848feb2e38d83f111409aa6231",
+  "models": [
+    "Account",
+    "Category",
+    "Tag",
+    "FinancialTransaction",
+    "Shortcut"
+  ],
+  "flags": [],
+  "version": [
+    1,
+    1,
+    0
+  ],
+  "runtime": {
+    "mode": "populated",
+    "runtime": "Version 26.5 (Build 23F77)",
+    "transactionCount": 4
+  },
+  "modelSHA256": "105cf761c5a5ca6639730d48d96420c04efe7cc6fe43e8d922d8ca88c774f6f7",
+  "generatorSHA256": "2e49a3fc4da6069036543f83d20e5224e229d02997407b8f999cc9bc8a1f668d",
+  "xcode": "Xcode 26.5\nBuild version 17F42",
+  "files": {
+    "AI_Accounting_v3.store": "24ea3c9b6f07b5e03902c73b0a44051dc54c4fcd892bed7f3987cb3a68dd9ee8",
+    "AI_Accounting_v3.store-shm": "582453b42b873a1d1c0f651205dc2c3f9ddee03b337b8941568f174a70a1e52a",
+    "AI_Accounting_v3.store-wal": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

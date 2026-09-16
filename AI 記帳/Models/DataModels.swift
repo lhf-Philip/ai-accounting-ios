@@ -158,7 +158,13 @@ final class Category {
     var name: String
     var icon: String
     var colorHex: String
-    var kind: CategoryKind = CategoryKind.both
+    // Legacy stores may contain no enum value even after automatic migration.
+    // Keep a nullable representation; the migration fills only missing values.
+    @Attribute(originalName: "kind") var storedKind: CategoryKind?
+    var kind: CategoryKind {
+        get { storedKind ?? .both }
+        set { storedKind = newValue }
+    }
     
     @Relationship(deleteRule: .nullify, inverse: \FinancialTransaction.category)
     var transactions: [FinancialTransaction] = []
@@ -168,7 +174,7 @@ final class Category {
         self.name = name
         self.icon = icon
         self.colorHex = colorHex
-        self.kind = kind
+        self.storedKind = kind
     }
 }
 

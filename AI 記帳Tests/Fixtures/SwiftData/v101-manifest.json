@@ -1,0 +1,35 @@
+{
+  "sourceCommit": "9063807944d1b46e2125711338c73acfa20f32e9",
+  "sourceTag": "v1.0.1",
+  "modelGitBlob": "3989c729c8e175071437ab14d2cdc7e5e708914a",
+  "sourcePath": "AI 記帳/Models/DataModels.swift",
+  "module": "AI_記帳",
+  "modelSHA256": "e398be53fb9af9dbb1216dde7e30fad5c7cbabd4a00d0e3d09b63d1e8fb4b902",
+  "generatorSHA256": "948cab82cb0ca01c4537c2e388704cf00bc9a4e86d963f88998f6c0038b1711a",
+  "xcode": "Xcode 26.5\nBuild version 17F42",
+  "sdkVersion": "26.5",
+  "target": "arm64-apple-ios26.2-simulator",
+  "limitation": "Release model source regenerated on the recorded current runtime; not an artifact from the release OS. Intermediate deployments and newer model types are not covered.",
+  "fixtures": {
+    "empty": {
+      "mode": "empty",
+      "runtime": "Version 26.5 (Build 23F77)",
+      "transactionCount": 0,
+      "files": {
+        "v1.0.1-empty.store": "01555be3dcc514ff1f65bf5c0844aeb8f9842f4b66a022a94d2a3427459cc24c",
+        "v1.0.1-empty.store-wal": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "v1.0.1-empty.store-shm": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+      }
+    },
+    "populated": {
+      "mode": "populated",
+      "runtime": "Version 26.5 (Build 23F77)",
+      "transactionCount": 4,
+      "files": {
+        "v1.0.1-populated.store": "bf018f68966cb9d8c58f2bf1c65b6d77fe1960b43652fdb208d43000f08d023e",
+        "v1.0.1-populated.store-wal": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "v1.0.1-populated.store-shm": "5ca5ad0244dacb1d81781e677ec9f738e1f7a9915a929f60f99c0027b9e62ea3"
+      }
+    }
+  }
+}

@@ -52,7 +52,7 @@ struct StoreStartupService {
     }
     var open: (URL) throws -> ModelContainer = { url in
         let schema = schema()
-        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: url, allowsSave: true, cloudKitDatabase: .none)])
+        let container = try ModelContainer(for: schema, migrationPlan: AccountingMigrationPlan.self, configurations: [ModelConfiguration(schema: schema, url: url, allowsSave: true, cloudKitDatabase: .none)])
         do {
             try StoreMigrationSafetyService.backfillMissingAdvanceCaseTagIDs(modelContext: container.mainContext)
         } catch {
@@ -79,10 +79,7 @@ struct StoreStartupService {
     }
 
     static func schema() -> Schema {
-        Schema([Account.self, FinancialTransaction.self, Category.self, Tag.self, Shortcut.self,
-                RecurringRule.self, RecurringOccurrence.self, CategoryMonthlyBudget.self,
-                BudgetMonthlyHistory.self, BudgetSettings.self, AdvanceCase.self,
-                AdvanceParticipant.self, AdvanceRepayment.self])
+        Schema(versionedSchema: AccountingSchemaV3.self)
     }
 
     static func makeInMemoryContainer() throws -> ModelContainer {

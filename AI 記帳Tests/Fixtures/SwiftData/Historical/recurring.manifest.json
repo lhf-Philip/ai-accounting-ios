@@ -1,0 +1,45 @@
+{
+  "label": "recurring",
+  "commit": "b7e8dda0770400336a3f70ef665e483b6ed7c3aa",
+  "models": [
+    "Account",
+    "Category",
+    "Tag",
+    "FinancialTransaction",
+    "Shortcut",
+    "RecurringRule",
+    "RecurringOccurrence",
+    "CategoryMonthlyBudget",
+    "BudgetMonthlyHistory",
+    "BudgetSettings",
+    "AdvanceCase",
+    "AdvanceParticipant",
+    "AdvanceRepayment"
+  ],
+  "flags": [
+    "BUDGET",
+    "ADVANCE",
+    "ADVANCE_LINKS",
+    "HISTORY",
+    "SETTINGS",
+    "RECURRING"
+  ],
+  "version": [
+    1,
+    7,
+    0
+  ],
+  "runtime": {
+    "mode": "populated",
+    "runtime": "Version 26.5 (Build 23F77)",
+    "transactionCount": 4
+  },
+  "modelSHA256": "3aa2fb643979bddb5855b268b9928801331a4984464eb3a96c62ee035c2eaf61",
+  "generatorSHA256": "fb7fcdb4850a0d4780270885d7974aaeaeea38ba668925eea2233de10bf44dde",
+  "xcode": "Xcode 26.5\nBuild version 17F42",
+  "files": {
+    "AI_Accounting_v3.store": "cf8ff6a94a57dda6b1c71338e008def662f4e678e71260eba59171d5246d9206",
+    "AI_Accounting_v3.store-shm": "b08924ca440f8274a84e1f96d25c70420587b69467120d8593233083f9eabe0e",
+    "AI_Accounting_v3.store-wal": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

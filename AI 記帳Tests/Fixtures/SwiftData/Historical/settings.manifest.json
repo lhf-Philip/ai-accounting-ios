@@ -1,0 +1,42 @@
+{
+  "label": "settings",
+  "commit": "f342461ab54a70d502ddf56d4a877f684185e429",
+  "models": [
+    "Account",
+    "Category",
+    "Tag",
+    "FinancialTransaction",
+    "Shortcut",
+    "CategoryMonthlyBudget",
+    "BudgetMonthlyHistory",
+    "BudgetSettings",
+    "AdvanceCase",
+    "AdvanceParticipant",
+    "AdvanceRepayment"
+  ],
+  "flags": [
+    "BUDGET",
+    "ADVANCE",
+    "ADVANCE_LINKS",
+    "HISTORY",
+    "SETTINGS"
+  ],
+  "version": [
+    1,
+    6,
+    0
+  ],
+  "runtime": {
+    "mode": "populated",
+    "runtime": "Version 26.5 (Build 23F77)",
+    "transactionCount": 4
+  },
+  "modelSHA256": "ea097fdf9aa527934f5f1c55d9284d9bcb5e1cd1b65aa44084ca4b6243481321",
+  "generatorSHA256": "9de2ded501417db6089c38f0e99283ed38469cb1fbecabf78f6a9ee340b50285",
+  "xcode": "Xcode 26.5\nBuild version 17F42",
+  "files": {
+    "AI_Accounting_v3.store": "743813a24d1e783dc51b5b5a7cf0b951dc9d19cd6e3741f744a49b989ab00f14",
+    "AI_Accounting_v3.store-shm": "4f933d927ee96c012a8d85de0e44a723bc9fbc81adeef19b09faf34e3a36bf23",
+    "AI_Accounting_v3.store-wal": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}
