@@ -46,6 +46,12 @@ This document describes the current file layout for `AI 記帳`.
 - `android/app/src/test/`: Android unit tests and parity fixtures.
 - `android/README.md`: Android build, test, and local setup notes.
 
+## AI Backend
+
+- `backend/gemma/`: invited receipt-analysis Worker, per-installation authorization, and quota ledger.
+- `backend/gemma/src/worker.js`: HTTP boundary, one-time invitation redemption, inference, and atomic usage accounting.
+- `backend/gemma/test/`: offline policy and service-flow tests; CI and local checks never call live inference.
+
 ## CI and Automation
 
 - `.github/workflows/ios-ci.yml`: iOS build and string catalog validation.
@@ -62,6 +68,7 @@ This document describes the current file layout for `AI 記帳`.
 - `docs/ARCHITECTURE.md`: system boundaries, data flow, and cross-platform architecture.
 - `docs/DEVELOPMENT_GUIDE.md`: standard workflow for features, semantics, storage, and UI changes.
 - `docs/DATA_MIGRATION_AND_RECOVERY.md`: store/backup migration and failure recovery runbook.
+- `docs/AI_SERVICES.md`: AI access policy, trust boundaries, deployment, and quota behavior.
 - `docs/TESTING.md`: automated/manual test responsibilities, commands, fixtures, and evidence.
 - `docs/TROUBLESHOOTING.md`: safe failure diagnosis and recovery-oriented runbooks.
 - `docs/RELEASING.md`: versioning, compatibility, release validation, tagging, and rollback.

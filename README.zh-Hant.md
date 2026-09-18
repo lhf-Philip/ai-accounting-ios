@@ -18,7 +18,7 @@ AI 記帳是個人財務管理 App，支援多幣別記帳、帳戶管理、預�
 - 收入/支出報表（分類與標籤鑽取）
 - 預算、超支提醒與 AI 預算建議
 - 資料健康檢查、JSON 備份/還原、WebDAV 遠端備份、CSV 匯出
-- AI 收據掃描（使用者自行填寫 Gemini API Key）
+- AI 收據掃描（自備 Gemini API Key，或使用按設備計量的受邀 Gemma）
 
 ## 平台狀態
 
@@ -93,6 +93,7 @@ GitHub Actions 會在 `push` / `pull_request` 到 `main` 時執行：
 
 - Gemini API Key 由使用者在 App 內設定
 - API Key 儲存在 iOS Keychain 與 Android secure storage
+- 受邀 Gemma 憑證綁定單一 App 安裝實例並安全儲存；限額後端不保存收據圖片或辨識出的帳目內容
 - 專案不包含任何預設 API Key、token、私人備份或私鑰
 
 ## 開源文件

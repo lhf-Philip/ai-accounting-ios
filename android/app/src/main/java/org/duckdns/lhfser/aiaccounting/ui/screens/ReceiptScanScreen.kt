@@ -44,6 +44,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.duckdns.lhfser.aiaccounting.core.ai.GeminiSettingsStore
+import org.duckdns.lhfser.aiaccounting.core.ai.PlatformGemmaService
+import org.duckdns.lhfser.aiaccounting.core.ai.PlatformGemmaSettingsStore
+import org.duckdns.lhfser.aiaccounting.core.ai.ReceiptAiProvider
 import org.duckdns.lhfser.aiaccounting.core.ai.ReceiptInfo
 import org.duckdns.lhfser.aiaccounting.core.ai.ReceiptScanService
 import org.duckdns.lhfser.aiaccounting.core.model.TransactionType
@@ -78,6 +81,8 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
     val repository = LocalRepository.current
     val scope = rememberCoroutineScope()
     val service = remember(context) { ReceiptScanService(GeminiSettingsStore(context)) }
+    val platformSettings = remember(context) { PlatformGemmaSettingsStore(context) }
+    val platformService = remember(context) { PlatformGemmaService(platformSettings) }
     val currencyService = LocalCurrencyService.current
     val scrollState = rememberScrollState()
 
@@ -99,6 +104,8 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
     var noteInput by remember { mutableStateOf("") }
     var selectedAccount by remember { mutableStateOf<AccountEntity?>(null) }
     var selectedCategory by remember { mutableStateOf<CategoryEntity?>(null) }
+    var receiptProvider by remember { mutableStateOf(platformSettings.provider) }
+    var providerMenuExpanded by remember { mutableStateOf(false) }
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -201,6 +208,24 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                 keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
 
+            ParityMenuField(
+                label = "辨識來源",
+                value = receiptProvider.label,
+                onClick = { providerMenuExpanded = true }
+            )
+            DropdownMenu(expanded = providerMenuExpanded, onDismissRequest = { providerMenuExpanded = false }) {
+                ReceiptAiProvider.entries.forEach { provider ->
+                    DropdownMenuItem(
+                        text = { Text(provider.label) },
+                        onClick = {
+                            providerMenuExpanded = false
+                            receiptProvider = provider
+                            platformSettings.provider = provider
+                        }
+                    )
+                }
+            }
+
             Button(
                 onClick = {
                     val bytes = imageBytes ?: return@Button
@@ -208,7 +233,11 @@ fun ReceiptScanScreen(onDone: () -> Unit) {
                     errorMessage = null
                     scope.launch {
                         runCatching {
-                            service.analyzeReceipt(bytes, userNote, expenseCategories.map { it.name })
+                            if (receiptProvider == ReceiptAiProvider.PlatformGemma) {
+                                platformService.analyzeReceipt(bytes, userNote, expenseCategories.map { it.name })
+                            } else {
+                                service.analyzeReceipt(bytes, userNote, expenseCategories.map { it.name })
+                            }
                         }.onSuccess { result ->
                             scanResult = result
                             amountInput = result.amount.toPlainString()

@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ai-accounting-gemma",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+  "ai": { "binding": "AI" },
+  "vars": {
+    "MODEL": "@cf/google/gemma-4-26b-a4b-it",
+    "DEVICE_DAILY_REQUEST_LIMIT": "50",
+    "GLOBAL_DAILY_NEURON_LIMIT": "5000",
+    "NEURON_RESERVATION": "100"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "QUOTA", "class_name": "GemmaQuota" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["GemmaQuota"] }
+  ],
+  "observability": { "enabled": true }
+}

@@ -20,9 +20,11 @@ class ScopeTests(unittest.TestCase):
             "Localizable.xcstrings": {"ios"},
             ".github/workflows/android-ci.yml": {"android"},
             ".github/workflows/ios-ci.yml": {"ios"},
-            "scripts/ci-scope.py": {"ios", "android"},
-            "scripts/tests/test_ci_scope.py": {"ios", "android"},
-            "unknown/new-input": {"ios", "android"},
+            ".github/workflows/docs-ci.yml": {"backend"},
+            "backend/gemma/src/worker.js": {"backend"},
+            "scripts/ci-scope.py": {"ios", "android", "backend"},
+            "scripts/tests/test_ci_scope.py": {"ios", "android", "backend"},
+            "unknown/new-input": {"ios", "android", "backend"},
         }
         for path, expected in cases.items():
             with self.subTest(path=path):

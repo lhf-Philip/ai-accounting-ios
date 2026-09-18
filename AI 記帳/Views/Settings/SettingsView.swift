@@ -21,6 +21,7 @@ struct SettingsView: View {
     @AppStorage("pinOverviewControls") private var pinOverviewControls: Bool = true
     @AppStorage("pinLedgerControls") private var pinLedgerControls: Bool = true
     @AppStorage("pinReportsControls") private var pinReportsControls: Bool = true
+    @AppStorage("PlatformGemmaBaseURL") private var platformGemmaBaseURL: String = ""
 
     @State private var isExportingJSON = false
     @State private var isImportingJSON = false
@@ -41,6 +42,8 @@ struct SettingsView: View {
     @State private var validationSheet: BackupValidationSheetState?
     @State private var lastImportSummaryMessage = ""
     @State private var apiKey: String = ""
+    @State private var platformInvitationCode: String = ""
+    @State private var isRegisteringPlatformGemma = false
 
     let currencies = ["HKD", "TWD", "USD", "JPY", "CNY", "EUR", "GBP"]
     private let keychainServiceName = "org.duckdns.lhfser.AIMoney"
@@ -147,6 +150,25 @@ struct SettingsView: View {
                         .onSubmit { hideKeyboard() }
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
+
+                    TextField("受邀 Gemma 服務網址", text: $platformGemmaBaseURL)
+                        .textContentType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+
+                    SecureField("一次性設備邀請碼", text: $platformInvitationCode)
+                        .textContentType(.oneTimeCode)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+
+                    Button(isRegisteringPlatformGemma ? "正在登記此設備…" : "登記受邀 Gemma") {
+                        registerPlatformGemma()
+                    }
+                    .disabled(isRegisteringPlatformGemma || platformInvitationCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Text(PlatformGemmaService.shared.isRegistered ? "此設備已儲存 Gemma 憑證" : "此設備尚未登記；自備 API Key 不受邀請限制")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     Toggle("固定總覽頁頂部區塊", isOn: $pinOverviewControls)
                     Toggle("固定帳目頁頂部區塊", isOn: $pinLedgerControls)
@@ -435,6 +457,25 @@ struct SettingsView: View {
 
         if !legacyApiKey.isEmpty {
             legacyApiKey = ""
+        }
+    }
+
+    private func registerPlatformGemma() {
+        guard !isRegisteringPlatformGemma else { return }
+        isRegisteringPlatformGemma = true
+        Task {
+            defer { isRegisteringPlatformGemma = false }
+            do {
+                try await PlatformGemmaService.shared.register(
+                    baseURL: platformGemmaBaseURL,
+                    invitationCode: platformInvitationCode
+                )
+                platformInvitationCode = ""
+                alertMessage = "此設備已登記受邀 Gemma。"
+            } catch {
+                alertMessage = error.localizedDescription
+            }
+            showingAlert = true
         }
     }
 
