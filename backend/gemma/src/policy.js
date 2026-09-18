@@ -8,13 +8,26 @@ export function utcDay(now = new Date()) {
   return now.toISOString().slice(0, 10);
 }
 
-export function positiveInteger(raw, fallback) {
-  const value = Number(raw);
-  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+export function cappedQuotaInteger(raw, defaultValue, maximum) {
+  if (raw === undefined) return defaultValue;
+
+  let value;
+  if (typeof raw === "number") {
+    value = raw;
+  } else if (typeof raw === "string") {
+    const normalized = raw.trim();
+    if (!/^\d+$/.test(normalized)) throw invalidConfiguration();
+    value = Number(normalized);
+  } else {
+    throw invalidConfiguration();
+  }
+
+  if (!Number.isSafeInteger(value) || value < 0) throw invalidConfiguration();
+  return Math.min(value, maximum);
 }
 
-export function cappedPositiveInteger(raw, fallback, maximum) {
-  return Math.min(positiveInteger(raw, fallback), maximum);
+function invalidConfiguration() {
+  return new RequestError(503, "invalid_configuration", "Gemma 服務設定錯誤。");
 }
 
 export async function sha256(value) {

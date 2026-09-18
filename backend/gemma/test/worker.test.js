@@ -153,6 +153,95 @@ test("duplicate request and per-device daily request quota do not call the model
   assert.equal(calls, 1);
 });
 
+test("global zero quota disables inference before AI call", async () => {
+  let calls = 0;
+  const { quota, headers } = await registeredQuota({
+    GLOBAL_DAILY_ESTIMATED_NEURON_LIMIT: "0",
+    AI: { run: async () => { calls += 1; return modelResponse(); } }
+  });
+  const response = await quota.fetch(jsonRequest(
+    "/v1/receipts/analyze", analyzeBody("123e4567-e89b-12d3-a456-426614174000"), headers
+  ));
+  assert.equal(response.status, 429);
+  assert.equal((await response.json()).error.code, "platform_quota_exhausted");
+  assert.equal(calls, 0);
+});
+
+test("device zero quota disables inference before AI call", async () => {
+  let calls = 0;
+  const { quota, headers } = await registeredQuota({
+    DEVICE_DAILY_REQUEST_LIMIT: 0,
+    AI: { run: async () => { calls += 1; return modelResponse(); } }
+  });
+  const response = await quota.fetch(jsonRequest(
+    "/v1/receipts/analyze", analyzeBody("123e4567-e89b-12d3-a456-426614174000"), headers
+  ));
+  assert.equal(response.status, 429);
+  assert.equal((await response.json()).error.code, "device_quota_exhausted");
+  assert.equal(calls, 0);
+});
+
+test("malformed quota configuration returns fixed 503 without AI call or raw-value disclosure", async () => {
+  const invalidRaw = "500O";
+  for (const key of ["GLOBAL_DAILY_ESTIMATED_NEURON_LIMIT", "DEVICE_DAILY_REQUEST_LIMIT"]) {
+    let calls = 0;
+    const logs = [];
+    const originalConsoleError = console.error;
+    console.error = (...args) => logs.push(args.map(String).join(" "));
+    try {
+      const { quota, headers, storage } = await registeredQuota({
+        [key]: invalidRaw,
+        AI: { run: async () => { calls += 1; return modelResponse(); } }
+      });
+      const response = await quota.fetch(jsonRequest(
+        "/v1/receipts/analyze", analyzeBody("123e4567-e89b-12d3-a456-426614174000"), headers
+      ));
+      assert.equal(response.status, 503);
+      const body = await response.json();
+      assert.deepEqual(body, { error: { code: "invalid_configuration", message: "Gemma 服務設定錯誤。" } });
+      assert.equal(calls, 0);
+      assert.equal(JSON.stringify([...storage.values.values()]).includes(invalidRaw), false);
+      assert.equal(JSON.stringify(logs).includes(invalidRaw), false);
+    } finally {
+      console.error = originalConsoleError;
+    }
+  }
+});
+
+test("missing quota bindings use existing defaults", async () => {
+  let calls = 0;
+  const { quota, headers } = await registeredQuota({
+    DEVICE_DAILY_REQUEST_LIMIT: undefined,
+    GLOBAL_DAILY_ESTIMATED_NEURON_LIMIT: undefined,
+    AI: { run: async () => { calls += 1; return modelResponse(); } }
+  });
+  const response = await quota.fetch(jsonRequest(
+    "/v1/receipts/analyze", analyzeBody("123e4567-e89b-12d3-a456-426614174000"), headers
+  ));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.usage.device.requestLimit, 50);
+  assert.equal(body.usage.platform.estimatedNeuronLimit, 5_000);
+  assert.equal(calls, 1);
+});
+
+test("quota bindings above hard maxima clamp instead of raising the caps", async () => {
+  let calls = 0;
+  const { quota, headers } = await registeredQuota({
+    DEVICE_DAILY_REQUEST_LIMIT: "9999",
+    GLOBAL_DAILY_ESTIMATED_NEURON_LIMIT: "999999",
+    AI: { run: async () => { calls += 1; return modelResponse(); } }
+  });
+  const response = await quota.fetch(jsonRequest(
+    "/v1/receipts/analyze", analyzeBody("123e4567-e89b-12d3-a456-426614174000"), headers
+  ));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.usage.device.requestLimit, 50);
+  assert.equal(body.usage.platform.estimatedNeuronLimit, 5_000);
+  assert.equal(calls, 1);
+});
+
 test("unknown configured model is rejected before AI call", async () => {
   let calls = 0;
   const { quota, headers } = await registeredQuota({

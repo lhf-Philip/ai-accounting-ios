@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cappedPositiveInteger, parseInvitationCodes, parseReceipt, positiveInteger, RequestError, utcDay, validateAnalyzeInput } from "../src/policy.js";
+import { cappedQuotaInteger, parseInvitationCodes, parseReceipt, RequestError, utcDay, validateAnalyzeInput } from "../src/policy.js";
 
 const validAnalyzeBody = (overrides = {}) => ({
   requestId: "123e4567-e89b-12d3-a456-426614174000",
@@ -11,11 +11,37 @@ const validAnalyzeBody = (overrides = {}) => ({
   ...overrides
 });
 
-test("configuration values fail closed to defaults and hard maxima", () => {
-  assert.equal(positiveInteger("50", 10), 50);
-  assert.equal(positiveInteger("0", 10), 10);
-  assert.equal(positiveInteger("oops", 10), 10);
-  assert.equal(cappedPositiveInteger("9999", 50, 50), 50);
+test("quota configuration distinguishes missing, zero, valid, clamped and invalid values", () => {
+  assert.equal(cappedQuotaInteger(undefined, 50, 50), 50);
+  assert.equal(cappedQuotaInteger("0", 50, 50), 0);
+  assert.equal(cappedQuotaInteger(0, 50, 50), 0);
+  assert.equal(cappedQuotaInteger("7", 50, 50), 7);
+  assert.equal(cappedQuotaInteger(7, 50, 50), 7);
+  assert.equal(cappedQuotaInteger("9999", 50, 50), 50);
+  assert.equal(cappedQuotaInteger(9999, 50, 50), 50);
+
+  const invalid = [
+    "-1",
+    "",
+    "   ",
+    "NaN",
+    "500O",
+    "1.5",
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER + 1,
+    null,
+    {}
+  ];
+  for (const raw of invalid) {
+    assert.throws(
+      () => cappedQuotaInteger(raw, 50, 50),
+      error => error instanceof RequestError &&
+        error.status === 503 &&
+        error.code === "invalid_configuration" &&
+        error.message === "Gemma 服務設定錯誤。"
+    );
+  }
+
   assert.deepEqual(parseInvitationCodes('["1234567890abcdef"]'), ["1234567890abcdef"]);
   assert.throws(() => parseInvitationCodes('["short"]'));
 });

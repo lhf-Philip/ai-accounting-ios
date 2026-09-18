@@ -50,7 +50,17 @@ Official Cloudflare sources:
 
 ## Quota and privacy
 
-The application hard caps are 50 receipt requests per device per UTC day and 5,000 estimated Neurons for the whole platform per UTC day. Deployment settings may lower these values but cannot raise them.
+The application hard caps are 50 receipt requests per device per UTC day and 5,000 estimated Neurons for the whole platform per UTC day. Both `DEVICE_DAILY_REQUEST_LIMIT` and `GLOBAL_DAILY_ESTIMATED_NEURON_LIMIT` use the same deployment-setting semantics:
+
+| Binding value | Meaning |
+| --- | --- |
+| `undefined` / binding absent | Use the existing default: 50 device requests or 5,000 platform estimated Neurons. |
+| `0` or `"0"` | Valid disable setting. New inference is rejected by quota admission before `AI.run()`. |
+| Safe integer from 1 through the hard cap | Use that configured value. |
+| Safe integer above the hard cap | Clamp to the hard cap; configuration cannot raise 50 / 5,000. |
+| Negative, empty/whitespace-only, fractional, NaN/Infinity, malformed string, unsafe integer, `null`, or another type | Deployment configuration error. Inference returns a fixed `503 invalid_configuration` before `AI.run()`; the raw configured value is not returned or logged. |
+
+Configuration parsing never uses truthiness, because zero is an intentional disable value. A present-but-invalid binding never falls back to the maximum.
 
 Before every model call, one Durable Object transaction requires:
 

@@ -1,4 +1,4 @@
-import { cappedPositiveInteger, parseInvitationCodes, parseReceipt, RequestError, sha256, utcDay, validateAnalyzeInput } from "./policy.js";
+import { cappedQuotaInteger, parseInvitationCodes, parseReceipt, RequestError, sha256, utcDay, validateAnalyzeInput } from "./policy.js";
 import {
   DEFAULT_MODEL,
   DEVICE_DAILY_REQUEST_HARD_CAP,
@@ -198,11 +198,11 @@ export class GemmaQuota {
   }
 
   deviceRequestLimit() {
-    return cappedPositiveInteger(this.env.DEVICE_DAILY_REQUEST_LIMIT, DEVICE_DAILY_REQUEST_HARD_CAP, DEVICE_DAILY_REQUEST_HARD_CAP);
+    return cappedQuotaInteger(this.env.DEVICE_DAILY_REQUEST_LIMIT, DEVICE_DAILY_REQUEST_HARD_CAP, DEVICE_DAILY_REQUEST_HARD_CAP);
   }
 
   platformEstimatedNeuronLimit() {
-    return cappedPositiveInteger(
+    return cappedQuotaInteger(
       this.env.GLOBAL_DAILY_ESTIMATED_NEURON_LIMIT,
       PLATFORM_DAILY_ESTIMATED_NEURON_HARD_CAP,
       PLATFORM_DAILY_ESTIMATED_NEURON_HARD_CAP
