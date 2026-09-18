@@ -30,10 +30,10 @@ class PlatformGemmaSettingsStore(context: Context) {
     val registeredBaseUrl: String? get() = secret(KEY_REGISTERED_BASE_URL)
     val isRegistered: Boolean get() = deviceId != null && credential != null && registeredBaseUrl != null
 
-    fun saveRegistration(deviceId: String, credential: String) {
+    fun saveRegistration(deviceId: String, credential: String, registeredBaseUrl: String) {
         setSecret(KEY_DEVICE_ID, deviceId)
         setSecret(KEY_CREDENTIAL, credential)
-        setSecret(KEY_REGISTERED_BASE_URL, baseUrl)
+        setSecret(KEY_REGISTERED_BASE_URL, registeredBaseUrl)
     }
 
     private fun secret(key: String): String? {

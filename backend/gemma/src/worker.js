@@ -1,4 +1,11 @@
-import { parseInvitationCodes, parseReceipt, positiveInteger, RequestError, sha256, utcDay, validateAnalyzeInput } from "./policy.js";
+import { cappedPositiveInteger, parseInvitationCodes, parseReceipt, RequestError, sha256, utcDay, validateAnalyzeInput } from "./policy.js";
+import {
+  DEFAULT_MODEL,
+  DEVICE_DAILY_REQUEST_HARD_CAP,
+  estimateNeuronsFromUsage,
+  PLATFORM_DAILY_ESTIMATED_NEURON_HARD_CAP,
+  resolveModelPolicy
+} from "./model-policy.js";
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -81,94 +88,138 @@ export class GemmaQuota {
   async analyze(request) {
     const { deviceId } = await this.authenticate(request);
     const input = validateAnalyzeInput(await request.json().catch(() => null));
+    const policy = resolveModelPolicy(this.env.MODEL || DEFAULT_MODEL);
     const day = utcDay();
-    const reservation = positiveInteger(this.env.NEURON_RESERVATION, 100);
-    await this.reserve(day, deviceId, input.requestId, reservation);
+    const requestUpperBound = policy.requestUpperBoundEstimatedNeurons;
+    await this.reserve(day, deviceId, input.requestId, requestUpperBound, policy.model);
 
     let rawResponse;
     try {
-      rawResponse = await this.env.AI.run(this.env.MODEL || "@cf/google/gemma-4-26b-a4b-it", {
+      rawResponse = await this.env.AI.run(policy.model, {
         messages: [{ role: "user", content: [
           { type: "text", text: receiptPrompt(input.userNote, input.categories) },
           { type: "image_url", image_url: { url: `data:${input.mimeType};base64,${input.imageBase64}` } }
         ] }],
         temperature: 0,
-        max_completion_tokens: 1024,
+        max_completion_tokens: policy.maxCompletionTokens,
         stream: false,
         chat_template_kwargs: { enable_thinking: false }
       });
-    } catch (error) {
-      await this.finalize(day, deviceId, input.requestId, reservation, reservation, "upstream_error");
+    } catch {
+      await this.finalize(day, deviceId, input.requestId, requestUpperBound, null, "upstream_error");
       throw new RequestError(502, "upstream_error", "Gemma 暫時無法完成辨識；本次可能已耗用額度。");
     }
 
-    const neurons = finiteUsage(rawResponse?.usage?.neurons) ?? reservation;
-    const content = rawResponse?.response ?? rawResponse?.choices?.[0]?.message?.content;
+    const estimatedNeurons = estimateNeuronsFromUsage(rawResponse?.usage, policy);
+    const content = rawResponse?.choices?.[0]?.message?.content ?? rawResponse?.response;
     let receipt;
     try {
       receipt = parseReceipt(content);
     } catch (error) {
-      await this.finalize(day, deviceId, input.requestId, reservation, neurons, "invalid_output");
+      await this.finalize(day, deviceId, input.requestId, requestUpperBound, estimatedNeurons, "invalid_output");
       throw error;
     }
-    const usage = await this.finalize(day, deviceId, input.requestId, reservation, neurons, "success");
+    const usage = await this.finalize(day, deviceId, input.requestId, requestUpperBound, estimatedNeurons, "success");
     return json({ receipt, usage });
   }
 
-  async reserve(day, deviceId, requestId, reservation) {
+  async reserve(day, deviceId, requestId, requestUpperBound, model) {
     const requestKey = `request:${deviceId}:${requestId}`;
     const deviceKey = `usage:${day}:device:${deviceId}`;
     const globalKey = `usage:${day}:global`;
-    const deviceLimit = positiveInteger(this.env.DEVICE_DAILY_REQUEST_LIMIT, 50);
-    const globalLimit = positiveInteger(this.env.GLOBAL_DAILY_NEURON_LIMIT, 5000);
+    const deviceLimit = this.deviceRequestLimit();
+    const globalLimit = this.platformEstimatedNeuronLimit();
     await this.ctx.storage.transaction(async txn => {
       if (await txn.get(requestKey)) throw new RequestError(409, "duplicate_request", "此請求已處理，沒有再次呼叫模型。");
-      const device = (await txn.get(deviceKey)) || { requests: 0, actualNeurons: 0, reservedNeurons: 0 };
-      const global = (await txn.get(globalKey)) || { requests: 0, actualNeurons: 0, reservedNeurons: 0 };
+      const device = normalizeUsage(await txn.get(deviceKey));
+      const global = normalizeUsage(await txn.get(globalKey));
       if (device.requests >= deviceLimit) throw new RequestError(429, "device_quota_exhausted", "此設備今日 Gemma 次數已用完。");
-      if (global.actualNeurons + global.reservedNeurons + reservation > globalLimit) {
-        throw new RequestError(429, "platform_quota_exhausted", "平台今日 Gemma 免費額度已用完。");
+      if (global.committedEstimatedNeurons + global.pendingEstimatedNeurons + requestUpperBound > globalLimit) {
+        throw new RequestError(429, "platform_quota_exhausted", "平台今日 Gemma 估算額度已用完。");
       }
-      device.requests += 1; device.reservedNeurons += reservation;
-      global.requests += 1; global.reservedNeurons += reservation;
-      await txn.put(deviceKey, device); await txn.put(globalKey, global);
-      await txn.put(requestKey, { day, reservation, status: "pending", createdAt: new Date().toISOString() });
+      device.requests += 1;
+      device.pendingEstimatedNeurons += requestUpperBound;
+      global.requests += 1;
+      global.pendingEstimatedNeurons += requestUpperBound;
+      await txn.put(deviceKey, device);
+      await txn.put(globalKey, global);
+      await txn.put(requestKey, {
+        day,
+        model,
+        requestUpperBoundEstimatedNeurons: requestUpperBound,
+        status: "pending",
+        createdAt: new Date().toISOString()
+      });
     });
   }
 
-  async finalize(day, deviceId, requestId, reservation, actualNeurons, result) {
+  async finalize(day, deviceId, requestId, requestUpperBound, estimatedNeurons, result) {
     const deviceKey = `usage:${day}:device:${deviceId}`;
     const globalKey = `usage:${day}:global`;
+    const chargedEstimatedNeurons = estimatedNeurons ?? requestUpperBound;
     await this.ctx.storage.transaction(async txn => {
       const requestKey = `request:${deviceId}:${requestId}`;
       const record = await txn.get(requestKey);
       if (!record || record.status !== "pending") return;
       for (const key of [deviceKey, globalKey]) {
-        const usage = await txn.get(key);
-        usage.reservedNeurons = Math.max(0, usage.reservedNeurons - reservation);
-        usage.actualNeurons += actualNeurons;
+        const usage = normalizeUsage(await txn.get(key));
+        usage.pendingEstimatedNeurons = Math.max(0, usage.pendingEstimatedNeurons - requestUpperBound);
+        usage.committedEstimatedNeurons += chargedEstimatedNeurons;
         await txn.put(key, usage);
       }
-      await txn.put(requestKey, { ...record, status: "complete", result, actualNeurons, completedAt: new Date().toISOString() });
+      await txn.put(requestKey, {
+        ...record,
+        status: "complete",
+        result,
+        estimatedNeurons: chargedEstimatedNeurons,
+        completedAt: new Date().toISOString()
+      });
     });
     const [deviceUsage, globalUsage] = await Promise.all([this.ctx.storage.get(deviceKey), this.ctx.storage.get(globalKey)]);
     return this.usagePayload(day, deviceUsage, globalUsage);
   }
 
   usagePayload(day, device = {}, global = {}) {
-    const deviceLimit = positiveInteger(this.env.DEVICE_DAILY_REQUEST_LIMIT, 50);
-    const globalLimit = positiveInteger(this.env.GLOBAL_DAILY_NEURON_LIMIT, 5000);
+    const normalizedDevice = normalizeUsage(device);
+    const normalizedGlobal = normalizeUsage(global);
     return {
-      day, resetsAt: `${new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString()}`,
-      device: { requests: device.requests || 0, requestLimit: deviceLimit, neurons: device.actualNeurons || 0 },
-      platform: { neurons: global.actualNeurons || 0, neuronLimit: globalLimit }
+      day,
+      resetsAt: `${new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString()}`,
+      device: {
+        requests: normalizedDevice.requests,
+        requestLimit: this.deviceRequestLimit(),
+        estimatedNeurons: normalizedDevice.committedEstimatedNeurons
+      },
+      platform: {
+        estimatedNeurons: normalizedGlobal.committedEstimatedNeurons,
+        estimatedNeuronLimit: this.platformEstimatedNeuronLimit()
+      }
     };
+  }
+
+  deviceRequestLimit() {
+    return cappedPositiveInteger(this.env.DEVICE_DAILY_REQUEST_LIMIT, DEVICE_DAILY_REQUEST_HARD_CAP, DEVICE_DAILY_REQUEST_HARD_CAP);
+  }
+
+  platformEstimatedNeuronLimit() {
+    return cappedPositiveInteger(
+      this.env.GLOBAL_DAILY_ESTIMATED_NEURON_LIMIT,
+      PLATFORM_DAILY_ESTIMATED_NEURON_HARD_CAP,
+      PLATFORM_DAILY_ESTIMATED_NEURON_HARD_CAP
+    );
   }
 }
 
-function finiteUsage(value) {
-  const number = Number(value);
-  return Number.isFinite(number) && number >= 0 ? number : null;
+function normalizeUsage(value) {
+  return {
+    requests: safeNonNegativeInteger(value?.requests),
+    committedEstimatedNeurons: safeNonNegativeInteger(value?.committedEstimatedNeurons),
+    pendingEstimatedNeurons: safeNonNegativeInteger(value?.pendingEstimatedNeurons)
+  };
+}
+
+function safeNonNegativeInteger(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
 function randomSecret() {

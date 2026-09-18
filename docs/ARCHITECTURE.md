@@ -275,7 +275,7 @@ A shared feature is complete only when affected semantics, backup compatibility,
 ## External Boundaries
 
 - **Gemini BYOK**: optional user-provided API key, available without an invitation.
-- **Invited Gemma**: project Worker keeps the platform credential server-side, binds a one-time invitation to an installation credential, records per-device requests and Neurons, and enforces both device and platform limits. See [`AI_SERVICES.md`](./AI_SERVICES.md).
+- **Invited Gemma**: project Worker keeps the platform credential server-side, binds a one-time invitation to an installation credential, records per-device requests and token-derived estimated Neurons, and enforces both device and platform hard limits. See [`AI_SERVICES.md`](./AI_SERVICES.md).
 - **AI output**: every provider produces an untrusted suggestion that requires validation and user review before ledger persistence.
 - **Exchange rates**: live rates with cached fallback; estimates are not historical FX facts.
 - **WebDAV**: user credentials and optional backup passphrase; manual upload/restore only. On iOS, HTTPS is required before settings are saved or authenticated requests are built; downloads and redirects stay on the configured HTTPS origin. Payload encryption protects stored backups separately from TLS transport protection.

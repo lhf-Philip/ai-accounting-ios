@@ -1,13 +1,12 @@
 package org.duckdns.lhfser.aiaccounting.core.ai
 
-import android.util.Base64
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Base64
 import com.google.gson.Gson
-import java.io.IOException
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
-import java.net.URI
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.UUID
@@ -18,18 +17,26 @@ class PlatformGemmaService(private val settings: PlatformGemmaSettingsStore) {
     private val gson = Gson()
 
     suspend fun register(invitationCode: String) = withContext(Dispatchers.IO) {
-        val response = post(
-            baseUrl = validatedBaseUrl(settings.baseUrl),
-            path = "v1/devices/register",
-            body = mapOf(
-                "inviteCode" to invitationCode.trim(),
-                "installationId" to settings.installationId,
-                "platform" to "android"
-            ),
-            authenticated = false,
-            responseType = RegistrationResponse::class.java
+        val installationId = settings.installationId
+        registerAgainstStableBaseUrl(
+            rawBaseUrl = settings.baseUrl,
+            register = { registeredBaseUrl ->
+                post(
+                    baseUrl = registeredBaseUrl,
+                    path = "v1/devices/register",
+                    body = mapOf(
+                        "inviteCode" to invitationCode.trim(),
+                        "installationId" to installationId,
+                        "platform" to "android"
+                    ),
+                    authenticated = false,
+                    responseType = RegistrationResponse::class.java
+                )
+            },
+            saveRegistration = { response, registeredBaseUrl ->
+                settings.saveRegistration(response.deviceId, response.credential, registeredBaseUrl)
+            }
         )
-        settings.saveRegistration(response.deviceId, response.credential)
     }
 
     suspend fun analyzeReceipt(
@@ -39,7 +46,7 @@ class PlatformGemmaService(private val settings: PlatformGemmaSettingsStore) {
     ): ReceiptInfo = withContext(Dispatchers.IO) {
         val jpeg = receiptJpeg(imageBytes)
         val response = post(
-            baseUrl = validatedBaseUrl(settings.registeredBaseUrl.orEmpty()),
+            baseUrl = canonicalizePlatformGemmaBaseUrl(settings.registeredBaseUrl.orEmpty()),
             path = "v1/receipts/analyze",
             body = mapOf(
                 "requestId" to UUID.randomUUID().toString(),
@@ -84,16 +91,6 @@ class PlatformGemmaService(private val settings: PlatformGemmaSettingsStore) {
         } finally {
             connection.disconnect()
         }
-    }
-
-    private fun validatedBaseUrl(raw: String): String {
-        val value = raw.trim().trimEnd('/')
-        val uri = runCatching { URI(value) }.getOrNull()
-        require(uri?.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.query == null &&
-            uri.fragment == null && (uri.path.isNullOrEmpty() || uri.path == "/")) {
-            "請先在設定輸入有效的 HTTPS Gemma 服務網址。"
-        }
-        return value
     }
 
     private fun receiptJpeg(bytes: ByteArray): ByteArray {

@@ -1,5 +1,9 @@
 const encoder = new TextEncoder();
 
+const MAX_CATEGORY_COUNT = 100;
+const MAX_CATEGORY_LENGTH = 80;
+const MAX_CATEGORY_TOTAL_LENGTH = 4_000;
+
 export function utcDay(now = new Date()) {
   return now.toISOString().slice(0, 10);
 }
@@ -7,6 +11,10 @@ export function utcDay(now = new Date()) {
 export function positiveInteger(raw, fallback) {
   const value = Number(raw);
   return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+
+export function cappedPositiveInteger(raw, fallback, maximum) {
+  return Math.min(positiveInteger(raw, fallback), maximum);
 }
 
 export async function sha256(value) {
@@ -38,10 +46,31 @@ export function validateAnalyzeInput(body) {
     throw new RequestError(415, "unsupported_image", "只支援 JPEG、PNG 或 WebP。");
   }
   const userNote = String(body.userNote || "").slice(0, 500);
-  const categories = Array.isArray(body.categories)
-    ? body.categories.filter(value => typeof value === "string").map(value => value.trim()).filter(Boolean).slice(0, 100)
-    : [];
+  const categories = validateCategories(body.categories);
   return { requestId, imageBase64, mimeType, userNote, categories };
+}
+
+function validateCategories(rawCategories) {
+  if (rawCategories === undefined || rawCategories === null) return [];
+  if (!Array.isArray(rawCategories)) throw new RequestError(400, "invalid_categories", "分類格式錯誤。");
+  if (rawCategories.length > MAX_CATEGORY_COUNT) throw new RequestError(413, "categories_too_large", "分類數量過多。");
+
+  const categories = [];
+  let totalLength = 0;
+  for (const value of rawCategories) {
+    if (typeof value !== "string") throw new RequestError(400, "invalid_categories", "分類格式錯誤。");
+    const category = value.trim();
+    if (!category) continue;
+    if (category.length > MAX_CATEGORY_LENGTH) {
+      throw new RequestError(413, "category_too_long", "單一分類名稱過長。");
+    }
+    totalLength += category.length;
+    if (totalLength > MAX_CATEGORY_TOTAL_LENGTH) {
+      throw new RequestError(413, "categories_too_large", "分類內容總長度過長。");
+    }
+    categories.push(category);
+  }
+  return categories;
 }
 
 export function parseReceipt(raw) {

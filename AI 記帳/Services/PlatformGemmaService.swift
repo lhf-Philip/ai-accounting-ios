@@ -19,12 +19,12 @@ struct PlatformGemmaUsage: Decodable {
     struct Device: Decodable {
         let requests: Int
         let requestLimit: Int
-        let neurons: Double
+        let estimatedNeurons: Int
     }
 
     struct Platform: Decodable {
-        let neurons: Double
-        let neuronLimit: Int
+        let estimatedNeurons: Int
+        let estimatedNeuronLimit: Int
     }
 
     let day: String
@@ -67,9 +67,10 @@ final class PlatformGemmaService {
 
     func register(baseURL: String, invitationCode: String) async throws {
         let endpoint = try validatedBaseURL(baseURL)
+        let persistedInstallationId = try installationId()
         let body = RegistrationRequest(
             inviteCode: invitationCode.trimmingCharacters(in: .whitespacesAndNewlines),
-            installationId: installationId(),
+            installationId: persistedInstallationId,
             platform: "ios"
         )
         var request = URLRequest(url: endpoint.appending(path: "v1/devices/register"))
@@ -105,7 +106,7 @@ final class PlatformGemmaService {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(deviceId).\(credential)", forHTTPHeaderField: "Authorization")
-        request.setValue(installationId(), forHTTPHeaderField: "X-Installation-ID")
+        request.setValue(try installationId(), forHTTPHeaderField: "X-Installation-ID")
         request.httpBody = try JSONEncoder().encode(body)
         let response: AnalyzeResponse = try await send(request)
         return response.receipt
@@ -128,11 +129,17 @@ final class PlatformGemmaService {
         return url
     }
 
-    private func installationId() -> String {
-        if let existing = stored(installationAccount) { return existing }
-        let value = UUID().uuidString
-        _ = KeychainService.shared.save(service: keychainService, account: installationAccount, value: value)
-        return value
+    private func installationId() throws -> String {
+        do {
+            return try PlatformGemmaInstallationIdentifier.loadOrCreate(
+                existing: stored(installationAccount),
+                persist: { value in
+                    KeychainService.shared.save(service: keychainService, account: installationAccount, value: value)
+                }
+            )
+        } catch {
+            throw PlatformGemmaError.service("無法安全儲存設備識別碼。")
+        }
     }
 
     private func stored(_ account: String) -> String? {
