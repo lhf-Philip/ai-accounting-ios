@@ -37,6 +37,7 @@ class PlatformGemmaService(private val settings: PlatformGemmaSettingsStore) {
                 settings.saveRegistration(response.deviceId, response.credential, registeredBaseUrl)
             }
         )
+        Unit
     }
 
     suspend fun analyzeReceipt(
