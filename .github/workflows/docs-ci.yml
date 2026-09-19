@@ -44,7 +44,7 @@ jobs:
         working-directory: backend/gemma
         run: npm ci
 
-      - name: Test and validate Gemma backend
+      - name: Test and dry-run Gemma backend configs
         if: steps.backend-scope.outputs.run == 'true'
         working-directory: backend/gemma
         run: |
