@@ -17,5 +17,24 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["GemmaQuota"] }
   ],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  "env": {
+    "staging": {
+      "workers_dev": true,
+      "ai": { "binding": "AI" },
+      "vars": {
+        "MODEL": "@cf/google/gemma-4-26b-a4b-it",
+        "DEVICE_DAILY_REQUEST_LIMIT": "1",
+        "GLOBAL_DAILY_ESTIMATED_NEURON_LIMIT": "2356"
+      },
+      "durable_objects": {
+        "bindings": [
+          { "name": "QUOTA", "class_name": "GemmaQuota" }
+        ]
+      },
+      "migrations": [
+        { "tag": "v1", "new_sqlite_classes": ["GemmaQuota"] }
+      ]
+    }
+  }
 }
