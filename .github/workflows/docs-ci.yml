@@ -47,4 +47,7 @@ jobs:
       - name: Test and validate Gemma backend
         if: steps.backend-scope.outputs.run == 'true'
         working-directory: backend/gemma
-        run: npm test && npm run check
+        run: |
+          npm test
+          npm run check
+          npm run check:staging
