@@ -18,7 +18,7 @@ AI 记账是个人财务管理 App，支持多币种记账、账户管理、预�
 - 收入/支出报表（分类与标签钻取）
 - 预算、超支提醒与 AI 预算建议
 - 数据健康检查、JSON 备份/还原、WebDAV 远程备份、CSV 导出
-- AI 小票扫描（用户自行填写 Gemini API Key）
+- AI 小票扫描（自备 Gemini API Key，或使用按设备计量的受邀 Gemma）
 
 ## 平台状态
 
@@ -93,6 +93,7 @@ GitHub Actions 会在 `push` / `pull_request` 到 `main` 时执行：
 
 - Gemini API Key 由用户在 App 内自行设置
 - API Key 存储在 iOS Keychain 与 Android secure storage
+- 受邀 Gemma 凭证绑定单一 App 安装实例并安全存储；限额后端不保存小票图片或识别出的账目内容
 - 仓库不包含任何默认 API Key、token、私人备份或私钥
 
 ## 开源文件

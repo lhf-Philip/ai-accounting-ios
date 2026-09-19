@@ -14,6 +14,7 @@ This is the entry point for engineering documentation. Code and tests win when a
 3. [Development Guide](./DEVELOPMENT_GUIDE.md)
 4. [Testing Guide](./TESTING.md)
 5. [Troubleshooting](./TROUBLESHOOTING.md)
+6. [AI Services](./AI_SERVICES.md)
 
 ## Domain And Data
 

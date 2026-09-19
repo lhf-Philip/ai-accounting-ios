@@ -18,9 +18,33 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select relevant backend work
+        id: backend-scope
+        run: python3 scripts/ci-scope.py backend
 
       - name: Validate Developer Documentation
         run: python3 scripts/check-docs.py
 
       - name: Validate CI scope rules
         run: python3 -m unittest discover -s scripts/tests -p "test_ci_scope.py"
+
+      - name: Set up Node.js
+        if: steps.backend-scope.outputs.run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/gemma/package-lock.json
+
+      - name: Install Gemma backend dependencies
+        if: steps.backend-scope.outputs.run == 'true'
+        working-directory: backend/gemma
+        run: npm ci
+
+      - name: Test and validate Gemma backend
+        if: steps.backend-scope.outputs.run == 'true'
+        working-directory: backend/gemma
+        run: npm test && npm run check

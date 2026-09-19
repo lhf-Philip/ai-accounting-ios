@@ -18,7 +18,7 @@ AI Accounting is a personal finance app for multi-currency bookkeeping, account 
 - Income/expense charts with category/tag drill-down
 - Budgets, overspending alerts, and AI-assisted budget suggestions
 - Data health checks, JSON backup/restore, WebDAV remote backup with optional encryption, and CSV export
-- Optional AI receipt scanning with a user-provided Gemini API key
+- Optional AI receipt scanning with either a user-provided Gemini API key or an invited, per-device-metered Gemma service
 
 ## Platform Status
 
@@ -53,6 +53,7 @@ iOS UI currently supports:
 
 - iOS: SwiftUI, SwiftData, Charts, `generative-ai-swift`
 - Android: Kotlin, Jetpack Compose, Room, WorkManager, Android widgets
+- AI backend: Cloudflare Worker, Workers AI, and a SQLite-backed Durable Object
 
 ## Requirements
 
@@ -106,6 +107,7 @@ Start with the [`docs/README.md`](./docs/README.md) engineering index.
 
 - Gemini API key is provided by each user inside the app.
 - API key is stored in iOS Keychain and Android secure storage.
+- Invited Gemma credentials are bound to one app installation and stored in the same platform secure storage. Receipt images and extracted accounting content are not retained by the quota backend.
 - The repository does not include default API keys, tokens, personal backups, or private keys.
 
 ## Open-Source Documents

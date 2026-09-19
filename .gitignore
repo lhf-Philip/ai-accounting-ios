@@ -32,10 +32,18 @@ fastlane/test_output/
 *.swp
 *.swo
 
+# Python
+__pycache__/
+*.py[cod]
+
 # Android
 android/.gradle/
 android/local.properties
 android/keystore.properties
+
+# Node / Cloudflare Worker
+node_modules/
+.wrangler/
 
 # Codex local agent state
 .codex/

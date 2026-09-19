@@ -1,7 +1,7 @@
 # Architecture
 
 Status: Active
-Last reviewed: 2026-07-10
+Last reviewed: 2026-09-18
 Applies to: iOS, Android
 Source of truth: current application entry points, persistence models, services/repository, [`CONTEXT.md`](../CONTEXT.md), and accepted [`adr/`](./adr/)
 
@@ -18,6 +18,8 @@ flowchart LR
     WebDAV["User-configured WebDAV"]
     FX["Exchange-rate provider"]
     Gemini["Google Gemini API"]
+    GemmaProxy["Invited Gemma Worker<br/>device auth + quota"]
+    WorkersAI["Cloudflare Workers AI"]
     Widget["Android home-screen widget"]
 
     User --> IOS
@@ -30,10 +32,13 @@ flowchart LR
     Android --> FX
     IOS --> Gemini
     Android --> Gemini
+    IOS --> GemmaProxy
+    Android --> GemmaProxy
+    GemmaProxy --> WorkersAI
     Android --> Widget
 ```
 
-The app has no project-owned backend and no live cross-device synchronisation. WebDAV is deliberate backup and restore, not database replication.
+The accounting store remains local and there is no live cross-device synchronisation. The project-owned Gemma Worker is a narrow optional receipt-analysis boundary: it authenticates invited installations, applies quotas, forwards one inference, and does not store receipt or ledger content. WebDAV is deliberate backup and restore, not database replication.
 
 ## Platform Layers
 
@@ -269,7 +274,9 @@ A shared feature is complete only when affected semantics, backup compatibility,
 
 ## External Boundaries
 
-- **Gemini**: optional user-provided API key; outputs are suggestions that require user review.
+- **Gemini BYOK**: optional user-provided API key, available without an invitation.
+- **Invited Gemma**: project Worker keeps the platform credential server-side, binds a one-time invitation to an installation credential, records per-device requests and token-derived estimated Neurons, and enforces both device and platform hard limits. See [`AI_SERVICES.md`](./AI_SERVICES.md).
+- **AI output**: every provider produces an untrusted suggestion that requires validation and user review before ledger persistence.
 - **Exchange rates**: live rates with cached fallback; estimates are not historical FX facts.
 - **WebDAV**: user credentials and optional backup passphrase; manual upload/restore only. On iOS, HTTPS is required before settings are saved or authenticated requests are built; downloads and redirects stay on the configured HTTPS origin. Payload encryption protects stored backups separately from TLS transport protection.
 - **Files**: JSON is the recovery contract; CSV is a report export, not an import or lossless backup.

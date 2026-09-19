@@ -17,6 +17,8 @@ def platforms(path):
         "scripts/run-android-regression.sh",
     }:
         return {"android"}
+    if path.startswith("backend/gemma/"):
+        return {"backend"}
     if path.startswith(("AI 記帳/", "AI 記帳Tests/", "AI 記帳UITests/", "AI 記帳.xcodeproj/")) or path in {
         "Localizable.xcstrings", ".github/workflows/ios-ci.yml",
         "scripts/select-ios-simulator.py", "scripts/run-ios-regression.sh",
@@ -28,8 +30,8 @@ def platforms(path):
         "LICENSE", "AGENTS.md", "CONTEXT.md", "scripts/check-docs.py",
         ".github/workflows/docs-ci.yml",
     }:
-        return set()
-    return {"ios", "android"}
+        return {"backend"} if path == ".github/workflows/docs-ci.yml" else set()
+    return {"ios", "android", "backend"}
 
 
 def changed_paths(event, git):
@@ -48,8 +50,8 @@ def changed_paths(event, git):
 
 def main():
     platform = sys.argv[1]
-    if platform not in {"ios", "android"}:
-        raise ValueError("expected ios or android")
+    if platform not in {"ios", "android", "backend"}:
+        raise ValueError("expected ios, android or backend")
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     paths = changed_paths(event, lambda *args: subprocess.check_output(["git", *args]))
     selected = paths is None or any(platform in platforms(p) for p in paths)

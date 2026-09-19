@@ -42,6 +42,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.duckdns.lhfser.aiaccounting.core.ai.GeminiSettingsStore
+import org.duckdns.lhfser.aiaccounting.core.ai.PlatformGemmaService
+import org.duckdns.lhfser.aiaccounting.core.ai.PlatformGemmaSettingsStore
 import org.duckdns.lhfser.aiaccounting.ui.LocalCurrencyService
 import org.duckdns.lhfser.aiaccounting.ui.LocalRepository
 import org.duckdns.lhfser.aiaccounting.ui.LocalUiPreferences
@@ -75,6 +77,8 @@ fun SettingsScreen(
     val uiPreferencesStore = LocalUiPreferences.current
     val context = LocalContext.current
     val geminiSettingsStore = remember(context) { GeminiSettingsStore(context) }
+    val platformGemmaSettings = remember(context) { PlatformGemmaSettingsStore(context) }
+    val platformGemmaService = remember(context) { PlatformGemmaService(platformGemmaSettings) }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
@@ -83,6 +87,9 @@ fun SettingsScreen(
     var mainCurrency by remember { mutableStateOf(currencyService.mainCurrency) }
     var currencyMenuExpanded by remember { mutableStateOf(false) }
     var apiKey by remember { mutableStateOf(geminiSettingsStore.apiKey) }
+    var platformGemmaBaseUrl by remember { mutableStateOf(platformGemmaSettings.baseUrl) }
+    var platformInvitationCode by remember { mutableStateOf("") }
+    var isRegisteringPlatformGemma by remember { mutableStateOf(false) }
     var pendingReplaceImportText by remember { mutableStateOf<String?>(null) }
     var pendingReplaceImportPreview by remember { mutableStateOf("") }
     var showReplaceImportConfirm by remember { mutableStateOf(false) }
@@ -313,6 +320,49 @@ fun SettingsScreen(
                 ,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                     keyboardActions = org.duckdns.lhfser.aiaccounting.ui.components.keyboardDoneActions())
+                OutlinedTextField(
+                    value = platformGemmaBaseUrl,
+                    onValueChange = {
+                        platformGemmaBaseUrl = it
+                        platformGemmaSettings.baseUrl = it
+                    },
+                    label = { Text("受邀 Gemma 服務網址") },
+                    placeholder = { Text("https://…workers.dev") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp)
+                )
+                OutlinedTextField(
+                    value = platformInvitationCode,
+                    onValueChange = { platformInvitationCode = it },
+                    label = { Text("一次性設備邀請碼") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                Button(
+                    onClick = {
+                        isRegisteringPlatformGemma = true
+                        scope.launch {
+                            runCatching { platformGemmaService.register(platformInvitationCode) }
+                                .onSuccess {
+                                    platformInvitationCode = ""
+                                    message = "此設備已登記受邀 Gemma。"
+                                }
+                                .onFailure { message = it.localizedMessage ?: "設備登記失敗。" }
+                            isRegisteringPlatformGemma = false
+                        }
+                    },
+                    enabled = !isRegisteringPlatformGemma && platformInvitationCode.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Text(if (isRegisteringPlatformGemma) "正在登記此設備…" else "登記受邀 Gemma")
+                }
+                Text(
+                    if (platformGemmaSettings.isRegistered) "此設備已儲存 Gemma 憑證" else "此設備尚未登記；自備 API Key 不受邀請限制",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 ParitySettingRow(
                     title = "固定總覽頁頂部區塊",
                     subtitle = "固定標題與日期篩選；關閉後會跟內容一起捲動",

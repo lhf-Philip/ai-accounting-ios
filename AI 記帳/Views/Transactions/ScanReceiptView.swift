@@ -17,6 +17,7 @@ struct ScanReceiptView: View {
     // 如果分析成功，跳轉到確認頁面
     @State private var scannedInfo: ReceiptInfo?
     @State private var navigateToConfirm = false
+    @AppStorage("ReceiptAIProvider") private var receiptAIProvider = ReceiptAIProvider.geminiBYOK.rawValue
     
     var body: some View {
         NavigationStack {
@@ -64,6 +65,14 @@ struct ScanReceiptView: View {
                         .textFieldStyle(.roundedBorder)
                 }
                 .padding(.horizontal)
+
+                Picker("辨識來源", selection: $receiptAIProvider) {
+                    ForEach(ReceiptAIProvider.allCases) { provider in
+                        Text(provider.title).tag(provider.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+                .padding(.horizontal)
                 
                 Spacer()
                 
@@ -88,7 +97,9 @@ struct ScanReceiptView: View {
                 .disabled(selectedImage == nil || isAnalyzing)
                 .padding()
                 
-                Text("使用 Gemini AI 免費版技術，圖片將上傳至 Google 處理")
+                Text(receiptAIProvider == ReceiptAIProvider.platformGemma.rawValue
+                     ? "圖片會送至受邀的 Gemma 服務；用量按此設備記錄。"
+                     : "圖片會使用你自己的 Gemini API Key 傳送至 Google。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -126,11 +137,16 @@ struct ScanReceiptView: View {
         Task {
             do {
                 let categoryNames = categories.map(\.name)
-                let result = try await GeminiService.shared.analyzeReceipt(
-                    image: image,
-                    userNote: userNote,
-                    categoryCandidates: categoryNames
-                )
+                let result: ReceiptInfo
+                if receiptAIProvider == ReceiptAIProvider.platformGemma.rawValue {
+                    result = try await PlatformGemmaService.shared.analyzeReceipt(
+                        image: image, userNote: userNote, categoryCandidates: categoryNames
+                    )
+                } else {
+                    result = try await GeminiService.shared.analyzeReceipt(
+                        image: image, userNote: userNote, categoryCandidates: categoryNames
+                    )
+                }
                 DispatchQueue.main.async {
                     self.scannedInfo = result
                     self.isAnalyzing = false
